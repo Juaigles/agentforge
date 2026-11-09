@@ -283,7 +283,7 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
                   <code class="faint">{{ t.name }}</code>
                 </div>
                 <div class="row" style="gap: 4px">
-                  <button class="btn btn-sm" type="button" :disabled="!t.enabled" :title="t.enabled ? 'Abrir el banco de pruebas' : 'Actívala para probarla'" @click="testing = t">
+                  <button class="btn btn-sm" type="button" :disabled="!t.enabled" :aria-label="`Probar ${t.title}`" :title="t.enabled ? undefined : 'Actívala para probarla'" @click="testing = t">
                     <Play /> Probar
                   </button>
                   <template v-if="t.source === 'custom' && t.customId">

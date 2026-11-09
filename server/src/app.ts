@@ -52,7 +52,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
       setHeaders(res, filePath) {
         // Los assets llevan hash en el nombre y son inmutables; index.html debe revalidarse siempre.
         const immutable = /[\\/]assets[\\/]/.test(filePath);
-        res.setHeader('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
+        res.header('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
       },
     });
   }

@@ -50,17 +50,25 @@ web/      Vue 3 + Vite + Pinia + Vue Router + Vue Flow
 ## Tareas
 
 - [x] T0 Inspección del entorno
-- [ ] T1 Base del monorepo, tipos compartidos, plantillas y validación de grafo
-- [ ] T2 Persistencia (SQLite + Store + cifrado de secretos)
-- [ ] T3 Adaptadores LLM (Ollama, OpenAI-compatible)
-- [ ] T4 Sistema de herramientas (integradas + HTTP personalizadas)
-- [ ] T5 Motor: agent-runner, workflow-engine, run-manager
-- [ ] T6 API REST + SSE + datos de ejemplo (seed)
-- [ ] T7 Tests del backend (unidad, protocolo, motor, API, persistencia)
-- [ ] T8 Verificación con modelo real (Ollama)
-- [ ] T9 Frontend: sistema de diseño, layout, API client, stores
-- [ ] T10 Vistas: Dashboard, Agentes (+playground), Workflows (constructor visual), Ejecuciones (monitor), Herramientas, Ajustes
-- [ ] T11 Verificación end-to-end en navegador + reinicio
-- [ ] T12 Revisión crítica, endurecimiento, documentación final
+- [x] T1 Base del monorepo, tipos compartidos, plantillas y validación de grafo
+- [x] T2 Persistencia (SQLite + Store + cifrado de secretos)
+- [x] T3 Adaptadores LLM (Ollama, OpenAI-compatible)
+- [x] T4 Sistema de herramientas (integradas + HTTP personalizadas)
+- [x] T5 Motor: agent-runner, workflow-engine, run-manager
+- [x] T6 API REST + SSE + datos de ejemplo (seed)
+- [x] T7 Tests del backend (unidad, protocolo, motor, API, persistencia)
+- [x] T8 Verificación con modelo real (Ollama)
+- [x] T9 Frontend: sistema de diseño, layout, API client, stores
+- [x] T10 Vistas: Dashboard, Agentes (+playground), Workflows (constructor visual), Ejecuciones (monitor), Herramientas, Ajustes
+- [x] T11 Verificación end-to-end en navegador + reinicio
+- [x] T12 Revisión crítica, endurecimiento, documentación final
 
-Prioridad: T1→T8 (núcleo verificable) antes que la interfaz; después T9→T11; T12 continuo.
+Prioridad seguida: T1→T8 (núcleo verificable) antes que la interfaz; después T9→T11; T12 continuo.
+
+Todas las tareas están completadas. Lo que queda fuera de alcance está en `PROGRESS.md` ("Pendiente y limitaciones").
+
+## Cómo retomar el trabajo
+
+1. `npm install && npm test` para confirmar que el entorno funciona.
+2. Leer `PROGRESS.md` (estado y limitaciones) y `git log --oneline` (hitos).
+3. El punto de entrada del servidor es `server/src/index.ts`; el del frontend, `web/src/main.ts`.
