@@ -1,0 +1,21 @@
+{
+  "name": "agentforge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Plataforma local para crear, gestionar y ejecutar sistemas de agentes de IA",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build -w web",
+    "start": "npm run start -w server",
+    "test": "npm run test -w server && npm run test -w web",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
