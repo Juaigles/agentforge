@@ -1,0 +1,116 @@
+/* Adaptación de Vue Flow al sistema de diseño (claro y oscuro). */
+.vue-flow {
+  --vf-node-bg: var(--surface);
+  --vf-node-text: var(--text);
+  --vf-connection-path: var(--accent);
+  --vf-handle: var(--border-strong);
+  background: var(--bg);
+}
+.vue-flow__node-af {
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 12px;
+  cursor: grab;
+}
+.vue-flow__node-af.dragging {
+  cursor: grabbing;
+}
+.vue-flow__edge-path {
+  stroke: var(--border-strong);
+  stroke-width: 1.6;
+}
+.vue-flow__edge.selected .vue-flow__edge-path,
+.vue-flow__edge:hover .vue-flow__edge-path {
+  stroke: var(--accent);
+  stroke-width: 2.2;
+}
+.vue-flow__edge.branch-true .vue-flow__edge-path {
+  stroke: var(--success);
+}
+.vue-flow__edge.branch-false .vue-flow__edge-path {
+  stroke: var(--danger);
+}
+.vue-flow__edge.flowing .vue-flow__edge-path {
+  stroke: var(--info);
+  stroke-width: 2;
+}
+.vue-flow__edge.dimmed .vue-flow__edge-path {
+  stroke-dasharray: 4 5;
+  opacity: 0.55;
+}
+.vue-flow__arrowhead polyline {
+  fill: var(--border-strong);
+  stroke: var(--border-strong);
+}
+.vue-flow__edge-textbg {
+  fill: var(--bg);
+}
+.vue-flow__edge-text {
+  fill: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+.vue-flow__handle {
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--surface);
+  background: var(--border-strong);
+  transition:
+    background 0.12s,
+    transform 0.12s;
+}
+.vue-flow__handle:hover,
+.vue-flow__handle.connecting,
+.vue-flow__handle.valid {
+  background: var(--accent);
+  transform: scale(1.35);
+}
+.vue-flow__handle-left:hover,
+.vue-flow__handle-left.valid {
+  transform: translate(-50%, -50%) scale(1.35);
+}
+.vue-flow__handle-right:hover,
+.vue-flow__handle-right.valid {
+  transform: translate(50%, -50%) scale(1.35);
+}
+.vue-flow__controls {
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.vue-flow__controls-button {
+  width: 28px;
+  height: 28px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+}
+.vue-flow__controls-button:hover {
+  background: var(--surface-2);
+}
+.vue-flow__controls-button svg {
+  fill: currentColor;
+}
+.vue-flow__minimap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.vue-flow__minimap-mask {
+  fill: color-mix(in srgb, var(--bg) 70%, transparent);
+}
+.vue-flow__minimap-node {
+  fill: var(--border-strong);
+  stroke: none;
+}
+.vue-flow__background pattern circle {
+  fill: var(--border-strong);
+}
+.vue-flow__selection,
+.vue-flow__nodesselection-rect {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px dashed var(--accent);
+}

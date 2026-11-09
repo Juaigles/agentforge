@@ -1,6 +1,7 @@
 // Gestor de ejecuciones: crea runs, los encola, limita la concurrencia global, permite cancelar
 // y publica los eventos (persistidos y transitorios) para la monitorización en tiempo real.
 import { EventEmitter } from 'node:events';
+import { topologicalOrder } from '../../../shared/graph';
 import {
   DEFAULT_WORKFLOW_SETTINGS,
   type Agent,
@@ -162,7 +163,11 @@ export class RunManager {
   }
 
   private stepsFor(def: WorkflowDefinition) {
-    return def.nodes.map((n) => ({
+    // Los pasos se guardan en orden de ejecución (topológico), no en el orden en que se dibujaron.
+    const order = topologicalOrder(def.nodes, def.edges);
+    const rank = new Map((order ?? []).map((id, i) => [id, i]));
+    const sorted = [...def.nodes].sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+    return sorted.map((n) => ({
       nodeId: n.id,
       nodeType: n.type,
       label: n.label || n.id,

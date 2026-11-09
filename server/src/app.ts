@@ -43,9 +43,24 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
 
   // En producción el servidor también sirve el frontend compilado (web/dist).
   const hasWeb = fs.existsSync(ctx.config.webDist);
-  if (hasWeb) await app.register(fastifyStatic, { root: ctx.config.webDist, wildcard: false });
+  if (hasWeb) {
+    // Los archivos se resuelven en cada petición (no solo los que existían al arrancar), para que
+    // recompilar el frontend no exija reiniciar el servidor.
+    await app.register(fastifyStatic, {
+      root: ctx.config.webDist,
+      cacheControl: false,
+      setHeaders(res, filePath) {
+        // Los assets llevan hash en el nombre y son inmutables; index.html debe revalidarse siempre.
+        const immutable = /[\\/]assets[\\/]/.test(filePath);
+        res.setHeader('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
+      },
+    });
+  }
   app.setNotFoundHandler((req, reply) => {
-    if (hasWeb && req.method === 'GET' && !req.url.startsWith('/api/')) return reply.sendFile('index.html');
+    const path = req.url.split('?')[0];
+    // Rutas de la SPA: cualquier GET que no sea de la API ni un archivo estático devuelve index.html.
+    const isAppRoute = req.method === 'GET' && !path.startsWith('/api/') && !path.startsWith('/assets/') && !/\.[a-z0-9]+$/i.test(path);
+    if (hasWeb && isAppRoute) return reply.header('Cache-Control', 'no-cache').sendFile('index.html');
     return reply.status(404).send({ error: 'Ruta no encontrada.' });
   });
 
