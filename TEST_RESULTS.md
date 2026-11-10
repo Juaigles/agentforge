@@ -6,12 +6,12 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 ## 1. Tests automatizados
 
 Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
-Resultados del 2026-11-10 tras el nodo «para cada» (punto 4.5, a medias):
+Resultados finales del 2026-11-10 (tras el punto 4.5):
 
 ```
-servidor     Test Files  9 passed (9)     Tests  188 passed (188)
-frontend     Test Files  6 passed (6)     Tests   36 passed (36)
-end-to-end   38 passed (1.3m)   (tras 4.1, con 21 tests: repetida dos veces seguidas, 42 passed, sin intermitencias)
+servidor     Test Files  10 passed (10)   Tests  203 passed (203)
+frontend     Test Files  7 passed (7)     Tests   40 passed (40)
+end-to-end   43 passed (2.4m)   (tras 4.1, con 21 tests: repetida dos veces seguidas, 42 passed, sin intermitencias)
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
 npm audit    found 0 vulnerabilities
 ```
@@ -24,15 +24,18 @@ npm audit    found 0 vulnerabilities
 | `server/test/engine.test.ts` | Secuencia, paralelismo, uniones, condiciones, reintentos, políticas de error, timeouts, límites, cancelación, delegación, memoria compartida, eventos, instantáneas, reintento desde el fallo | Solo el proveedor LLM (frontera `LlmFactory`) |
 | `server/test/api.test.ts` | API HTTP, SSE (historial + directo + `Last-Event-ID`), cifrado de claves, **persistencia tras reinicio** en disco, ejecuciones interrumpidas, datos de ejemplo | Solo el proveedor LLM |
 | `server/test/hardening.test.ts` | **SSRF**: direcciones privadas en todas sus notaciones, rechazo sin conectar, **rebinding** (dos servidores reales en 127.0.0.1/127.0.0.2 y un DNS que cambia), redirecciones, compresión, límites y cancelación. **Sandbox**: sin `require`/`process`/`eval`, bucles y memoria acotados, promesas, y segunda capa (el proceso no puede leer, escribir, lanzar programas ni crear workers). **Retención**: por antigüedad y por número, con pasos y eventos | La resolución DNS se inyecta como función (seam); los sockets y procesos son reales |
+| `server/test/foreach.test.ts` | Nodo «para cada»: interpretación de listas, concurrencia y orden, lista vacía, tope, fallo y reintento por elemento, cancelación, presupuesto de llamadas, herramientas en paralelo, validación | Solo el proveedor LLM |
+| `server/test/schedule-import.test.ts` | Programación (cálculo de citas, alta/validación, disparo, apagado largo, sin solapes, workflow roto, «ejecutar ahora», reinicio, temporizador real) y exportar/importar (contenido, alta de agentes, reutilización, avisos, archivos no válidos) | Solo el proveedor LLM; el reloj se pasa como argumento a `tick()` |
 | `server/test/static.test.ts` | Servido del frontend: fallback de la SPA, caché, 404 de assets, archivos nuevos sin reiniciar | Ninguno |
 | `server/test/ollama.integration.test.ts` | **Modelo real**: chat nativo, adaptador OpenAI vía `/v1`, agente con herramienta por ambos adaptadores, workflow paralelo de 3 agentes | **Ninguno** (se omite si no hay Ollama) |
 | `web/src/lib/run-state.test.ts` | Reductor de eventos del monitor en vivo, emparejado de llamadas a herramientas, formato | Ninguno |
 | `web/src/lib/glossary.test.ts` | Coherencia del glosario: ids existentes, entradas usadas, términos fuera de botones/enlaces/código/títulos, definiciones aptas para tooltip | Ninguno (analiza las plantillas reales) |
+| `web/src/lib/transfer.test.ts` | Nombre del archivo exportado y descripción de la cadencia en lenguaje natural | Ninguno |
 | `web/src/components/Term.test.ts` | Tooltip del glosario: ratón, foco, Esc, clic fuera, scroll, dos toques en táctil, `aria-describedby` | `matchMedia` (jsdom no lo implementa) |
 | `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
 | `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
 | `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
-| `e2e/*.spec.ts` (38 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
+| `e2e/*.spec.ts` (43 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
 Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
 puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
@@ -59,6 +62,21 @@ puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de
 
 | Retención del historial | `settings.spec.ts`, `hardening.test.ts`, `api.test.ts` | Con máximo 2 quedan las dos más recientes y se sigue aplicando al terminar la siguiente; ajuste persistente |
 | Reanudar tras un apagado | `persistence.spec.ts`, `api.test.ts` | Tras matar el servidor aparece el aviso; «Reanudar» crea una ejecución que solo llama al modelo para el paso inacabado; «Descartar» lo retira; aparece sin recargar; migración v1→v2 |
+
+| Nodo «para cada» | `workflow-builder.spec.ts`, `foreach.test.ts` | Configurado en el lienzo; lista de 6 con tope 5 → falla sin llamar al modelo; lista de 3 → 3 peticiones, una por elemento, y avance en vivo |
+| Exportar / importar | `automation.spec.ts`, `schedule-import.test.ts` | Se descarga el archivo real, se borran workflow y agente, se sube el archivo y el workflow importado se ejecuta; archivos no válidos rechazados sin crear nada |
+| Ejecución programada | `automation.spec.ts`, `schedule-import.test.ts` | Alta, pausa y baja desde la interfaz; «Ejecutar ahora»; y una ejecución que aparece sola al cumplirse **un minuto real** |
+
+Comprobado con el servidor real y Ollama tras 4.5:
+
+- **«Para cada»**: workflow tema → Investigador («3 ejemplos, uno por línea») → para cada → salida, con «frutas
+  tropicales». Resultado **Completado**, 4 llamadas al modelo; el nodo recibió `["Mango", "Piña", "Papaya"]` y
+  produjo un apartado por fruta. Nota honesta: dos de las tres descripciones salieron como «informe ejecutivo»
+  porque así lo ordenan las instrucciones del agente Redactor de ejemplo; es una cuestión del prompt, no del motor.
+- **Programación**: «Cálculo con herramientas y archivo» programado cada minuto con «¿Cuánto es 37 * 12 + 5?».
+  El temporizador lo lanzó solo: ejecución **Completado**, marcada `scheduled`, con 1 llamada real a `calculator`.
+- **Exportar/importar**: el workflow de ejemplo se exportó (9 nodos, 4 agentes) y se importó como «… (importado)»
+  reutilizando los 4 agentes, sin avisos ni errores de validación.
 
 Comprobado a mano con el servidor real y Ollama tras 4.4:
 
@@ -139,8 +157,10 @@ de una ejecución anterior al reinicio.
 - **Rebinding contra un DNS real**: el test inyecta la resolución; no se ha montado un servidor DNS ni se ha
   probado con un dominio de rebinding público.
 - **Retención con historiales grandes** (decenas de miles de ejecuciones): no medido el tiempo de borrado.
-- **Punto 4.5**: el nodo «para cada» no se ha probado con Ollama real; la programación y la importación/exportación
-  no tienen ningún test ni se han ejecutado nunca (solo compilan).
+- **Programación diaria a una hora**: probado el cálculo de la cita y su disparo adelantando el reloj; no se ha
+  esperado a una hora real ni se ha probado un cambio de hora (horario de verano).
+- **Importación entre dos instalaciones físicas distintas**: probada entre dos bases de datos distintas en los
+  tests, no entre dos equipos.
 - Navegadores distintos de Chromium (la suite e2e solo define el proyecto Chromium).
 - La suite e2e usa un modelo simulado: prueba la interfaz y el protocolo, no la calidad de las respuestas de
   un modelo real (eso lo cubren `ollama.integration.test.ts` y las comprobaciones manuales).

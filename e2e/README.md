@@ -44,9 +44,10 @@ para comprobar qué llegó de verdad al proveedor.
 | Archivo | Cobertura |
 |---|---|
 | `agents.spec.ts` | Alta de un agente desde la interfaz y ejecución en el banco de pruebas con herramienta; streaming y cancelación; cambios sin guardar, duplicar y eliminar; aviso de modelo sin herramientas |
-| `workflow-builder.spec.ts` | Construcción de un workflow desde cero en el lienzo (paleta, arrastre, conexiones a mano, rechazo de ciclos, inspector, validación), guardado, ejecución y monitor en vivo; ramas de una condición; bloqueo de la ejecución con errores |
+| `workflow-builder.spec.ts` | Construcción de un workflow desde cero en el lienzo (paleta, arrastre, conexiones a mano, rechazo de ciclos, inspector, validación), guardado, ejecución y monitor en vivo; ramas de una condición; nodo «para cada»; bloqueo de la ejecución con errores |
 | `runs.spec.ts` | Cancelar (monitor y lista), reintentar desde el fallo, repetir, política «continuar», historial con filtros y búsqueda, actualización en vivo de la lista, ejecución inexistente |
 | `persistence.spec.ts` | Datos y ejecuciones tras matar y relanzar el servidor; aviso para reanudar o descartar las ejecuciones interrumpidas; reconexión de una página abierta |
 | `tools.spec.ts` | Herramienta HTTP personalizada (alta, prueba, uso por un agente contra una API local, edición de valores permitidos y valor por defecto, desactivar, borrar); POST con cuerpo; nombres en conflicto; búsqueda y banco de pruebas; visor y borrado de archivos |
 | `settings.spec.ts` | Proveedores (alta con API key, modelos antes de guardar, edición sin reenviar la clave, quitar clave, activar/desactivar, borrado); concurrencia máxima; ejecución de código; redes privadas; retención del historial; eliminar ejecuciones terminadas |
+| `automation.spec.ts` | Exportar a un archivo e importarlo (descarga y subida reales, recreación de agentes, archivos no válidos, avisos); programar un workflow, ejecutarlo ahora, pausarlo y quitarlo; disparo por el temporizador real tras un minuto |
 | `layout.spec.ts` | Tema claro/oscuro/sistema y contraste; 14 rutas a 375 × 812 sin desbordamiento horizontal en ambos temas; navegación y glosario táctiles |

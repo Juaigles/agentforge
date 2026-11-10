@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Constructor visual de workflows: paleta → lienzo (Vue Flow) → inspector.
 import { ancestorsOf, slugifyNodeId, topologicalOrder, validateWorkflow } from '@shared/graph';
-import { DEFAULT_WORKFLOW_SETTINGS, type NodeType, type ValidationIssue, type WorkflowInput, type WorkflowSettings } from '@shared/types';
+import { DEFAULT_WORKFLOW_SETTINGS, type NodeType, type Schedule, type ValidationIssue, type WorkflowInput, type WorkflowSettings } from '@shared/types';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import { useVueFlow, VueFlow, type Connection, type Edge } from '@vue-flow/core';
@@ -9,9 +9,11 @@ import { MiniMap } from '@vue-flow/minimap';
 import {
   ArrowLeft,
   Bot,
+  CalendarClock,
   CircleAlert,
   CircleCheck,
   Copy,
+  Download,
   Flag,
   GitBranch,
   LogIn,
@@ -29,10 +31,12 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import AgentAvatar from '@/components/AgentAvatar.vue';
 import AppModal from '@/components/AppModal.vue';
 import FlowNode from '@/components/FlowNode.vue';
+import ScheduleModal from '@/components/ScheduleModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
 import { fromFlow, NODE_HINT, OPERATOR_LABEL, toFlowEdge, toFlowNode, type FlowNode as FlowNodeT, type FlowNodeData } from '@/lib/flow';
 import { NODE_LABEL } from '@/lib/format';
+import { describeSchedule, downloadJson, exportFileName } from '@/lib/transfer';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 
@@ -355,6 +359,31 @@ async function save(): Promise<boolean> {
   }
 }
 
+// ---------- Exportar y programar ----------
+const scheduleModal = ref(false);
+const schedule = ref<Schedule | null>(null);
+async function loadSchedule(): Promise<void> {
+  if (!workflowId.value) return;
+  try {
+    schedule.value = await api.workflows.schedule.get(workflowId.value);
+  } catch {
+    /* dato secundario */
+  }
+}
+onMounted(loadSchedule);
+
+async function exportWorkflow(): Promise<void> {
+  if (!workflowId.value) return;
+  try {
+    // Se exporta lo guardado: los cambios pendientes se guardan antes.
+    if (dirty.value && !(await save())) return;
+    downloadJson(exportFileName(meta.name), await api.workflows.export(workflowId.value));
+    ui.success('Workflow exportado.');
+  } catch (err) {
+    ui.error(errorText(err));
+  }
+}
+
 const runModal = ref(false);
 const runInput = ref('');
 const launching = ref(false);
@@ -411,6 +440,19 @@ onBeforeRouteLeave(async (to) => {
         <component :is="errors.length ? CircleAlert : warnings.length ? TriangleAlert : CircleCheck" />
         {{ errors.length ? `${errors.length} error${errors.length > 1 ? 'es' : ''}` : warnings.length ? `${warnings.length} aviso${warnings.length > 1 ? 's' : ''}` : 'Válido' }}
       </button>
+      <template v-if="workflowId && !loading && !loadError">
+        <button
+          class="btn"
+          :class="{ 'btn-icon': !schedule?.enabled }"
+          type="button"
+          aria-label="Programar"
+          :title="schedule?.enabled ? `Programado ${describeSchedule(schedule)}` : 'Programar ejecuciones automáticas'"
+          @click="scheduleModal = true"
+        >
+          <CalendarClock /><span v-if="schedule?.enabled" class="sched-text">{{ describeSchedule(schedule) }}</span>
+        </button>
+        <button class="btn btn-icon" type="button" aria-label="Exportar" title="Exportar a un archivo" @click="exportWorkflow"><Download /></button>
+      </template>
       <button class="btn" type="button" :disabled="saving || loading || (!dirty && !!workflowId)" @click="save"><Save /> {{ saving ? 'Guardando…' : 'Guardar' }}</button>
       <button class="btn btn-primary" type="button" :disabled="loading || !!loadError" @click="openRun"><Play /> Ejecutar</button>
     </header>
@@ -724,6 +766,15 @@ onBeforeRouteLeave(async (to) => {
       </aside>
     </div>
 
+    <ScheduleModal
+      v-if="scheduleModal && workflowId"
+      :workflow-id="workflowId"
+      :workflow-name="meta.name"
+      :default-input="String(inputNode?.data?.config.defaultValue ?? '')"
+      @close="scheduleModal = false"
+      @changed="schedule = $event"
+    />
+
     <AppModal v-if="runModal" title="Ejecutar workflow" @close="runModal = false">
       <div class="field">
         <label for="run-input">{{ inputNode?.data?.config.description || 'Entrada del workflow' }}</label>
@@ -754,6 +805,9 @@ onBeforeRouteLeave(async (to) => {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
+}
+.sched-text {
+  font-size: 12.5px;
 }
 .name {
   flex: 1 1 220px;

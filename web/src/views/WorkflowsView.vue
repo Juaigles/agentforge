@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { validateWorkflow } from '@shared/graph';
-import type { Workflow } from '@shared/types';
-import { Bot, CircleAlert, Copy, Pencil, Play, Plus, Trash2, Workflow as WorkflowIcon } from 'lucide-vue-next';
+import type { Schedule, Workflow } from '@shared/types';
+import { Bot, CalendarClock, CircleAlert, Copy, Download, Pencil, Play, Plus, Trash2, Upload, Workflow as WorkflowIcon } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import AgentAvatar from '@/components/AgentAvatar.vue';
 import AppModal from '@/components/AppModal.vue';
+import ScheduleModal from '@/components/ScheduleModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
 import { plural, relativeTime } from '@/lib/format';
+import { describeSchedule, downloadJson, exportFileName, readJsonFile } from '@/lib/transfer';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 
@@ -17,13 +19,57 @@ const ui = useUi();
 const router = useRouter();
 const error = ref<string | null>(null);
 
+const schedules = ref(new Map<string, Schedule>());
+async function loadSchedules(): Promise<void> {
+  try {
+    schedules.value = new Map((await api.schedules.list()).map((s) => [s.workflowId, s]));
+  } catch {
+    /* las programaciones son un dato secundario de la lista */
+  }
+}
+
 onMounted(async () => {
   try {
     await catalog.reload();
+    await loadSchedules();
   } catch (err) {
     error.value = errorText(err);
   }
 });
+
+// ---------- Exportar, importar y programar ----------
+const scheduling = ref<Workflow | null>(null);
+const fileInput = ref<HTMLInputElement | null>(null);
+const importing = ref(false);
+
+async function exportWorkflow(wf: Workflow): Promise<void> {
+  try {
+    downloadJson(exportFileName(wf.name), await api.workflows.export(wf.id));
+    ui.success(`«${wf.name}» exportado.`);
+  } catch (err) {
+    ui.error(errorText(err));
+  }
+}
+
+async function onImportFile(ev: Event): Promise<void> {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = ''; // permite volver a elegir el mismo archivo
+  if (!file) return;
+  importing.value = true;
+  try {
+    const result = await api.workflows.import(await readJsonFile(file));
+    await catalog.reload();
+    const created = result.createdAgents.length;
+    ui.success(`«${result.workflow.name}» importado${created ? ` con ${plural(created, 'agente nuevo', 'agentes nuevos')}` : ''}.`);
+    for (const warning of result.warnings) ui.info(warning);
+    await router.push(`/workflows/${result.workflow.id}`);
+  } catch (err) {
+    ui.error(errorText(err));
+  } finally {
+    importing.value = false;
+  }
+}
 
 const cards = computed(() =>
   catalog.workflows.map((wf) => {
@@ -99,7 +145,11 @@ async function remove(wf: Workflow): Promise<void> {
           <Term id="paralelo">en paralelo</Term> y cada <Term id="agente">agente</Term> recibe los resultados de los anteriores.
         </p>
       </div>
-      <RouterLink class="btn btn-primary" to="/workflows/new"><Plus /> Nuevo workflow</RouterLink>
+      <div class="row wrap">
+        <input ref="fileInput" class="sr-only" type="file" accept=".json,application/json" aria-label="Archivo de workflow a importar" tabindex="-1" @change="onImportFile" />
+        <button class="btn" type="button" :disabled="importing" title="Importar un workflow exportado (archivo .json)" @click="fileInput?.click()"><Upload /> {{ importing ? 'Importando…' : 'Importar' }}</button>
+        <RouterLink class="btn btn-primary" to="/workflows/new"><Plus /> Nuevo workflow</RouterLink>
+      </div>
     </header>
 
     <div v-if="error" class="callout danger" role="alert"><CircleAlert /> {{ error }}</div>
@@ -119,6 +169,9 @@ async function remove(wf: Workflow): Promise<void> {
           <div class="row wrap" style="gap: 6px">
             <span class="badge">{{ plural(wf.nodes.length, 'nodo', 'nodos') }}</span>
             <span class="badge"><Bot /> {{ plural(wf.nodes.filter((n) => n.type === 'agent' || n.type === 'foreach').length, 'paso de agente', 'pasos de agente') }}</span>
+            <span v-if="schedules.get(wf.id)" class="badge" :class="schedules.get(wf.id)!.enabled ? 'info' : ''" :title="schedules.get(wf.id)!.enabled ? 'Ejecución programada' : 'Programación en pausa'">
+              <CalendarClock /> {{ schedules.get(wf.id)!.enabled ? describeSchedule(schedules.get(wf.id)!) : 'programación en pausa' }}
+            </span>
             <span class="avatars">
               <AgentAvatar v-for="a in agents.slice(0, 5)" :key="a.id" :name="a.name" :color="a.color" :size="22" :title="a.name" />
             </span>
@@ -129,6 +182,8 @@ async function remove(wf: Workflow): Promise<void> {
             </button>
             <RouterLink class="btn btn-sm" :to="`/workflows/${wf.id}`"><Pencil /> Editar</RouterLink>
             <span class="grow" />
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Programar ${wf.name}`" title="Programar" @click="scheduling = wf"><CalendarClock /></button>
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Exportar ${wf.name}`" title="Exportar a un archivo" @click="exportWorkflow(wf)"><Download /></button>
             <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Duplicar ${wf.name}`" title="Duplicar" @click="duplicate(wf)"><Copy /></button>
             <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Eliminar ${wf.name}`" title="Eliminar" @click="remove(wf)"><Trash2 /></button>
           </footer>
@@ -137,12 +192,21 @@ async function remove(wf: Workflow): Promise<void> {
       <div v-else class="card empty">
         <WorkflowIcon />
         <h3>Todavía no tienes workflows</h3>
-        <p>Crea uno para coordinar varios agentes: arrastra nodos al lienzo y conéctalos.</p>
+        <p>Crea uno para coordinar varios agentes: arrastra nodos al lienzo y conéctalos. También puedes importar uno exportado.</p>
         <RouterLink class="btn btn-primary" to="/workflows/new"><Plus /> Crear workflow</RouterLink>
       </div>
     </template>
 
     <div v-else class="grid" aria-busy="true"><div v-for="i in 2" :key="i" class="card skeleton" style="height: 200px" /></div>
+
+    <ScheduleModal
+      v-if="scheduling"
+      :workflow-id="scheduling.id"
+      :workflow-name="scheduling.name"
+      :default-input="String(scheduling.nodes.find((n) => n.type === 'input')?.config?.defaultValue ?? '')"
+      @close="scheduling = null"
+      @changed="loadSchedules"
+    />
 
     <AppModal v-if="target" :title="`Ejecutar «${target.name}»`" @close="target = null">
       <div class="field">

@@ -82,6 +82,7 @@ async function startApp(): Promise<AppHandle> {
         AGENTFORGE_SEED: '1',
         AGENTFORGE_DEFAULT_MODEL: '',
         AGENTFORGE_LOG: '0',
+        AGENTFORGE_SCHEDULER_TICK_MS: '1000',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

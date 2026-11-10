@@ -175,6 +175,7 @@ async function clearFinished(): Promise<void> {
                   <span>
                     <strong>{{ run.name }}</strong>
                     <span v-if="run.retryOf" class="badge" style="margin-left: 6px; height: 18px">reintento</span>
+                    <span v-if="run.scheduled" class="badge info" style="margin-left: 6px; height: 18px" title="La lanzó la programación del workflow">programada</span>
                   </span>
                 </RouterLink>
               </td>

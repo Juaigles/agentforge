@@ -15,10 +15,14 @@ import type {
   RunKind,
   RunStatus,
   RunSummary,
+  Schedule,
+  ScheduleInput,
   Settings,
   ToolInfo,
   ValidationIssue,
   Workflow,
+  WorkflowExport,
+  WorkflowImportResult,
   WorkflowInput,
   WorkspaceFile,
 } from '@shared/types';
@@ -139,6 +143,18 @@ export const api = {
     duplicate: (id: string) => post<Workflow>(`/api/workflows/${id}/duplicate`),
     remove: (id: string) => del(`/api/workflows/${id}`),
     run: (id: string, input: string) => post<Run>(`/api/workflows/${id}/run`, { input }),
+    /** Archivo portable: la definición y los agentes que usa. */
+    export: (id: string) => get<WorkflowExport>(`/api/workflows/${id}/export`),
+    import: (bundle: unknown) => post<WorkflowImportResult>('/api/workflows/import', bundle),
+    schedule: {
+      get: (id: string) => get<Schedule | null>(`/api/workflows/${id}/schedule`),
+      save: (id: string, input: ScheduleInput) => put<Schedule>(`/api/workflows/${id}/schedule`, input),
+      remove: (id: string) => del(`/api/workflows/${id}/schedule`),
+      runNow: (id: string) => post<Run>(`/api/workflows/${id}/schedule/run`),
+    },
+  },
+  schedules: {
+    list: () => get<Schedule[]>('/api/schedules'),
   },
   runs: {
     list: (q: RunQuery = {}) => {

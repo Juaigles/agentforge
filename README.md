@@ -48,6 +48,7 @@ así que no toca `data/` ni necesita Ollama. Detalles en [e2e/README.md](e2e/REA
 | `AGENTFORGE_DEFAULT_MODEL` | (autodetectado) | Modelo de los agentes de ejemplo |
 | `AGENTFORGE_SEED` | `1` | `0` para no crear datos de ejemplo |
 | `AGENTFORGE_LOG` | `0` | `1` para activar el log de peticiones |
+| `AGENTFORGE_SCHEDULER_TICK_MS` | `5000` | Cada cuánto se comprueban las programaciones vencidas |
 | `AGENTFORGE_TEST_MODEL` | (autodetectado) | Modelo de los tests de integración |
 
 En *Ajustes → Datos* se configura la **retención del historial**: días que se conservan las ejecuciones
@@ -65,7 +66,10 @@ aplicación como recién instalada.
   instrucciones y herramientas; **banco de pruebas** con respuesta en streaming.
 - **Workflows**: constructor visual (Vue Flow) con paleta, inspector, plantillas `{{input}}`,
   `{{upstream}}`, `{{id_nodo}}`, validación en vivo (ciclos, referencias, agentes eliminados…).
-  Nodos: entrada, agente, herramienta, condición (ramas sí/no), transformación y salida.
+  Nodos: entrada, agente, herramienta, condición (ramas sí/no), **para cada** (repite una tarea con cada
+  elemento de una lista, varios a la vez), transformación y salida.
+- **Exportar e importar** workflows como archivos JSON (con los agentes que usan) y **ejecución programada**
+  (cada cierto tiempo o a una hora fija cada día).
 - **Motor**: ejecución del grafo con paralelismo y límite de concurrencia, dependencias, ramas
   condicionales, reintentos con backoff, timeout por nodo, duración máxima, límite de llamadas al modelo,
   política de error (detener/continuar), cancelación, cola global, delegación entre agentes y memoria
@@ -89,7 +93,7 @@ server/   Node + TypeScript (tsx) + Fastify 5 + node:sqlite
   src/crypto    cifrado AES-256-GCM de las API keys
   src/llm       adaptadores Ollama nativo y OpenAI-compatible (streaming + tool-calls)
   src/tools     registro, herramientas integradas, validación, protección SSRF, sandbox
-  src/engine    agent-runner, workflow-engine, run-manager
+  src/engine    agent-runner, workflow-engine, run-manager, scheduler
   src/routes    API REST + SSE
   test/         tests de unidad, protocolo, motor, API, persistencia e integración con Ollama
 web/      Vue 3 + Vite + Pinia + Vue Router + Vue Flow

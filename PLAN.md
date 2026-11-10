@@ -38,7 +38,7 @@ web/      Vue 3 + Vite + Pinia + Vue Router + Vue Flow
 
 ### Modelo de ejecución
 
-- Workflow = nodos (`input`, `agent`, `tool`, `condition`, `transform`, `output`) + aristas.
+- Workflow = nodos (`input`, `agent`, `tool`, `condition`, `transform`, `foreach`, `output`) + aristas.
 - Un nodo está listo cuando todos sus padres han terminado. Se ejecuta si al menos una arista entrante está activa
   y ningún padre ha fallado; si no, se marca `skipped` (rama no tomada o dependencia fallida).
 - Los nodos listos se lanzan en paralelo hasta `maxConcurrency`.
@@ -65,10 +65,16 @@ web/      Vue 3 + Vite + Pinia + Vue Router + Vue Flow
 
 Prioridad seguida: T1→T8 (núcleo verificable) antes que la interfaz; después T9→T11; T12 continuo.
 
+- [x] T13 Suite end-to-end (Playwright) y tests de componentes
+- [x] T14 Vistas de Herramientas/Ajustes ejercitadas y completadas
+- [x] T15 Glosario completo con test de coherencia
+- [x] T16 Robustez: retención, SSRF con IP fijada, reanudación, sandbox en proceso aparte
+- [x] T17 Nodo «para cada», exportar/importar y ejecución programada
+
 Todas las tareas están completadas. Lo que queda fuera de alcance está en `PROGRESS.md` ("Pendiente y limitaciones").
 
 ## Cómo retomar el trabajo
 
-1. `npm install && npm test` para confirmar que el entorno funciona.
+1. `npm install && npm test && npm run test:e2e` para confirmar que el entorno funciona.
 2. Leer `PROGRESS.md` (estado y limitaciones) y `git log --oneline` (hitos).
 3. El punto de entrada del servidor es `server/src/index.ts`; el del frontend, `web/src/main.ts`.

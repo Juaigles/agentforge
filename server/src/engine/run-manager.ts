@@ -188,7 +188,10 @@ export class RunManager {
     setImmediate(() => this.pump());
   }
 
+  private closed = false;
+
   private pump(): void {
+    if (this.closed) return;
     const max = Math.max(1, this.deps.store.getSettings().maxConcurrentRuns);
     while (this.active.size < max && this.queue.length) {
       const { runId, seeded } = this.queue.shift()!;
@@ -293,6 +296,8 @@ export class RunManager {
 
   /** Cancela todo y espera a que termine (apagado ordenado). */
   async shutdown(): Promise<void> {
+    // A partir de aquí no se arranca nada más (un pump pendiente no debe tocar una base de datos ya cerrada).
+    this.closed = true;
     for (const { runId } of [...this.queue]) this.cancel(runId);
     const pending = [...this.active.values()].map((a) => a.done);
     for (const entry of this.active.values()) entry.controller.abort(new Error('Servidor detenido.'));
