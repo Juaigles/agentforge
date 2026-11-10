@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Nodo de workflow para Vue Flow. Se usa en el constructor (editable) y en el monitor (con estado).
 import { Handle, Position } from '@vue-flow/core';
-import { Bot, Flag, GitBranch, LogIn, Shuffle, TriangleAlert, Wrench } from 'lucide-vue-next';
+import { Bot, Flag, GitBranch, LogIn, Repeat, Shuffle, TriangleAlert, Wrench } from 'lucide-vue-next';
 import { computed } from 'vue';
 import type { FlowNodeData } from '@/lib/flow';
 import { OPERATOR_LABEL } from '@/lib/flow';
@@ -12,17 +12,21 @@ import StatusBadge from './StatusBadge.vue';
 const props = defineProps<{ id: string; data: FlowNodeData; selected?: boolean }>();
 const catalog = useCatalog();
 
-const ICONS = { input: LogIn, agent: Bot, tool: Wrench, condition: GitBranch, transform: Shuffle, output: Flag };
-const TINT = { input: '#64748b', agent: '#c2410c', tool: '#0d9488', condition: '#d97706', transform: '#7c3aed', output: '#16a34a' };
+const ICONS = { input: LogIn, agent: Bot, tool: Wrench, condition: GitBranch, transform: Shuffle, foreach: Repeat, output: Flag };
+const TINT = { input: '#64748b', agent: '#c2410c', tool: '#0d9488', condition: '#d97706', transform: '#7c3aed', foreach: '#be185d', output: '#16a34a' };
 
-const agent = computed(() => (props.data.kind === 'agent' ? catalog.agentById.get(props.data.config.agentId) : undefined));
+const usesAgent = computed(() => props.data.kind === 'agent' || props.data.kind === 'foreach');
+const agent = computed(() => (usesAgent.value ? catalog.agentById.get(props.data.config.agentId) : undefined));
+const agentLabel = computed(() => props.data.agentName ?? agent.value?.name ?? (props.data.config.agentId ? 'Agente eliminado' : 'Sin agente asignado'));
 const tint = computed(() => (props.data.kind === 'agent' ? (props.data.agentColor ?? agent.value?.color ?? TINT.agent) : TINT[props.data.kind]));
 
 const subtitle = computed(() => {
   const c = props.data.config;
   switch (props.data.kind) {
     case 'agent':
-      return props.data.agentName ?? agent.value?.name ?? (c.agentId ? 'Agente eliminado' : 'Sin agente asignado');
+      return agentLabel.value;
+    case 'foreach':
+      return `Cada elemento → ${agentLabel.value}`;
     case 'tool':
       return c.tool || 'Sin herramienta asignada';
     case 'condition':

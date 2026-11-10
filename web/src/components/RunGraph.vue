@@ -19,7 +19,7 @@ onNodesInitialized(() => void fitView({ padding: 0.15, maxZoom: 1 }));
 
 const nodes = computed(() =>
   props.snapshot.workflow.nodes.map((n) => {
-    const agent = n.type === 'agent' ? props.snapshot.agents[n.config?.agentId] : undefined;
+    const agent = n.type === 'agent' || n.type === 'foreach' ? props.snapshot.agents[n.config?.agentId] : undefined;
     return toFlowNode(n, { status: props.live.steps[n.id]?.status ?? 'pending', agentName: agent?.name, agentColor: agent?.color });
   }),
 );

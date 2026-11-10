@@ -11,6 +11,7 @@ async function main(): Promise<void> {
 
   const app = await buildApp(ctx);
   await app.listen({ port: config.port, host: config.host });
+  ctx.scheduler.start(config.schedulerTickMs);
   console.log(`[agentforge] API en http://${config.host}:${config.port}  ·  datos en ${config.dataDir}`);
 
   let closing = false;

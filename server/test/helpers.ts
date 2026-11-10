@@ -32,6 +32,7 @@ export function testConfig(dataDir = tempDir()): AppConfig {
     seed: false,
     ollamaUrl: 'http://127.0.0.1:1',
     logger: false,
+    schedulerTickMs: 5000,
   };
 }
 

@@ -87,10 +87,10 @@ export class RunManager {
   }
 
   // ---------- Creación ----------
-  startWorkflowRun(workflow: Workflow, input: string): Run {
+  startWorkflowRun(workflow: Workflow, input: string, opts: { scheduled?: boolean } = {}): Run {
     const agents: Record<string, Agent> = {};
     for (const node of workflow.nodes) {
-      if (node.type !== 'agent') continue;
+      if (node.type !== 'agent' && node.type !== 'foreach') continue;
       const agent = this.deps.store.getAgent(node.config?.agentId);
       if (agent) agents[agent.id] = agent;
     }
@@ -101,6 +101,7 @@ export class RunManager {
       agentId: null,
       name: workflow.name,
       input,
+      scheduled: opts.scheduled,
       snapshot: { workflow: definition, agents },
       steps: this.stepsFor(definition),
     });
@@ -175,7 +176,7 @@ export class RunManager {
       nodeId: n.id,
       nodeType: n.type,
       label: n.label || n.id,
-      agentId: n.type === 'agent' ? (n.config?.agentId ?? null) : null,
+      agentId: n.type === 'agent' || n.type === 'foreach' ? (n.config?.agentId ?? null) : null,
     }));
   }
 

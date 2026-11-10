@@ -6,7 +6,9 @@ import type { AppConfig } from './config';
 import { SecretBox } from './crypto/secrets';
 import { openDatabase } from './db/database';
 import { Store } from './db/store';
+import { validateWorkflow } from '../../shared/graph';
 import { RunManager } from './engine/run-manager';
+import { Scheduler } from './engine/scheduler';
 import { defaultLlmFactory, type LlmFactory } from './llm';
 import { ToolRegistry } from './tools/registry';
 
@@ -17,6 +19,8 @@ export interface AppContext {
   tools: ToolRegistry;
   llm: LlmFactory;
   runs: RunManager;
+  /** Programación de workflows. El temporizador solo se arranca en el servidor real (index.ts). */
+  scheduler: Scheduler;
   startedAt: number;
   /** Ejecuciones que estaban a medias en el arranque y se han marcado como interrumpidas. */
   interruptedRuns: number;
@@ -63,6 +67,11 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
     }
   }, 3_600_000);
   retentionTimer.unref();
+  const scheduler = new Scheduler({
+    store,
+    runs,
+    validate: (wf) => validateWorkflow(wf, { agentIds: store.listAgents().map((a) => a.id), toolNames: tools.names() }),
+  });
   return {
     config,
     db,
@@ -70,11 +79,13 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
     tools,
     llm,
     runs,
+    scheduler,
     startedAt: Date.now(),
     interruptedRuns,
     applyRetention,
     async close() {
       clearInterval(retentionTimer);
+      scheduler.stop();
       await runs.shutdown();
       if (db.isOpen) db.close();
     },

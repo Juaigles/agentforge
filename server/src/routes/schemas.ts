@@ -102,7 +102,7 @@ export const customToolSchema = z.object({
 
 const nodeSchema = z.object({
   id: z.string().min(1).max(64),
-  type: z.enum(['input', 'agent', 'tool', 'condition', 'transform', 'output']),
+  type: z.enum(['input', 'agent', 'tool', 'condition', 'transform', 'foreach', 'output']),
   label: z.string().max(80).default(''),
   position: z.object({ x: z.number(), y: z.number() }),
   config: z.record(z.string(), z.unknown()).default({}),
@@ -129,6 +129,45 @@ export const workflowSchema = z.object({
   nodes: z.array(nodeSchema).max(100),
   edges: z.array(edgeSchema).max(400),
   settings: workflowSettingsSchema.default(DEFAULT_WORKFLOW_SETTINGS),
+});
+
+export const scheduleSchema = z
+  .object({
+    kind: z.enum(['interval', 'daily']),
+    intervalMinutes: z.number().int().min(1, 'El intervalo mínimo es 1 minuto').max(43_200, 'El intervalo máximo son 30 días').nullable().default(null),
+    time: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'La hora debe tener el formato HH:MM')
+      .nullable()
+      .default(null),
+    input: z.string().max(100_000).default(''),
+    enabled: z.boolean().default(true),
+  })
+  .superRefine((value, ctx) => {
+    if (value.kind === 'interval' && value.intervalMinutes === null) ctx.addIssue({ code: 'custom', path: ['intervalMinutes'], message: 'Indica cada cuántos minutos' });
+    if (value.kind === 'daily' && value.time === null) ctx.addIssue({ code: 'custom', path: ['time'], message: 'Indica la hora' });
+  });
+
+const exportedAgentSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(80),
+  role: z.string().max(160).default(''),
+  description: z.string().max(1000).default(''),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#6366f1'),
+  model: z.string().max(200).default(''),
+  systemPrompt: z.string().max(20_000).default(''),
+  temperature: z.number().min(0).max(2).default(0.7),
+  maxTokens: z.number().int().min(16).max(200_000).nullable().default(null),
+  maxIterations: z.number().int().min(1).max(30).default(8),
+  tools: z.array(z.string()).max(50).default([]),
+  thinking: z.boolean().default(false),
+});
+
+export const workflowImportSchema = z.object({
+  format: z.literal('agentforge.workflow', { message: 'El archivo no es un workflow exportado de AgentForge' }),
+  version: z.literal(1, { message: 'Versión de archivo no admitida' }),
+  workflow: workflowSchema,
+  agents: z.array(exportedAgentSchema).max(100).default([]),
 });
 
 export const runInputSchema = z.object({

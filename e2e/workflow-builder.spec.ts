@@ -193,6 +193,82 @@ test.describe('Constructor de workflows', () => {
     expect(saved.edges.some((e: any) => e.source === condNode.id && e.sourceHandle === 'false')).toBe(true);
   });
 
+  test('nodo «para cada»: se configura en el lienzo y procesa cada elemento de la lista', async ({ page, app }) => {
+    const agent = await app.createAgent({ name: unique('Catador'), systemPrompt: '[[ritmo:150]] [[palabras:12]]' });
+    await page.goto('/workflows/new');
+    await page.getByLabel('Nombre del workflow').fill(unique('Iterar'));
+    const palette = page.getByLabel('Paleta de nodos');
+    const inspector = page.getByLabel('Propiedades');
+
+    // Con la entrada seleccionada, el nodo nuevo queda conectado a ella.
+    await node(page, 'entrada').click();
+    await palette.getByRole('button', { name: 'Para cada' }).click();
+    await expect(inspector.getByRole('heading', { name: 'Para cada' })).toBeVisible();
+    const each = page.locator('.vue-flow__node:has(.flow-node.selected)');
+    await expect(each).toContainText('Cada elemento → Sin agente asignado');
+    await expect(page.locator('.check-badge')).toContainText('error');
+
+    await inspector.getByLabel('Agente').selectOption(agent.id);
+    await expect(each).toContainText(`Cada elemento → ${agent.name}`);
+    // La tarea se compone con las referencias propias del nodo.
+    const task = inspector.locator('#in-prompt');
+    await task.fill('Describe la fruta número ');
+    await task.press('End');
+    await inspector.getByRole('button', { name: '{{index}}' }).click();
+    await task.pressSequentially(': ');
+    await inspector.getByRole('button', { name: '{{item}}' }).click();
+    await expect(task).toHaveValue('Describe la fruta número {{index}}: {{item}}');
+    await inspector.getByLabel('A la vez').fill('2');
+    await inspector.getByLabel('Máx. elementos').fill('5');
+    // Un valor fuera de rango lo señala la validación.
+    await inspector.getByLabel('A la vez').fill('20');
+    await expect(inspector.locator('.callout.danger')).toContainText('debe estar entre 1 y 8');
+    await inspector.getByLabel('A la vez').fill('2');
+
+    await connect(page, each, node(page, 'salida'));
+    await expect(page.locator('.check-badge')).toHaveText(/Válido/);
+
+    // Demasiados elementos: el nodo falla con un mensaje claro y sin llamar al modelo.
+    const before = app.fake.chats.length;
+    await page.getByRole('button', { name: 'Ejecutar' }).click();
+    let dialog = page.getByRole('dialog', { name: 'Ejecutar workflow' });
+    await dialog.getByLabel('Entrada del workflow').fill('a\nb\nc\nd\ne\nf');
+    await dialog.getByRole('button', { name: 'Ejecutar' }).click();
+    await expect(page.locator('.page-header .badge').first()).toHaveText('Fallido');
+    await expect(page.getByRole('alert').first()).toContainText('recibió 6 elementos y su máximo es 5');
+    expect(app.fake.chats.length).toBe(before);
+
+    // Con una lista válida se procesa cada elemento y el monitor enseña el avance.
+    await page.getByRole('link', { name: 'Abrir workflow' }).click();
+    await page.getByRole('button', { name: 'Ejecutar' }).click();
+    dialog = page.getByRole('dialog', { name: 'Ejecutar workflow' });
+    await dialog.getByLabel('Entrada del workflow').fill('- manzana\n- pera\n- uva');
+    await dialog.getByRole('button', { name: 'Ejecutar' }).click();
+    await expect(page).toHaveURL(/\/runs\/run_/);
+    await expect(page.locator('.stream .output').first()).toContainText('de 3 elementos completados');
+    await expect(page.locator('.page-header .badge').first()).toHaveText('Completado', { timeout: 30_000 });
+    const output = page.locator('.panel .output');
+    await expect(output.getByRole('heading', { name: '1. manzana' })).toBeVisible();
+    await expect(output.getByRole('heading', { name: '3. uva' })).toBeVisible();
+    await expect(output.getByRole('heading', { name: '2. pera' })).toBeVisible();
+    await expect(output).toContainText('palabra-12');
+    expect(app.fake.chats.slice(before).map((c) => c.user).sort()).toEqual([
+      'Describe la fruta número 1: manzana',
+      'Describe la fruta número 2: pera',
+      'Describe la fruta número 3: uva',
+    ]);
+
+    // El paso muestra la lista que recibió y la actividad de cada elemento.
+    await page.getByLabel('Pasos').locator('.step').filter({ hasText: 'Para cada' }).click();
+    await page.getByRole('tab', { name: 'Entrada' }).click();
+    await expect(page.locator('.panel .codeblock')).toContainText('"manzana"');
+    await page.getByRole('tab', { name: /Actividad/ }).click();
+    const activity = page.locator('.panel .activity');
+    await expect(activity).toContainText('Elemento 1 de 3 iniciado');
+    await expect(activity).toContainText('Elemento 3 de 3 completado');
+    await expect(activity.locator('li.message')).toHaveCount(3);
+  });
+
   test('no deja ejecutar un workflow con errores y lleva al nodo que falla', async ({ page }) => {
     await page.goto('/workflows/new');
     await page.getByLabel('Paleta de nodos').getByRole('button', { name: 'Herramienta' }).click();

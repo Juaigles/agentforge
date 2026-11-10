@@ -4,6 +4,8 @@
 const REF_RE = /\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g;
 
 export const BUILTIN_REFS = new Set(['input', 'upstream', 'date']);
+/** Referencias que solo existen dentro de la tarea de un nodo «para cada». */
+export const FOREACH_REFS = new Set(['item', 'index', 'total']);
 
 /** Devuelve las referencias (sin duplicados) usadas en una plantilla. */
 export function extractRefs(template: string): string[] {
@@ -14,7 +16,7 @@ export function extractRefs(template: string): string[] {
 
 /** Id de nodo al que apunta una referencia, o null si es una referencia integrada. */
 export function refNodeId(ref: string): string | null {
-  if (BUILTIN_REFS.has(ref)) return null;
+  if (BUILTIN_REFS.has(ref) || FOREACH_REFS.has(ref)) return null;
   return ref.endsWith('.output') ? ref.slice(0, -'.output'.length) : ref;
 }
 

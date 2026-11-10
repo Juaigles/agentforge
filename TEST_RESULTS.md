@@ -6,12 +6,12 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 ## 1. Tests automatizados
 
 Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
-Resultados del 2026-11-10 tras el punto 4.4:
+Resultados del 2026-11-10 tras el nodo «para cada» (punto 4.5, a medias):
 
 ```
-servidor     Test Files  8 passed (8)     Tests  172 passed (172)
+servidor     Test Files  9 passed (9)     Tests  188 passed (188)
 frontend     Test Files  6 passed (6)     Tests   36 passed (36)
-end-to-end   37 passed (1.2m)   (tras 4.1, con 21 tests: repetida dos veces seguidas, 42 passed, sin intermitencias)
+end-to-end   38 passed (1.3m)   (tras 4.1, con 21 tests: repetida dos veces seguidas, 42 passed, sin intermitencias)
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
 npm audit    found 0 vulnerabilities
 ```
@@ -32,7 +32,7 @@ npm audit    found 0 vulnerabilities
 | `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
 | `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
 | `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
-| `e2e/*.spec.ts` (37 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
+| `e2e/*.spec.ts` (38 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
 Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
 puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
@@ -139,6 +139,8 @@ de una ejecución anterior al reinicio.
 - **Rebinding contra un DNS real**: el test inyecta la resolución; no se ha montado un servidor DNS ni se ha
   probado con un dominio de rebinding público.
 - **Retención con historiales grandes** (decenas de miles de ejecuciones): no medido el tiempo de borrado.
+- **Punto 4.5**: el nodo «para cada» no se ha probado con Ollama real; la programación y la importación/exportación
+  no tienen ningún test ni se han ejecutado nunca (solo compilan).
 - Navegadores distintos de Chromium (la suite e2e solo define el proyecto Chromium).
 - La suite e2e usa un modelo simulado: prueba la interfaz y el protocolo, no la calidad de las respuestas de
   un modelo real (eso lo cubren `ollama.integration.test.ts` y las comprobaciones manuales).

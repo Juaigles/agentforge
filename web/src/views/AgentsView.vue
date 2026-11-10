@@ -30,7 +30,7 @@ const filtered = computed(() => {
   return catalog.agents.filter((a) => [a.name, a.role, a.description, a.model].some((v) => v.toLowerCase().includes(q)));
 });
 
-const usedIn = (agent: Agent) => catalog.workflows.filter((w) => w.nodes.some((n) => n.type === 'agent' && n.config?.agentId === agent.id)).length;
+const usedIn = (agent: Agent) => catalog.workflows.filter((w) => w.nodes.some((n) => (n.type === 'agent' || n.type === 'foreach') && n.config?.agentId === agent.id)).length;
 const providerName = (agent: Agent) => catalog.providerById.get(agent.providerId)?.name ?? 'Proveedor eliminado';
 const providerMissing = (agent: Agent) => !catalog.providerById.has(agent.providerId);
 

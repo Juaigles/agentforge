@@ -16,6 +16,7 @@ import {
   GitBranch,
   LogIn,
   Play,
+  Repeat,
   Save,
   Settings2,
   Shuffle,
@@ -67,6 +68,7 @@ const PALETTE: Array<{ kind: NodeType; icon: typeof Bot }> = [
   { kind: 'input', icon: LogIn },
   { kind: 'tool', icon: Wrench },
   { kind: 'condition', icon: GitBranch },
+  { kind: 'foreach', icon: Repeat },
   { kind: 'transform', icon: Shuffle },
   { kind: 'output', icon: Flag },
 ];
@@ -118,6 +120,13 @@ const availableRefs = computed(() => {
   for (const n of def.nodes) {
     if (ancestors.has(n.id) && n.type !== 'input' && n.type !== 'condition') refs.push({ ref: n.id, hint: `Resultado de «${n.label || n.id}»` });
   }
+  if (selected.value.data?.kind === 'foreach') {
+    refs.unshift(
+      { ref: 'item', hint: 'El elemento de la lista que se está procesando' },
+      { ref: 'index', hint: 'Posición del elemento (empieza en 1)' },
+      { ref: 'total', hint: 'Número de elementos de la lista' },
+    );
+  }
   return refs;
 });
 
@@ -161,7 +170,9 @@ function addNode(kind: NodeType, position?: { x: number; y: number }, agentId?: 
         ? { tool: '', args: {} }
         : kind === 'condition'
           ? { left: '{{upstream}}', operator: 'contains', right: '' }
-          : kind === 'transform'
+          : kind === 'foreach'
+            ? { agentId: '', items: '{{upstream}}', prompt: 'Procesa este elemento:\n\n{{item}}', concurrency: 2 }
+            : kind === 'transform'
             ? { template: '{{upstream}}' }
             : kind === 'input'
               ? { description: '', defaultValue: '' }
@@ -264,7 +275,7 @@ function insertRef(refName: string): void {
     void nextTick(() => el.setSelectionRange(start + token.length, start + token.length));
     return;
   }
-  const main = data.kind === 'agent' ? 'prompt' : data.kind === 'condition' ? 'left' : 'template';
+  const main = data.kind === 'agent' || data.kind === 'foreach' ? 'prompt' : data.kind === 'condition' ? 'left' : 'template';
   if (data.kind === 'tool') return void navigator.clipboard?.writeText(token).then(() => ui.info(`${token} copiado al portapapeles.`));
   setTemplate(main, `${data.config[main] ?? ''}${token}`);
 }
@@ -300,7 +311,7 @@ function onAgentChange(): void {
   if (data && agent && (!data.label || data.label === NODE_LABEL.agent || catalog.agents.some((a) => a.name === data.label))) data.label = agent.name;
 }
 
-const optionalNumber = (key: 'retries' | 'timeoutMs', scale = 1) =>
+const optionalNumber = (key: 'retries' | 'timeoutMs' | 'concurrency' | 'maxItems', scale = 1) =>
   computed({
     get: () => {
       const v = selectedData.value?.config[key];
@@ -315,6 +326,8 @@ const optionalNumber = (key: 'retries' | 'timeoutMs', scale = 1) =>
   });
 const retriesText = optionalNumber('retries');
 const timeoutSecText = optionalNumber('timeoutMs', 1000);
+const concurrencyText = optionalNumber('concurrency');
+const maxItemsText = optionalNumber('maxItems');
 const durationMin = computed({
   get: () => Math.round(settings.maxDurationMs / 6000) / 10,
   set: (v: number) => (settings.maxDurationMs = Math.max(1000, Math.round((Number(v) || 1) * 60_000))),
@@ -518,6 +531,49 @@ onBeforeRouteLeave(async (to) => {
             </div>
           </template>
 
+          <!-- Para cada -->
+          <template v-else-if="selectedData.kind === 'foreach'">
+            <div class="field">
+              <label for="in-items">Lista a recorrer (<Term id="plantilla">plantilla</Term>)</label>
+              <textarea id="in-items" v-model="selectedData.config.items" data-tpl="items" class="textarea" rows="2" style="min-height: 34px" placeholder="Vacío = lo que llegue de los nodos conectados" />
+              <span class="hint">
+                Un elemento por línea (con o sin viñetas) o una lista <Term id="json">JSON</Term>. El nodo
+                <Term id="para-cada">«para cada»</Term> repite la tarea con cada uno.
+              </span>
+            </div>
+            <div class="field">
+              <label for="in-agent">Agente</label>
+              <select id="in-agent" v-model="selectedData.config.agentId" class="select">
+                <option value="" disabled>Selecciona…</option>
+                <option v-for="a in catalog.agents" :key="a.id" :value="a.id">{{ a.name }}{{ a.role ? ` — ${a.role}` : '' }}</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="in-prompt">Tarea para cada elemento</label>
+              <textarea id="in-prompt" v-model="selectedData.config.prompt" data-tpl="prompt" class="textarea" rows="6" placeholder="Qué debe hacer el agente con cada elemento…" />
+              <span class="hint">
+                <code v-text="'{{item}}'" /> es el elemento; <code v-text="'{{index}}'" /> y <code v-text="'{{total}}'" />, su posición y el total.
+              </span>
+            </div>
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr">
+              <div class="field">
+                <label for="in-conc">A la vez</label>
+                <input id="in-conc" v-model="concurrencyText" class="input" type="number" min="1" max="8" placeholder="2" />
+              </div>
+              <div class="field">
+                <label for="in-max">Máx. elementos</label>
+                <input id="in-max" v-model="maxItemsText" class="input" type="number" min="1" max="100" placeholder="20" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="in-format">Resultado</label>
+              <select id="in-format" class="select" :value="selectedData.config.format ?? 'sections'" @change="selectedData.config.format = ($event.target as HTMLSelectElement).value">
+                <option value="sections">Un apartado por elemento</option>
+                <option value="json">Lista JSON con los resultados</option>
+              </select>
+            </div>
+          </template>
+
           <!-- Herramienta -->
           <template v-else-if="selectedData.kind === 'tool'">
             <div class="field">
@@ -600,7 +656,7 @@ onBeforeRouteLeave(async (to) => {
             </div>
           </div>
 
-          <template v-if="selectedData.kind === 'agent' || selectedData.kind === 'tool'">
+          <template v-if="selectedData.kind === 'agent' || selectedData.kind === 'tool' || selectedData.kind === 'foreach'">
             <div class="form-grid" style="grid-template-columns: 1fr 1fr">
               <div class="field">
                 <label for="in-retries"><Term id="reintento">Reintentos</Term></label>

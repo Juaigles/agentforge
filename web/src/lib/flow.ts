@@ -60,6 +60,7 @@ export const NODE_HINT: Record<NodeType, string> = {
   tool: 'Ejecuta una herramienta sin pasar por un modelo',
   condition: 'Elige una rama según el resultado anterior',
   transform: 'Combina resultados con una plantilla',
+  foreach: 'Repite una tarea con cada elemento de una lista',
   output: 'El resultado final del workflow',
 };
 

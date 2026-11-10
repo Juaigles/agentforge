@@ -91,6 +91,7 @@ export const NODE_LABEL: Record<NodeType, string> = {
   tool: 'Herramienta',
   condition: 'Condición',
   transform: 'Transformación',
+  foreach: 'Para cada',
   output: 'Salida',
 };
 

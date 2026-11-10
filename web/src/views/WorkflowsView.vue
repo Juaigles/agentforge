@@ -27,7 +27,7 @@ onMounted(async () => {
 
 const cards = computed(() =>
   catalog.workflows.map((wf) => {
-    const agentIds = [...new Set(wf.nodes.filter((n) => n.type === 'agent').map((n) => String(n.config?.agentId)))];
+    const agentIds = [...new Set(wf.nodes.filter((n) => n.type === 'agent' || n.type === 'foreach').map((n) => String(n.config?.agentId)))];
     const issues = validateWorkflow(wf, { agentIds: catalog.agents.map((a) => a.id), toolNames: catalog.enabledToolNames });
     return {
       wf,
@@ -118,7 +118,7 @@ async function remove(wf: Workflow): Promise<void> {
           <p class="small muted desc">{{ wf.description || 'Sin descripción.' }}</p>
           <div class="row wrap" style="gap: 6px">
             <span class="badge">{{ plural(wf.nodes.length, 'nodo', 'nodos') }}</span>
-            <span class="badge"><Bot /> {{ plural(wf.nodes.filter((n) => n.type === 'agent').length, 'paso de agente', 'pasos de agente') }}</span>
+            <span class="badge"><Bot /> {{ plural(wf.nodes.filter((n) => n.type === 'agent' || n.type === 'foreach').length, 'paso de agente', 'pasos de agente') }}</span>
             <span class="avatars">
               <AgentAvatar v-for="a in agents.slice(0, 5)" :key="a.id" :name="a.name" :color="a.color" :size="22" :title="a.name" />
             </span>

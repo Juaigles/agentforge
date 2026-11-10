@@ -1,9 +1,11 @@
 // Planificador de workflows: ejecuta un DAG de nodos respetando dependencias, con paralelismo,
 // ramas condicionales, reintentos, timeouts, límites y cancelación.
 import { topologicalOrder } from '../../../shared/graph';
+import { parseList } from '../../../shared/list';
 import { renderTemplate } from '../../../shared/template';
 import {
   DEFAULT_WORKFLOW_SETTINGS,
+  FOREACH_DEFAULTS,
   ZERO_USAGE,
   type Run,
   type RunEventType,
@@ -200,9 +202,10 @@ export class WorkflowExecution {
 
   private async executeNode(node: WorkflowNode): Promise<void> {
     const { store, emit } = this.deps;
+    // En «para cada» los reintentos se aplican a cada elemento, no al nodo entero (ver runForeach).
     const retriable = node.type === 'agent' || node.type === 'tool';
     const retries = retriable ? Math.min(Math.max(Number(node.config?.retries ?? this.settings.defaultRetries) || 0, 0), 5) : 0;
-    const timeoutMs = retriable ? Number(node.config?.timeoutMs) || 0 : 0;
+    const timeoutMs = retriable || node.type === 'foreach' ? Number(node.config?.timeoutMs) || 0 : 0;
     const startedAt = nowIso();
     const startMs = Date.now();
     let stepUsage: Usage = { ...ZERO_USAGE };
@@ -338,6 +341,9 @@ export class WorkflowExecution {
       case 'transform':
         return this.render(String(cfg.template ?? ''), node);
 
+      case 'foreach':
+        return this.runForeach(node, signal, trackUsage);
+
       case 'output':
         return this.render(String(cfg.template || '{{upstream}}'), node);
 
@@ -346,9 +352,113 @@ export class WorkflowExecution {
     }
   }
 
+  /**
+   * Nodo «para cada»: ejecuta el agente una vez por elemento de la lista, con concurrencia limitada.
+   * Los reintentos se aplican por elemento; si uno falla definitivamente, se detienen los demás y falla el nodo.
+   */
+  private async runForeach(node: WorkflowNode, signal: AbortSignal, trackUsage: (u: Usage) => void): Promise<string> {
+    const cfg = node.config ?? {};
+    const { store, emit } = this.deps;
+    const name = node.label || node.id;
+    const agent = this.run.snapshot.agents[cfg.agentId];
+    if (!agent) throw new ConfigError(`El nodo "${name}" no tiene un agente válido.`);
+
+    const clamp = (value: unknown, fallback: number, max: number) => Math.min(Math.max(Math.round(Number(value) || fallback), 1), max);
+    const concurrency = clamp(cfg.concurrency, FOREACH_DEFAULTS.concurrency, FOREACH_DEFAULTS.maxConcurrency);
+    const maxItems = clamp(cfg.maxItems, FOREACH_DEFAULTS.maxItems, FOREACH_DEFAULTS.hardMaxItems);
+    const retries = Math.min(Math.max(Number(cfg.retries ?? this.settings.defaultRetries) || 0, 0), 5);
+
+    const items = parseList(this.render(String(cfg.items || '{{upstream}}'), node));
+    store.updateStep(this.run.id, node.id, { input: JSON.stringify(items, null, 2) });
+    if (items.length > maxItems) {
+      throw new ConfigError(`"${name}" recibió ${items.length} elementos y su máximo es ${maxItems}. Reduce la lista o sube el límite del nodo.`);
+    }
+    const total = items.length;
+    const results = new Array<string>(total);
+    const states = new Array<'pending' | 'running' | 'done'>(total).fill('pending');
+    // Resumen en vivo para el monitor (transitorio: no se guarda).
+    const progress = () => {
+      const done = states.filter((s) => s === 'done').length;
+      const lines = items.map((item, i) => `${states[i] === 'done' ? '✓' : states[i] === 'running' ? '⏳' : '·'} ${i + 1}. ${truncate(item, 80)}`);
+      emit('llm.snapshot', node.id, { text: `**${done} de ${total} elementos completados**\n\n${lines.join('  \n')}` }, true);
+    };
+
+    const siblings = new AbortController();
+    const itemSignal = AbortSignal.any([signal, siblings.signal]);
+    let failure: unknown = null;
+    let next = 0;
+
+    const runItem = async (index: number): Promise<void> => {
+      const item = items[index];
+      const prompt = this.render(String(cfg.prompt || '{{item}}'), node, { item, index: String(index + 1), total: String(total) });
+      if (!prompt.trim()) throw new ConfigError(`El nodo "${name}" generó una tarea vacía para el elemento ${index + 1}.`);
+      for (let attempt = 1; ; attempt++) {
+        states[index] = 'running';
+        emit('foreach.item', node.id, { index, total, item: truncate(item, 300), status: 'started', attempt });
+        progress();
+        const started = Date.now();
+        try {
+          const result = await runAgent(agent, prompt, {
+            store,
+            tools: this.deps.tools,
+            llm: this.deps.llm,
+            settings: this.deps.settings,
+            workspaceDir: this.deps.workspaceDir,
+            runId: this.run.id,
+            nodeId: node.id,
+            signal: itemSignal,
+            memory: this.memory,
+            budget: this.budget,
+            // La actividad de cada elemento se anida un nivel (como la de un agente delegado) y sus llamadas a
+            // herramientas se etiquetan con el índice, para que no se mezclen entre elementos en paralelo.
+            emit: (type, data, transient) =>
+              emit(type, node.id, { ...data, depth: (data.depth ?? 0) + 1, item: index, ...(data.id !== undefined ? { id: `${index}:${data.id}` } : {}) }, transient),
+            onUsage: trackUsage,
+          });
+          results[index] = result.output;
+          states[index] = 'done';
+          emit('foreach.item', node.id, { index, total, item: truncate(item, 300), status: 'completed', durationMs: Date.now() - started });
+          progress();
+          return;
+        } catch (err) {
+          if (itemSignal.aborted) throw err;
+          const message = errorMessage(err);
+          if (attempt <= retries && isRetryable(err)) {
+            const delayMs = (this.deps.retryBaseDelayMs ?? 1000) * 2 ** (attempt - 1);
+            emit('foreach.item', node.id, { index, total, item: truncate(item, 300), status: 'retry', attempt, error: message, delayMs });
+            await sleep(delayMs, itemSignal);
+            continue;
+          }
+          emit('foreach.item', node.id, { index, total, item: truncate(item, 300), status: 'failed', error: message });
+          throw new ConfigError(`Elemento ${index + 1} de ${total} («${truncate(item, 60)}»): ${message}`);
+        }
+      }
+    };
+
+    const worker = async (): Promise<void> => {
+      while (!itemSignal.aborted && next < total) {
+        const index = next++;
+        try {
+          await runItem(index);
+        } catch (err) {
+          failure ??= err;
+          siblings.abort(new Error('Otro elemento ha fallado.'));
+          return;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, total) }, worker));
+    if (signal.aborted) throw signal.reason ?? new Error('Cancelado');
+    if (failure) throw failure;
+
+    if (cfg.format === 'json') return JSON.stringify(results, null, 2);
+    return items.map((item, i) => `### ${i + 1}. ${truncate(item, 120)}\n\n${results[i]}`).join('\n\n');
+  }
+
   /** Sustituye las referencias {{...}} de una plantilla con los resultados disponibles. */
-  private render(template: string, node: WorkflowNode): string {
+  private render(template: string, node: WorkflowNode, extra: Record<string, string> = {}): string {
     return renderTemplate(template, (ref) => {
+      if (ref in extra) return extra[ref];
       if (ref === 'input') return this.run.input;
       if (ref === 'date') return new Date().toISOString().slice(0, 10);
       if (ref === 'upstream') return this.upstreamText(node);

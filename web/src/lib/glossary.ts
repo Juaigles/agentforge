@@ -118,6 +118,10 @@ export const GLOSSARY = {
     term: 'Compatible con OpenAI',
     definition: 'Servicio que habla el mismo «idioma» que la API de OpenAI (OpenRouter, Groq, LM Studio…), así que se conecta igual.',
   },
+  'para-cada': {
+    term: 'Para cada',
+    definition: 'Nodo que repite la misma tarea con cada elemento de una lista (varios a la vez) y reúne todos los resultados.',
+  },
   paralelo: {
     term: 'En paralelo',
     definition: 'Varios pasos que no dependen entre sí se ejecutan a la vez en lugar de uno detrás de otro, y el workflow termina antes.',

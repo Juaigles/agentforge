@@ -44,6 +44,7 @@ describe('FlowNode', () => {
     expect(handles(render({ kind: 'input', label: 'Entrada', config: {} }))).toEqual(['source']);
     expect(handles(render({ kind: 'agent', label: 'A', config: { agentId: 'agt_1' } }))).toEqual(['target', 'source']);
     expect(handles(render({ kind: 'output', label: 'Salida', config: {} }))).toEqual(['target']);
+    expect(handles(render({ kind: 'foreach', label: 'Cada', config: { agentId: 'agt_1' } }))).toEqual(['target', 'source']);
     // La condición tiene una salida por rama.
     const cond = render({ kind: 'condition', label: '¿Ok?', config: { operator: 'contains', right: 'SI' } });
     expect(handles(cond)).toEqual(['target', 'source:true', 'source:false']);
@@ -55,6 +56,8 @@ describe('FlowNode', () => {
     expect(sub({ kind: 'agent', label: 'A', config: { agentId: 'agt_1' } })).toBe('Investigador');
     expect(sub({ kind: 'agent', label: 'A', config: { agentId: '' } })).toBe('Sin agente asignado');
     expect(sub({ kind: 'agent', label: 'A', config: { agentId: 'agt_borrado' } })).toBe('Agente eliminado');
+    expect(sub({ kind: 'foreach', label: 'P', config: { agentId: 'agt_1' } })).toBe('Cada elemento → Investigador');
+    expect(sub({ kind: 'foreach', label: 'P', config: { agentId: '' } })).toBe('Cada elemento → Sin agente asignado');
     expect(sub({ kind: 'tool', label: 'T', config: { tool: 'file_write' } })).toBe('file_write');
     expect(sub({ kind: 'tool', label: 'T', config: { tool: '' } })).toBe('Sin herramienta asignada');
     expect(sub({ kind: 'condition', label: 'C', config: { operator: 'contains', right: 'APROBADO' } })).toBe('contiene «APROBADO»');

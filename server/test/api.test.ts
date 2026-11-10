@@ -644,11 +644,11 @@ describe('persistencia entre reinicios', () => {
 
     // Se devuelve el archivo al esquema v1 (sin la columna `interrupted` ni su índice).
     const raw = new DatabaseSync(path.join(dataDir, 'agentforge.db'));
-    raw.exec('DROP INDEX idx_runs_finished; ALTER TABLE runs DROP COLUMN interrupted; PRAGMA user_version = 1;');
+    raw.exec('DROP TABLE schedules; ALTER TABLE runs DROP COLUMN scheduled; DROP INDEX idx_runs_finished; ALTER TABLE runs DROP COLUMN interrupted; PRAGMA user_version = 1;');
     raw.close();
 
     await boot(undefined, dataDir);
-    expect((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(2);
+    expect((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(3);
     expect((await get(`/api/runs/${run.id}`)).json()).toMatchObject({ status: 'completed', output: 'eco(antes de migrar)', interrupted: false });
     expect((await get('/api/runs/interrupted')).json()).toEqual([]);
   });

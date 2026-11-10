@@ -12,6 +12,8 @@ export interface AppConfig {
   seed: boolean;
   ollamaUrl: string;
   logger: boolean;
+  /** Cada cuánto se comprueban las programaciones vencidas (ms). */
+  schedulerTickMs: number;
 }
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -28,5 +30,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     seed: env.AGENTFORGE_SEED !== '0',
     ollamaUrl: env.OLLAMA_URL ?? 'http://localhost:11434',
     logger: env.AGENTFORGE_LOG === '1',
+    schedulerTickMs: Math.max(250, Number(env.AGENTFORGE_SCHEDULER_TICK_MS ?? 5000) || 5000),
   };
 }

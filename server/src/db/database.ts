@@ -107,6 +107,23 @@ const MIGRATIONS: string[] = [
   ALTER TABLE runs ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0;
   CREATE INDEX idx_runs_finished ON runs(finished_at);
   `,
+  // v3: programación de workflows y marca de las ejecuciones que lanza.
+  `
+  CREATE TABLE schedules (
+    workflow_id TEXT PRIMARY KEY REFERENCES workflows(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    interval_minutes INTEGER,
+    time TEXT,
+    input TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    next_run_at TEXT,
+    last_run_at TEXT,
+    last_run_id TEXT,
+    last_error TEXT,
+    updated_at TEXT NOT NULL
+  );
+  ALTER TABLE runs ADD COLUMN scheduled INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /** Abre (o crea) la base de datos y aplica las migraciones pendientes. Usa ':memory:' en tests. */

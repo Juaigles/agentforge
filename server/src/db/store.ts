@@ -19,6 +19,8 @@ import {
   type RunStatus,
   type RunStep,
   type RunSummary,
+  type Schedule,
+  type ScheduleInput,
   type Settings,
   type StepStatus,
   type Usage,
@@ -85,7 +87,7 @@ const STEP_COLUMNS: Record<keyof StepPatch, string> = {
 };
 
 const RUN_SUMMARY_COLS =
-  'id, kind, workflow_id, agent_id, name, status, input, output, error, usage, retry_of, interrupted, created_at, started_at, finished_at';
+  'id, kind, workflow_id, agent_id, name, status, input, output, error, usage, retry_of, interrupted, scheduled, created_at, started_at, finished_at';
 
 function toSql(value: unknown): SQLInputValue {
   if (value === undefined || value === null) return null;
@@ -419,7 +421,62 @@ export class Store {
 
   /** Workflows que usan un agente en alguno de sus nodos. */
   workflowsUsingAgent(agentId: string): Workflow[] {
-    return this.listWorkflows().filter((w) => w.nodes.some((n) => n.type === 'agent' && n.config?.agentId === agentId));
+    return this.listWorkflows().filter((w) => w.nodes.some((n) => (n.type === 'agent' || n.type === 'foreach') && n.config?.agentId === agentId));
+  }
+
+  // ---------- Programaciones ----------
+  private mapSchedule(r: Row): Schedule {
+    return {
+      workflowId: r.workflow_id,
+      kind: r.kind,
+      intervalMinutes: r.interval_minutes ?? null,
+      time: r.time ?? null,
+      input: r.input,
+      enabled: Boolean(r.enabled),
+      nextRunAt: r.next_run_at ?? null,
+      lastRunAt: r.last_run_at ?? null,
+      lastRunId: r.last_run_id ?? null,
+      lastError: r.last_error ?? null,
+    };
+  }
+
+  listSchedules(): Schedule[] {
+    return this.all('SELECT * FROM schedules ORDER BY workflow_id').map((r) => this.mapSchedule(r));
+  }
+
+  getSchedule(workflowId: string): Schedule | null {
+    const r = this.get('SELECT * FROM schedules WHERE workflow_id = ?', workflowId);
+    return r ? this.mapSchedule(r) : null;
+  }
+
+  /** Crea o sustituye la programación de un workflow. */
+  saveSchedule(workflowId: string, input: ScheduleInput, nextRunAt: string | null): Schedule {
+    this.exec(
+      `INSERT INTO schedules (workflow_id, kind, interval_minutes, time, input, enabled, next_run_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT(workflow_id) DO UPDATE SET kind=excluded.kind, interval_minutes=excluded.interval_minutes, time=excluded.time,
+         input=excluded.input, enabled=excluded.enabled, next_run_at=excluded.next_run_at, last_error=NULL, updated_at=excluded.updated_at`,
+      workflowId,
+      input.kind,
+      input.kind === 'interval' ? input.intervalMinutes : null,
+      input.kind === 'daily' ? input.time : null,
+      input.input,
+      input.enabled,
+      nextRunAt,
+      nowIso(),
+    );
+    return this.getSchedule(workflowId)!;
+  }
+
+  updateScheduleState(workflowId: string, patch: Partial<Pick<Schedule, 'nextRunAt' | 'lastRunAt' | 'lastRunId' | 'lastError'>>): void {
+    const columns = { nextRunAt: 'next_run_at', lastRunAt: 'last_run_at', lastRunId: 'last_run_id', lastError: 'last_error' } as const;
+    const keys = Object.keys(patch) as Array<keyof typeof columns>;
+    if (!keys.length) return;
+    this.exec(`UPDATE schedules SET ${keys.map((k) => `${columns[k]} = ?`).join(', ')} WHERE workflow_id = ?`, ...keys.map((k) => patch[k]), workflowId);
+  }
+
+  deleteSchedule(workflowId: string): boolean {
+    return this.exec('DELETE FROM schedules WHERE workflow_id = ?', workflowId) > 0;
   }
 
   // ---------- Ejecuciones ----------
@@ -437,6 +494,7 @@ export class Store {
       usage: parseJson<Usage>(r.usage, { ...ZERO_USAGE }),
       retryOf: r.retry_of ?? null,
       interrupted: Boolean(r.interrupted),
+      scheduled: Boolean(r.scheduled),
       createdAt: r.created_at,
       startedAt: r.started_at ?? null,
       finishedAt: r.finished_at ?? null,
@@ -469,14 +527,15 @@ export class Store {
     input: string;
     snapshot: RunSnapshot;
     retryOf?: string | null;
+    scheduled?: boolean;
     steps: Array<{ nodeId: string; nodeType: NodeType; label: string; agentId: string | null }>;
   }): Run {
     const id = newId('run');
     const now = nowIso();
     this.transaction(() => {
       this.exec(
-        `INSERT INTO runs (id, kind, workflow_id, agent_id, name, status, input, snapshot, usage, retry_of, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO runs (id, kind, workflow_id, agent_id, name, status, input, snapshot, usage, retry_of, scheduled, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
         id,
         input.kind,
         input.workflowId,
@@ -487,6 +546,7 @@ export class Store {
         input.snapshot,
         ZERO_USAGE,
         input.retryOf ?? null,
+        Boolean(input.scheduled),
         now,
       );
       input.steps.forEach((s, i) => {

@@ -111,7 +111,7 @@ export interface CustomTool {
 export type CustomToolInput = Omit<CustomTool, 'id' | 'createdAt' | 'updatedAt'>;
 
 // ---------- Workflows ----------
-export type NodeType = 'input' | 'agent' | 'tool' | 'condition' | 'transform' | 'output';
+export type NodeType = 'input' | 'agent' | 'tool' | 'condition' | 'transform' | 'foreach' | 'output';
 
 export type ConditionOperator =
   | 'contains'
@@ -148,6 +148,24 @@ export interface ConditionNodeConfig {
 export interface TransformNodeConfig {
   template: string;
 }
+/** «Para cada»: ejecuta un agente una vez por cada elemento de una lista, con concurrencia limitada. */
+export interface ForeachNodeConfig {
+  agentId: string;
+  /** Plantilla que produce la lista (array JSON o un elemento por línea). Por defecto, {{upstream}}. */
+  items: string;
+  /** Tarea para cada elemento; admite {{item}}, {{index}} y {{total}} además de las referencias habituales. */
+  prompt: string;
+  /** Elementos procesados a la vez (1-8). */
+  concurrency?: number;
+  /** Tope de elementos admitidos (1-100); si la lista es mayor, el nodo falla. */
+  maxItems?: number;
+  /** 'sections' = un apartado por elemento; 'json' = array JSON con los resultados. */
+  format?: 'sections' | 'json';
+  retries?: number;
+  timeoutMs?: number;
+}
+export const FOREACH_DEFAULTS = { concurrency: 2, maxItems: 20, maxConcurrency: 8, hardMaxItems: 100 } as const;
+
 export interface OutputNodeConfig {
   template?: string;
 }
@@ -240,6 +258,8 @@ export interface RunSummary {
   retryOf: string | null;
   /** Quedó a medias por un apagado del servidor y aún no se ha reanudado ni descartado. */
   interrupted?: boolean;
+  /** La lanzó la programación del workflow, no una persona. */
+  scheduled?: boolean;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -281,6 +301,7 @@ export type RunEventType =
   | 'llm.snapshot'
   | 'tool.call'
   | 'tool.result'
+  | 'foreach.item'
   | 'log';
 
 export interface RunEvent {
@@ -313,6 +334,59 @@ export const DEFAULT_SETTINGS: Settings = {
   retentionDays: 0,
   retentionMaxRuns: 0,
 };
+
+// ---------- Programación ----------
+export type ScheduleKind = 'interval' | 'daily';
+
+/** Programación de un workflow: cada N minutos o todos los días a una hora (hora local del servidor). */
+export interface Schedule {
+  workflowId: string;
+  kind: ScheduleKind;
+  /** Solo en 'interval'. */
+  intervalMinutes: number | null;
+  /** Solo en 'daily': "HH:MM". */
+  time: string | null;
+  /** Texto de entrada con el que se lanza cada ejecución. */
+  input: string;
+  enabled: boolean;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastRunId: string | null;
+  /** Motivo por el que la última cita no llegó a lanzarse (workflow con errores, solape…). */
+  lastError: string | null;
+}
+
+export type ScheduleInput = Pick<Schedule, 'kind' | 'intervalMinutes' | 'time' | 'input' | 'enabled'>;
+
+// ---------- Exportación / importación ----------
+export const WORKFLOW_EXPORT_FORMAT = 'agentforge.workflow';
+
+/** Agente tal como viaja en un archivo exportado (sin el proveedor: se reasigna al importar). */
+export type ExportedAgent = Pick<
+  Agent,
+  'id' | 'name' | 'role' | 'description' | 'color' | 'model' | 'systemPrompt' | 'temperature' | 'maxTokens' | 'maxIterations' | 'tools' | 'thinking'
+>;
+
+export interface WorkflowExport {
+  format: typeof WORKFLOW_EXPORT_FORMAT;
+  version: 1;
+  exportedAt: string;
+  workflow: WorkflowInput;
+  /** Agentes que usan los nodos del workflow. */
+  agents: ExportedAgent[];
+}
+
+export interface WorkflowImportResult {
+  workflow: Workflow;
+  /** Agentes creados porque no existían (ni por id ni por nombre). */
+  createdAgents: Agent[];
+  /** Agentes del archivo que se han enlazado con uno ya existente. */
+  reusedAgents: Agent[];
+  /** Avisos de la importación (herramientas que no existen aquí, agentes sin proveedor…). */
+  warnings: string[];
+  /** Problemas de validación del workflow importado. */
+  issues: ValidationIssue[];
+}
 
 export interface ProviderHealth {
   providerId: string;

@@ -1,6 +1,7 @@
 // Utilidades de grafo para workflows: orden topológico, ancestros y validación semántica.
 import type { ValidationIssue, WorkflowEdge, WorkflowNode } from './types';
-import { extractRefs, refNodeId } from './template';
+import { extractRefs, FOREACH_REFS, refNodeId } from './template';
+import { FOREACH_DEFAULTS } from './types';
 
 /** Orden topológico (Kahn). Devuelve null si hay un ciclo. */
 export function topologicalOrder(nodes: WorkflowNode[], edges: WorkflowEdge[]): string[] | null {
@@ -48,6 +49,8 @@ export function nodeTemplates(node: WorkflowNode): string[] {
   switch (node.type) {
     case 'agent':
       return [String(c.prompt ?? '')];
+    case 'foreach':
+      return [String(c.items ?? ''), String(c.prompt ?? '')];
     case 'transform':
     case 'output':
       return [String(c.template ?? '')];
@@ -165,6 +168,24 @@ export function validateWorkflow(
       case 'transform':
         if (!String(c.template ?? '').trim()) err(`El nodo "${name}" no tiene plantilla.`, n.id);
         break;
+      case 'foreach': {
+        if (!c.agentId) err(`El nodo "${name}" no tiene agente asignado.`, n.id);
+        else if (!agentIds.has(c.agentId)) err(`El nodo "${name}" usa un agente que ya no existe.`, n.id);
+        const prompt = String(c.prompt ?? '');
+        if (!prompt.trim()) err(`El nodo "${name}" no tiene la tarea que se aplica a cada elemento.`, n.id);
+        else if (!extractRefs(prompt).includes('item')) {
+          warn(`La tarea de "${name}" no usa {{item}}: todos los elementos recibirán exactamente la misma tarea.`, n.id);
+        }
+        const items = String(c.items ?? '');
+        if (!items.trim() && !ins.length) err(`El nodo "${name}" no tiene de dónde sacar la lista: conéctalo o indica una plantilla.`, n.id);
+        if (extractRefs(items).some((r) => FOREACH_REFS.has(r))) {
+          err(`La lista de "${name}" no puede usar {{item}}, {{index}} ni {{total}}: solo existen dentro de la tarea.`, n.id);
+        }
+        const inRange = (value: unknown, max: number) => value === undefined || value === null || value === '' || (Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= max);
+        if (!inRange(c.concurrency, FOREACH_DEFAULTS.maxConcurrency)) err(`La concurrencia de "${name}" debe estar entre 1 y ${FOREACH_DEFAULTS.maxConcurrency}.`, n.id);
+        if (!inRange(c.maxItems, FOREACH_DEFAULTS.hardMaxItems)) err(`El máximo de elementos de "${name}" debe estar entre 1 y ${FOREACH_DEFAULTS.hardMaxItems}.`, n.id);
+        break;
+      }
       case 'output':
         if (outs.length) err(`El nodo de salida "${name}" no puede tener conexiones salientes.`, n.id);
         if (!ins.length) err(`El nodo de salida "${name}" necesita una conexión entrante.`, n.id);
@@ -182,6 +203,9 @@ export function validateWorkflow(
           if (ref === 'upstream' && !ins.length) {
             warn(`"${name}" usa {{upstream}} pero no tiene conexiones entrantes.`, n.id);
           }
+          if (FOREACH_REFS.has(ref) && n.type !== 'foreach') {
+            err(`"${name}" usa {{${ref}}}, que solo existe dentro de un nodo «para cada».`, n.id);
+          }
           continue;
         }
         if (!byId.has(target)) err(`"${name}" referencia un nodo inexistente: {{${ref}}}.`, n.id);
@@ -192,7 +216,7 @@ export function validateWorkflow(
     }
   }
 
-  if (!nodes.some((n) => n.type === 'agent' || n.type === 'tool')) {
+  if (!nodes.some((n) => n.type === 'agent' || n.type === 'tool' || n.type === 'foreach')) {
     warn('El workflow no contiene ningún agente ni herramienta.');
   }
   return issues;

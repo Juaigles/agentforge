@@ -116,11 +116,23 @@ Se trabaja punto por punto, sin pasar al siguiente hasta implementar, verificar 
   `--permission`, sin entorno heredado, con límite de memoria, de tiempo (también para promesas), de salida y de
   concurrencia (4). Admite código asíncrono. El README detalla lo que **no** es (ver «Seguridad»).
 
+### 4.5 Capacidades del motor — A MEDIAS (sesión interrumpida por límite de uso)
+
+- **Nodo «para cada» — HECHO y probado**: itera sobre una lista (JSON o un elemento por línea) con concurrencia
+  limitada, reintentos por elemento, tope de elementos, `{{item}}`/`{{index}}`/`{{total}}` y salida por apartados o
+  JSON. 16 tests del motor (`server/test/foreach.test.ts`), soporte en el constructor visual (paleta, inspector,
+  validación) y en el monitor, y 1 test e2e. **Falta verificarlo con el modelo real de Ollama.**
+- **Exportar/importar workflows y ejecución programada — SOLO SERVIDOR, SIN PROBAR**: están escritos el esquema
+  (migración v3), el almacén, `server/src/engine/scheduler.ts` y los endpoints (`/api/workflows/:id/export`,
+  `/api/workflows/import`, `/api/schedules`, `/api/workflows/:id/schedule[/run]`). Compilan y no rompen los tests
+  existentes, pero **no tienen tests propios, ni interfaz, ni verificación en navegador ni con Ollama**. No deben
+  darse por funcionales.
+
 ## Pendiente y limitaciones
 
 - **Sin autenticación ni multiusuario.** Pensado para uso local (escucha en 127.0.0.1).
-- **Los workflows son DAG**: no hay bucles ni iteración sobre listas («para cada elemento…»).
-- **Sin ejecución programada** (cron) ni disparadores externos (webhooks).
+- **Los workflows son DAG**: no hay bucles; la iteración sobre listas se hace con el nodo «para cada» (un solo agente por elemento, sin subflujos).
+- **Ejecución programada e importar/exportar**: solo el servidor, sin tests ni interfaz (ver 4.5). Sin webhooks.
 - **Sin MCP**: las herramientas son las integradas y las HTTP personalizadas.
 - **La retención viene desactivada** (0 = sin límite): hasta que se configure, el historial crece. Tras borrar no
   se compacta el archivo de la base de datos (`VACUUM`); SQLite reutiliza el espacio, pero el archivo no encoge.

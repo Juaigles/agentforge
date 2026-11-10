@@ -229,6 +229,14 @@ export function buildActivity(events: RunEvent[], nodeId?: string | null): Activ
       case 'step.reused':
         items.push({ ...base, kind: 'marker', tone: 'neutral', text: 'Resultado reutilizado de la ejecución anterior' });
         break;
+      case 'foreach.item': {
+        const which = `Elemento ${d.index + 1} de ${d.total}`;
+        if (d.status === 'started' && (d.attempt ?? 1) === 1) items.push({ ...base, kind: 'marker', tone: 'info', text: `${which} iniciado`, detail: d.item });
+        else if (d.status === 'completed') items.push({ ...base, kind: 'marker', tone: 'success', text: `${which} completado` });
+        else if (d.status === 'retry') items.push({ ...base, kind: 'marker', tone: 'warning', text: `${which}: error en el intento ${d.attempt}; se reintenta en ${d.delayMs} ms`, detail: d.error });
+        else if (d.status === 'failed') items.push({ ...base, kind: 'marker', tone: 'danger', text: `${which} fallido`, detail: d.error });
+        break;
+      }
       case 'llm.message':
         items.push({
           ...base,

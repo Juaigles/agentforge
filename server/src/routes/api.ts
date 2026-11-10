@@ -4,16 +4,21 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import { validateWorkflow } from '../../../shared/graph';
-import type {
-  DashboardStats,
-  ProviderHealth,
-  ProviderTestResult,
-  RunEvent,
-  RunKind,
-  RunStatus,
-  Workflow,
+import {
+  WORKFLOW_EXPORT_FORMAT,
+  type Agent,
+  type DashboardStats,
+  type ProviderHealth,
+  type ProviderTestResult,
+  type RunEvent,
+  type RunKind,
+  type RunStatus,
+  type Workflow,
+  type WorkflowExport,
+  type WorkflowImportResult,
 } from '../../../shared/types';
 import type { AppContext } from '../context';
+import { nextOccurrence } from '../engine/scheduler';
 import { HttpError } from '../errors';
 import type { LlmProviderConfig } from '../llm/types';
 import { listWorkspaceFiles, resolveInWorkspace } from '../tools/builtin';
@@ -25,6 +30,8 @@ import {
   providerSchema,
   retrySchema,
   runIdsSchema,
+  scheduleSchema,
+  workflowImportSchema,
   runInputSchema,
   settingsSchema,
   workflowSchema,
@@ -353,6 +360,101 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
   app.delete('/api/workflows/:id', async (req, reply) => {
     if (!store.deleteWorkflow(idOf(req))) notFound('Workflow');
     return reply.status(204).send();
+  });
+
+  // ---------- Exportación e importación ----------
+  /** Workflow como archivo portable: su definición más los agentes que usa (sin proveedor ni claves). */
+  app.get('/api/workflows/:id/export', async (req): Promise<WorkflowExport> => {
+    const { id: _id, createdAt: _c, updatedAt: _u, ...workflow } = store.getWorkflow(idOf(req)) ?? notFound('Workflow');
+    const agentIds = [...new Set(workflow.nodes.filter((n) => n.type === 'agent' || n.type === 'foreach').map((n) => String(n.config?.agentId ?? '')))];
+    const agents = agentIds
+      .map((id) => store.getAgent(id))
+      .filter((a): a is Agent => Boolean(a))
+      .map(({ providerId: _p, createdAt: _ca, updatedAt: _ua, ...agent }) => agent);
+    return { format: WORKFLOW_EXPORT_FORMAT, version: 1, exportedAt: new Date().toISOString(), workflow, agents };
+  });
+
+  /**
+   * Importa un workflow exportado. Cada agente del archivo se enlaza con uno existente (mismo id o mismo nombre)
+   * o se crea con el proveedor por defecto; los nodos pasan a apuntar al agente local.
+   */
+  app.post('/api/workflows/import', async (req, reply): Promise<WorkflowImportResult> => {
+    const bundle = workflowImportSchema.parse(req.body);
+    const warnings: string[] = [];
+    const createdAgents: Agent[] = [];
+    const reusedAgents: Agent[] = [];
+    const provider = store.listProviders().find((p) => p.enabled) ?? store.listProviders()[0];
+    const knownTools = new Set(tools.list().map((t) => t.name));
+    const existing = store.listAgents();
+    const mapping = new Map<string, string>();
+
+    for (const incoming of bundle.agents) {
+      const match = existing.find((a) => a.id === incoming.id) ?? existing.find((a) => a.name === incoming.name);
+      if (match) {
+        mapping.set(incoming.id, match.id);
+        if (!reusedAgents.includes(match)) reusedAgents.push(match);
+        continue;
+      }
+      if (!provider) {
+        warnings.push(`No se pudo crear el agente «${incoming.name}»: no hay ningún proveedor configurado.`);
+        continue;
+      }
+      const missingTools = incoming.tools.filter((t) => !knownTools.has(t));
+      if (missingTools.length) warnings.push(`El agente «${incoming.name}» usaba herramientas que no existen aquí: ${missingTools.join(', ')}.`);
+      const { id: _id, ...fields } = incoming;
+      const created = store.createAgent({
+        ...fields,
+        providerId: provider.id,
+        model: incoming.model || provider.defaultModel,
+        tools: incoming.tools.filter((t) => knownTools.has(t)),
+      });
+      if (!created.model) warnings.push(`El agente «${created.name}» no tiene modelo: asígnale uno antes de ejecutarlo.`);
+      mapping.set(incoming.id, created.id);
+      createdAgents.push(created);
+      existing.push(created);
+    }
+
+    const nodes = bundle.workflow.nodes.map((n) =>
+      (n.type === 'agent' || n.type === 'foreach') && mapping.has(String(n.config?.agentId))
+        ? { ...n, config: { ...n.config, agentId: mapping.get(String(n.config.agentId)) } }
+        : n,
+    );
+    const taken = new Set(store.listWorkflows().map((w) => w.name));
+    let name = bundle.workflow.name;
+    for (let i = 2; taken.has(name); i++) name = `${bundle.workflow.name} (importado${i > 2 ? ` ${i - 1}` : ''})`;
+    const workflow = store.createWorkflow({ ...bundle.workflow, name, nodes });
+    return reply.status(201).send({ workflow, createdAgents, reusedAgents, warnings, issues: workflowIssues(workflow) });
+  });
+
+  // ---------- Programación ----------
+  app.get('/api/schedules', async () => store.listSchedules());
+
+  app.get('/api/workflows/:id/schedule', async (req) => {
+    if (!store.getWorkflow(idOf(req))) notFound('Workflow');
+    return store.getSchedule(idOf(req));
+  });
+
+  app.put('/api/workflows/:id/schedule', async (req) => {
+    const workflow = store.getWorkflow(idOf(req)) ?? notFound('Workflow');
+    const input = scheduleSchema.parse(req.body);
+    // La siguiente cita se cuenta desde ahora; una programación desactivada no tiene cita.
+    const next = input.enabled ? nextOccurrence(input, new Date()).toISOString() : null;
+    return store.saveSchedule(workflow.id, input, next);
+  });
+
+  app.delete('/api/workflows/:id/schedule', async (req, reply) => {
+    if (!store.deleteSchedule(idOf(req))) notFound('Programación');
+    return reply.status(204).send();
+  });
+
+  /** Lanza ahora la programación, con su entrada guardada (para probarla sin esperar a la hora). */
+  app.post('/api/workflows/:id/schedule/run', async (req, reply) => {
+    const schedule = store.getSchedule(idOf(req)) ?? notFound('Programación');
+    try {
+      return reply.status(202).send(ctx.scheduler.runNow(schedule));
+    } catch (err) {
+      throw new HttpError(422, errorMessage(err));
+    }
   });
 
   app.post('/api/workflows/:id/run', async (req, reply) => {
