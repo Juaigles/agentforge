@@ -1,6 +1,6 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-09 (hito 3: producto completo verificado de extremo a extremo)._
+_Última actualización: 2026-11-10 (hito 4: endurecimiento punto por punto; ver «Hito 4» más abajo)._
 
 ## Estado real
 
@@ -40,6 +40,33 @@ _Última actualización: 2026-11-09 (hito 3: producto completo verificado de ext
 12. **Encuadre del grafo antes de medir los nodos** → `onNodesInitialized`.
 13. **Vulnerabilidades en `@fastify/static` ≤ 10.1.8 y dependencias de Vitest** → actualizadas.
 
+## Hito 4 — Endurecimiento hacia nivel comercial
+
+Se trabaja punto por punto, sin pasar al siguiente hasta implementar, verificar y documentar el actual.
+
+### 4.1 Interfaz con tests repetibles — HECHO
+
+- **Suite end-to-end con Playwright (Chromium)**: 21 tests en 5 archivos (`e2e/`), script `npm run test:e2e`.
+  Arranca el servidor de producción en un puerto libre con datos temporales y un servidor local que habla el
+  protocolo real de Ollama (NDJSON, streaming, tool-calls) y de OpenAI (SSE). Documentada en `e2e/README.md`.
+- **Tests de componentes** (Vitest + Vue Test Utils + jsdom): `Term.vue`, `RunActivity.vue`, `FlowNode.vue` y el
+  formulario de agentes (`AgentEditorView.vue`), este último contra la API real arrancada en el propio test.
+- **Defectos reales que la suite destapó y que se han corregido:**
+  14. **La página se desbordaba ~600 px en horizontal en móvil** en «Ejecuciones» en cuanto había filas: el
+      `.sr-only` de la cabecera de la tabla escapaba del contenedor con scroll. La comprobación manual anterior
+      («9 rutas sin desbordamiento») se hizo sin datos suficientes. → `.table-wrap` es ahora bloque contenedor.
+  15. **Escribir en «Tokens de salida máximos» lanzaba una excepción** (`v.trim is not a function`): Vue entrega
+      un número en los `<input type="number">`.
+  16. **En móvil los enlaces de navegación no tenían nombre accesible** (solo un icono) → `aria-label` y `title`.
+  17. **Un nodo añadido desde la paleta podía quedar fuera del lienzo visible** (debajo del inspector), sin forma
+      de conectarlo sin desplazar el lienzo → el lienzo se reencuadra si el nodo nuevo no se ve.
+  18. **Desde un nodo «Condición» el nodo siguiente no se conectaba** → ahora ocupa la primera rama libre.
+  19. **La calculadora devolvía ruido de coma flotante** (`2965.4680000000003`) → 12 cifras significativas.
+  20. **Al cancelar se perdía de la pantalla el texto que el modelo ya había generado** → se conserva en el
+      banco de pruebas y en el monitor (solo en la sesión abierta: el texto parcial no se persiste).
+  21. **Vulnerabilidades moderadas en dependencias transitivas** de `@vue/test-utils` (`glob`, `minimatch`) →
+      `overrides` en `package.json`; `npm audit` vuelve a dar 0.
+
 ## Pendiente y limitaciones
 
 - **Sin autenticación ni multiusuario.** Pensado para uso local (escucha en 127.0.0.1).
@@ -58,8 +85,9 @@ _Última actualización: 2026-11-09 (hito 3: producto completo verificado de ext
 - **El editor de herramientas HTTP no edita `enum` ni valores por defecto** de los parámetros (los conserva).
 - **Paralelismo real limitado por el proveedor**: Ollama atiende las peticiones a un mismo modelo según
   `OLLAMA_NUM_PARALLEL`; el motor las lanza en paralelo igualmente.
-- **Sin tests end-to-end automatizados del navegador** (Playwright): la interfaz se ha verificado a mano en
-  el navegador; la lógica de estado en vivo sí tiene tests unitarios.
+- **La suite e2e solo se ejecuta en Chromium** y con el modelo simulado; no hay CI configurado (se lanza a mano).
+- **El texto parcial de un paso cancelado no se persiste**: se ve en la sesión en la que se canceló, pero no al
+  volver a abrir la ejecución más tarde.
 - Las estadísticas diarias se agrupan por fecha UTC.
 
 ## Próximos pasos sugeridos
@@ -67,4 +95,4 @@ _Última actualización: 2026-11-09 (hito 3: producto completo verificado de ext
 1. Nodo «para cada» y subworkflows.
 2. Cliente MCP como tercera fuente de herramientas.
 3. Retención automática de eventos y exportación/importación de workflows en JSON.
-4. Tests end-to-end con Playwright en CI.
+4. Ejecutar la suite e2e en CI y en Firefox/WebKit.

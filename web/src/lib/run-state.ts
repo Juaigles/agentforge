@@ -111,8 +111,11 @@ export function applyEvent(state: RunLive, ev: RunEvent): void {
       step.error = d.error ?? null;
       if (d.usage) step.usage = d.usage;
       step.finishedAt = ev.ts;
-      step.streamText = '';
-      step.thinkingText = '';
+      // Un paso cancelado o fallido a medias no tiene salida: se conserva lo que ya se había generado en directo.
+      if (d.status === 'completed' || step.output !== null) {
+        step.streamText = '';
+        step.thinkingText = '';
+      }
       break;
     case 'step.skipped':
       if (!step) break;

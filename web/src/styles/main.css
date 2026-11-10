@@ -540,6 +540,9 @@ input[type='range'] {
 /* ---------- Tablas ---------- */
 .table-wrap {
   overflow-x: auto;
+  /* Bloque contenedor de los elementos absolutos de la tabla (p. ej. .sr-only): sin esto escapan al
+     recorte y ensanchan la página entera en pantallas estrechas. */
+  position: relative;
 }
 .table {
   width: 100%;

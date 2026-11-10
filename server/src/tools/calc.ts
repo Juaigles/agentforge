@@ -126,5 +126,6 @@ export function evaluateExpression(expr: string): number {
   const value = parseExpr();
   if (i < tokens.length) throw new ToolError(`Símbolo inesperado: ${String(tokens[i].value)}`);
   if (!Number.isFinite(value)) throw new ToolError('El resultado no es un número finito.');
-  return value;
+  // 12 cifras significativas: elimina el ruido binario de la coma flotante (2965.4680000000003 → 2965.468).
+  return Number(value.toPrecision(12));
 }

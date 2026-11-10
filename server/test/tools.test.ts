@@ -27,6 +27,13 @@ function ctx(overrides: Partial<ToolContext> = {}): ToolContext {
 }
 
 describe('calculadora', () => {
+  it('no arrastra ruido binario de coma flotante en el resultado', () => {
+    expect(evaluateExpression('2450.80 * 1.21')).toBe(2965.468);
+    expect(evaluateExpression('0.1 + 0.2')).toBe(0.3);
+    expect(evaluateExpression('1e21 + 1')).toBe(1e21);
+    expect(evaluateExpression('1 / 3')).toBe(0.333333333333);
+  });
+
   it.each([
     ['1 + 2 * 3', 7],
     ['(1 + 2) * 3', 9],

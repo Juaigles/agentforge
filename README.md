@@ -28,9 +28,14 @@ herramientas que tengas instalado).
 
 ```bash
 npm run dev        # API (recarga con tsx watch) + Vite en http://localhost:5173
-npm test           # tests del servidor (138) y del frontend (7)
-npm run typecheck  # tsc + vue-tsc
+npm test           # tests del servidor y del frontend (unidad, API y componentes)
+npm run test:e2e   # tests end-to-end en Chromium (Playwright) contra el servidor real
+npm run typecheck  # tsc + vue-tsc + tipos de la suite e2e
 ```
+
+La suite end-to-end necesita el navegador de Playwright (`npx playwright install chromium`, solo la primera
+vez). Arranca su propio servidor en un puerto libre con datos temporales y un modelo simulado determinista,
+así que no toca `data/` ni necesita Ollama. Detalles en [e2e/README.md](e2e/README.md).
 
 ### Configuración (variables de entorno)
 
@@ -81,8 +86,10 @@ server/   Node + TypeScript (tsx) + Fastify 5 + node:sqlite
   src/tools     registro, herramientas integradas, validación, protección SSRF, sandbox
   src/engine    agent-runner, workflow-engine, run-manager
   src/routes    API REST + SSE
-  test/         138 tests (unidad, protocolo, motor, API, persistencia, integración con Ollama)
+  test/         tests de unidad, protocolo, motor, API, persistencia e integración con Ollama
 web/      Vue 3 + Vite + Pinia + Vue Router + Vue Flow
+  src/**/*.test.ts   tests de lógica y de componentes (Vitest + Vue Test Utils, contra la API real)
+e2e/      Suite end-to-end (Playwright) y servidor que simula el protocolo de Ollama/OpenAI
 ```
 
 Decisiones y su porqué en [PLAN.md](PLAN.md); estado y problemas resueltos en [PROGRESS.md](PROGRESS.md);

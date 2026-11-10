@@ -41,7 +41,7 @@ const catalog = useCatalog();
 const ui = useUi();
 
 const flowId = `builder-${Math.random().toString(36).slice(2)}`;
-const { screenToFlowCoordinate, fitView, removeNodes, onNodesInitialized } = useVueFlow(flowId);
+const { screenToFlowCoordinate, viewport, fitView, removeNodes, onNodesInitialized } = useVueFlow(flowId);
 // Encuadre inicial: solo la primera vez que Vue Flow termina de medir los nodos.
 let framed = false;
 onNodesInitialized(() => {
@@ -179,10 +179,26 @@ function addNode(kind: NodeType, position?: { x: number; y: number }, agentId?: 
   }
   nodes.value = [...nodes.value, toFlowNode({ id, type: kind, label, position: pos, config })];
   const anchorKind = anchor?.data?.kind;
-  if (anchor && kind !== 'input' && anchorKind !== 'output' && anchorKind !== 'condition') {
-    onConnect({ source: anchor.id, target: id, sourceHandle: null, targetHandle: null });
+  if (anchor && kind !== 'input' && anchorKind !== 'output') {
+    // Desde una condición se usa la primera rama libre (sí y, si ya está ocupada, no).
+    const branch = anchorKind === 'condition' ? (['true', 'false'].find((h) => !edges.value.some((e) => e.source === anchor.id && e.sourceHandle === h)) ?? null) : null;
+    if (anchorKind !== 'condition' || branch) onConnect({ source: anchor.id, target: id, sourceHandle: branch, targetHandle: null });
   }
   selectedId.value = id;
+  void nextTick(() => ensureVisible(pos!));
+}
+
+/** Si un nodo recién añadido queda fuera de la parte visible del lienzo, se reencuadra el grafo. */
+function ensureVisible(pos: { x: number; y: number }): void {
+  const rect = canvas.value?.getBoundingClientRect();
+  if (!rect) return;
+  // Posición del nodo dentro del lienzo, en píxeles de pantalla (coordenada del grafo × zoom + desplazamiento).
+  const { x: dx, y: dy, zoom } = viewport.value;
+  const left = pos.x * zoom + dx;
+  const top = pos.y * zoom + dy;
+  const margin = 12;
+  const outside = left < margin || top < margin || left + 208 * zoom > rect.width - margin || top + 84 * zoom > rect.height - margin;
+  if (outside) void fitView({ padding: 0.2, maxZoom: 1, duration: 200 });
 }
 
 /** Desplaza hacia abajo una posición hasta que no pise a ningún nodo existente. */
@@ -422,7 +438,7 @@ onBeforeRouteLeave(async (to) => {
           <span class="pal-ico"><component :is="item.icon" /></span>
           <span class="truncate">{{ NODE_LABEL[item.kind] }}</span>
         </button>
-        <p class="tiny faint help">Con un nodo seleccionado, el siguiente que añadas se conecta a él. También puedes unir los puntos a mano. Supr borra el nodo o la conexión seleccionados.</p>
+        <p class="tiny faint help">Con un nodo seleccionado, el siguiente que añadas se conecta a él (desde una condición, a su primera rama libre). También puedes unir los puntos a mano. Supr borra el nodo o la conexión seleccionados.</p>
       </aside>
 
       <!-- Lienzo -->

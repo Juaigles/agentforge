@@ -111,7 +111,8 @@ const unknownTools = computed(() => form.tools.filter((t) => !catalog.toolByName
 
 const maxTokensText = computed({
   get: () => (form.maxTokens === null ? '' : String(form.maxTokens)),
-  set: (v: string) => (form.maxTokens = v.trim() === '' ? null : Math.max(16, Math.round(Number(v)) || 16)),
+  // Vue entrega un número (no un texto) en los <input type="number">.
+  set: (v: string | number) => (form.maxTokens = String(v).trim() === '' ? null : Math.max(16, Math.round(Number(v)) || 16)),
 });
 
 function validate(): boolean {

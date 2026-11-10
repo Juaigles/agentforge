@@ -1,18 +1,20 @@
 # AgentForge — Resultados de pruebas
 
 Todos los resultados proceden de ejecuciones reales en esta máquina
-(Windows 11, Node v24.19.0, Ollama 0.40.6, modelo `qwen3.5:4b-q4_K_M`), el 2026-11-09.
+(Windows 11, Node v24.19.0, Ollama 0.40.6, modelo `qwen3.5:4b-q4_K_M`), entre el 2026-11-09 y el 2026-11-10.
 
 ## 1. Tests automatizados
 
-Comando: `npm test` (Vitest 5).
+Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
+Resultados del 2026-11-10 tras el punto 4.1:
 
 ```
-servidor   Test Files  7 passed (7)     Tests  138 passed (138)
-frontend   Test Files  1 passed (1)     Tests    7 passed (7)
+servidor     Test Files  7 passed (7)     Tests  139 passed (139)
+frontend     Test Files  5 passed (5)     Tests   31 passed (31)
+end-to-end   21 passed (49.7s)  ·  repetida dos veces seguidas: 42 passed (1.6m), sin fallos intermitentes
+typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
+npm audit    found 0 vulnerabilities
 ```
-
-`npm run typecheck` (tsc + vue-tsc): sin errores. `npm audit`: 0 vulnerabilidades.
 
 | Archivo | Qué verifica | Dobles de prueba |
 |---|---|---|
@@ -24,8 +26,31 @@ frontend   Test Files  1 passed (1)     Tests    7 passed (7)
 | `server/test/static.test.ts` | Servido del frontend: fallback de la SPA, caché, 404 de assets, archivos nuevos sin reiniciar | Ninguno |
 | `server/test/ollama.integration.test.ts` | **Modelo real**: chat nativo, adaptador OpenAI vía `/v1`, agente con herramienta por ambos adaptadores, workflow paralelo de 3 agentes | **Ninguno** (se omite si no hay Ollama) |
 | `web/src/lib/run-state.test.ts` | Reductor de eventos del monitor en vivo, emparejado de llamadas a herramientas, formato | Ninguno |
+| `web/src/components/Term.test.ts` | Tooltip del glosario: ratón, foco, Esc, clic fuera, scroll, dos toques en táctil, `aria-describedby` | `matchMedia` (jsdom no lo implementa) |
+| `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
+| `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
+| `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
+| `e2e/*.spec.ts` (21 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
-Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`.
+Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
+puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
+
+### 1.1 Qué comprueba la suite end-to-end
+
+| Requisito | Test | Evidencia que exige |
+|---|---|---|
+| Crear agente y ejecutarlo en el banco de pruebas | `agents.spec.ts` | Alta por formulario; el modelo pide `calculator` y la respuesta muestra `"result": 2965.468`; el proveedor recibió las instrucciones y la herramienta |
+| Construir un workflow desde cero en el lienzo | `workflow-builder.spec.ts` | Nodos desde la paleta (clic y arrastre), conexiones arrastrando entre puntos, ciclo rechazado, validación «Válido», definición guardada idéntica a la construida |
+| Ejecutarlo y ver el monitor en vivo | `workflow-builder.spec.ts` | Estado «En curso», barra de progreso, texto en streaming, nodo `st-running` y luego los 4 `st-completed`; el segundo agente recibe la salida del primero |
+| Cancelar | `runs.spec.ts`, `agents.spec.ts` | «Cancelado» desde el monitor, la lista y el banco de pruebas; el paso siguiente nunca llega al modelo |
+| Reintentar desde el fallo | `runs.spec.ts` | La nueva ejecución hace **una** sola llamada al modelo (el paso fallido) y marca el otro como reutilizado |
+| Persistencia tras reiniciar | `persistence.spec.ts` | Se **mata** el proceso y se relanza: agente, workflow, ejecución, eventos y entrada intactos; la ejecución a medias queda «Fallido» por reinicio |
+| Historial con filtros | `runs.spec.ts` | Estado, tipo, búsqueda por nombre y por entrada, estado vacío, borrado |
+| Tema y vista móvil | `layout.spec.ts` | Tema persistente y contraste ≥ 7:1; 14 rutas × 2 temas a 375 px con `scrollWidth == clientWidth` en documento y área principal |
+
+Comprobado además a mano en el navegador con el modelo real (`qwen3.5:4b-q4_K_M`) tras los cambios de 4.1:
+agente «Calculista» → «El total de la factura es 2.965,47 euros», con `"result": 2965.468` en el resultado de la
+herramienta; cancelar un ensayo a los 5 s deja en pantalla los 2.143 caracteres ya generados; consola sin errores.
 
 ## 2. Verificación con modelo real por API (`scripts/smoke.mjs`)
 
@@ -81,7 +106,9 @@ de una ejecución anterior al reinicio.
 
 - Proveedores de pago reales (OpenAI, OpenRouter, Groq…): no se usan servicios de pago. El adaptador
   OpenAI-compatible sí está verificado contra el endpoint `/v1` de Ollama.
-- Tests end-to-end automatizados del navegador: las comprobaciones de la sección 3 se hicieron conduciendo
-  el navegador durante la sesión, no quedan como suite repetible.
-- Navegadores distintos de Chromium.
+- Navegadores distintos de Chromium (la suite e2e solo define el proyecto Chromium).
+- La suite e2e usa un modelo simulado: prueba la interfaz y el protocolo, no la calidad de las respuestas de
+  un modelo real (eso lo cubren `ollama.integration.test.ts` y las comprobaciones manuales).
+- El arrastre con ratón del lienzo se prueba con ratón sintético de Playwright; no se ha probado con pantalla
+  táctil real ni con trackpad.
 - Cargas altas (cientos de ejecuciones simultáneas o historiales de millones de eventos).

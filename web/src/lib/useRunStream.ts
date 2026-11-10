@@ -36,7 +36,16 @@ export function useRunStream(runId: Ref<string | null>) {
         }
         // Si el servidor ya la da por terminada, su versión es la definitiva.
         if (!isActiveStatus(fresh.status) && isActiveStatus(live.value.status)) {
-          live.value = reactive(fromRun(fresh, live.value.events)) as RunLive;
+          const next = fromRun(fresh, live.value.events);
+          // Un paso cancelado o fallido a medias no guarda salida: se conserva lo que ya se había visto en directo.
+          for (const [nodeId, step] of Object.entries(next.steps)) {
+            const seen = live.value.steps[nodeId];
+            if (seen && step.output === null) {
+              step.streamText = seen.streamText;
+              step.thinkingText = seen.thinkingText;
+            }
+          }
+          live.value = reactive(next) as RunLive;
           close();
         }
       } catch {

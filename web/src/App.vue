@@ -62,7 +62,7 @@ onMounted(async () => {
       </RouterLink>
 
       <nav aria-label="Principal">
-        <RouterLink v-for="item in NAV" :key="item.to" :to="item.to" class="nav-item" :class="{ exact: item.exact }">
+        <RouterLink v-for="item in NAV" :key="item.to" :to="item.to" class="nav-item" :class="{ exact: item.exact }" :aria-label="item.label" :title="item.label">
           <component :is="item.icon" aria-hidden="true" />
           <span>{{ item.label }}</span>
           <span v-if="item.to === '/runs' && runs.active.length" class="count" :title="`${runs.active.length} en curso`">{{ runs.active.length }}</span>
@@ -70,7 +70,7 @@ onMounted(async () => {
       </nav>
 
       <div class="sidebar-foot">
-        <RouterLink to="/glosario" class="nav-item subtle"><BookOpen aria-hidden="true" /><span>Glosario</span></RouterLink>
+        <RouterLink to="/glosario" class="nav-item subtle" aria-label="Glosario" title="Glosario"><BookOpen aria-hidden="true" /><span>Glosario</span></RouterLink>
         <RouterLink to="/settings" class="status" :title="providerStatus.text">
           <span class="dot" :class="[providerStatus.tone, { pulse: !providerStatus.tone && catalog.providers.length > 0 }]" />
           <span class="truncate">{{ providerStatus.text }}</span>
