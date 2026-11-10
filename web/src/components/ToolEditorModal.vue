@@ -17,7 +17,11 @@ interface ParamRow {
   type: JsonSchemaProp['type'];
   description: string;
   required: boolean;
-  /** Propiedades del esquema que este editor no muestra (enum, default…) y que se conservan al guardar. */
+  /** Valores permitidos (`enum`), separados por comas. Vacío = cualquier valor. */
+  enumText: string;
+  /** Valor por defecto tal como lo escribe el usuario. Vacío = sin valor por defecto. */
+  defaultText: string;
+  /** Propiedades del esquema que este editor no muestra (p. ej. `items`) y que se conservan al guardar. */
   extra: Partial<JsonSchemaProp>;
 }
 interface HeaderRow {
@@ -71,8 +75,17 @@ onMounted(async () => {
     form.headers = Object.entries(tool.headers ?? {}).map(([name, value]) => ({ key: nextKey++, name, value }));
     const required = new Set(tool.parameters.required ?? []);
     form.params = Object.entries(tool.parameters.properties ?? {}).map(([name, p]) => {
-      const { type, description, ...extra } = p;
-      return { key: nextKey++, name, type, description: description ?? '', required: required.has(name), extra };
+      const { type, description, enum: values, default: def, ...extra } = p;
+      return {
+        key: nextKey++,
+        name,
+        type,
+        description: description ?? '',
+        required: required.has(name),
+        enumText: (values ?? []).join(', '),
+        defaultText: def === undefined || def === null ? '' : typeof def === 'object' ? JSON.stringify(def) : String(def),
+        extra,
+      };
     });
   } catch (err) {
     loadError.value = errorText(err);
@@ -81,7 +94,72 @@ onMounted(async () => {
   }
 });
 
-const addParam = () => form.params.push({ key: nextKey++, name: '', type: 'string', description: '', required: true, extra: {} });
+const addParam = () =>
+  form.params.push({ key: nextKey++, name: '', type: 'string', description: '', required: true, enumText: '', defaultText: '', extra: {} });
+
+// ---------- Valores permitidos y valor por defecto ----------
+const isNumeric = (type: JsonSchemaProp['type']) => type === 'number' || type === 'integer';
+const supportsEnum = (type: JsonSchemaProp['type']) => type === 'string' || isNumeric(type);
+
+/** Interpreta un texto como valor del tipo indicado; lanza un mensaje legible si no encaja. */
+function parseValue(type: JsonSchemaProp['type'], text: string): unknown {
+  const raw = text.trim();
+  if (type === 'string') return raw;
+  if (isNumeric(type)) {
+    const n = Number(raw.replace(',', '.'));
+    if (raw === '' || !Number.isFinite(n)) throw new Error(`«${raw}» no es un número.`);
+    if (type === 'integer' && !Number.isInteger(n)) throw new Error(`«${raw}» no es un número entero.`);
+    return n;
+  }
+  if (type === 'boolean') {
+    if (raw !== 'true' && raw !== 'false') throw new Error('Debe ser sí o no.');
+    return raw === 'true';
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('No es JSON válido.');
+  }
+  const isArray = Array.isArray(parsed);
+  if (type === 'array' ? !isArray : typeof parsed !== 'object' || parsed === null || isArray) {
+    throw new Error(type === 'array' ? 'Debe ser una lista JSON: [ … ]' : 'Debe ser un objeto JSON: { … }');
+  }
+  return parsed;
+}
+
+interface Constraints {
+  enum?: Array<string | number>;
+  default?: unknown;
+  enumError?: string;
+  defaultError?: string;
+}
+
+/** `enum` y `default` de una fila, o el error que impide construirlos. */
+function constraints(row: ParamRow): Constraints {
+  const out: Constraints = {};
+  if (supportsEnum(row.type) && row.enumText.trim()) {
+    try {
+      const values = row.enumText
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .map((v) => parseValue(row.type, v) as string | number);
+      out.enum = [...new Set(values)];
+    } catch (err) {
+      out.enumError = `Valores permitidos: ${(err as Error).message}`;
+    }
+  }
+  if (row.defaultText.trim()) {
+    try {
+      out.default = parseValue(row.type, row.defaultText);
+      if (out.enum && !out.enum.includes(out.default as string | number)) out.defaultError = 'El valor por defecto debe ser uno de los valores permitidos.';
+    } catch (err) {
+      out.defaultError = `Valor por defecto: ${(err as Error).message}`;
+    }
+  }
+  return out;
+}
 const addHeader = () => form.headers.push({ key: nextKey++, name: '', value: '' });
 
 // ---------- Validación en vivo ----------
@@ -100,7 +178,9 @@ const urlError = computed(() => {
 function paramError(row: ParamRow): string {
   if (!row.name) return submitted.value ? 'Falta el nombre.' : '';
   if (!PARAM_RE.test(row.name)) return 'Solo letras, números y _.';
-  return form.params.some((p) => p !== row && p.name === row.name) ? 'Nombre repetido.' : '';
+  if (form.params.some((p) => p !== row && p.name === row.name)) return 'Nombre repetido.';
+  const c = constraints(row);
+  return c.enumError ?? c.defaultError ?? '';
 }
 /** Huecos {{x}} usados en las plantillas que no corresponden a ningún parámetro declarado. */
 const undeclared = computed(() => {
@@ -120,7 +200,14 @@ async function save(): Promise<void> {
   if (!valid.value || saving.value) return;
   const properties: Record<string, JsonSchemaProp> = {};
   for (const p of form.params) {
-    properties[p.name] = { ...p.extra, type: p.type, ...(p.description.trim() ? { description: p.description.trim() } : {}) };
+    const c = constraints(p);
+    properties[p.name] = {
+      ...p.extra,
+      type: p.type,
+      ...(p.description.trim() ? { description: p.description.trim() } : {}),
+      ...(c.enum?.length ? { enum: c.enum } : {}),
+      ...(c.default !== undefined ? { default: c.default } : {}),
+    };
   }
   const headers: Record<string, string> = {};
   for (const h of form.headers) if (h.name.trim()) headers[h.name.trim()] = h.value;
@@ -250,7 +337,8 @@ async function save(): Promise<void> {
       <fieldset class="group">
         <legend>Parámetros</legend>
         <p class="muted small">
-          Forman el <Term id="json-schema">esquema de parámetros</Term>: lo que el agente debe rellenar al llamar a la herramienta.
+          Forman el <Term id="json-schema">esquema de parámetros</Term>: lo que el agente debe rellenar al llamar a la herramienta. Con «valores
+          permitidos» solo puede elegir de esa lista; el «valor por defecto» se usa cuando no envía el parámetro.
         </p>
         <p v-if="!form.params.length" class="faint small">Esta herramienta no recibe parámetros.</p>
         <div v-for="(p, i) in form.params" :key="p.key" class="param-row">
@@ -270,6 +358,40 @@ async function save(): Promise<void> {
           </div>
           <label class="check req"><input v-model="p.required" type="checkbox" /><span class="small">Obligatorio</span></label>
           <button class="btn btn-ghost btn-icon" type="button" :aria-label="`Quitar el parámetro ${p.name || i + 1}`" @click="form.params.splice(i, 1)"><Trash2 /></button>
+          <div class="field penum">
+            <label :for="`te-pe-${p.key}`" class="tiny">Valores permitidos</label>
+            <input
+              :id="`te-pe-${p.key}`"
+              v-model="p.enumText"
+              class="input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              :disabled="!supportsEnum(p.type)"
+              :placeholder="supportsEnum(p.type) ? 'Cualquiera, o una lista: es, en, fr' : 'No aplica a este tipo'"
+              :aria-invalid="!!constraints(p).enumError"
+            />
+          </div>
+          <div class="field pdef">
+            <label :for="`te-pv-${p.key}`" class="tiny">Valor por defecto</label>
+            <select v-if="p.type === 'boolean'" :id="`te-pv-${p.key}`" v-model="p.defaultText" class="select">
+              <option value="">Sin valor por defecto</option>
+              <option value="true">Sí</option>
+              <option value="false">No</option>
+            </select>
+            <input
+              v-else
+              :id="`te-pv-${p.key}`"
+              v-model="p.defaultText"
+              class="input"
+              :class="{ mono: p.type === 'object' || p.type === 'array' }"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              :placeholder="p.type === 'object' ? '{ }' : p.type === 'array' ? '[ ]' : 'Sin valor por defecto'"
+              :aria-invalid="!!constraints(p).defaultError"
+            />
+          </div>
           <span v-if="paramError(p)" class="error small perr" role="alert">{{ paramError(p) }}</span>
         </div>
         <div><button class="btn btn-sm" type="button" @click="addParam"><Plus /> Añadir parámetro</button></div>
@@ -331,6 +453,12 @@ async function save(): Promise<void> {
   padding-bottom: 10px;
   border-bottom: 1px dashed var(--border);
 }
+.param-row .penum {
+  grid-column: 1 / 3;
+}
+.param-row .pdef {
+  grid-column: 3 / -1;
+}
 .param-row .req {
   align-items: center;
   height: 34px;
@@ -348,7 +476,9 @@ async function save(): Promise<void> {
   .param-row {
     grid-template-columns: minmax(0, 1fr) 104px;
   }
-  .param-row .desc {
+  .param-row .desc,
+  .param-row .penum,
+  .param-row .pdef {
     grid-column: 1 / -1;
   }
   .param-row .btn-icon {

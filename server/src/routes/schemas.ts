@@ -42,12 +42,48 @@ export const agentSchema = z.object({
   thinking: z.boolean().default(false),
 });
 
-const jsonSchemaProp = z.object({
-  type: z.enum(['string', 'number', 'integer', 'boolean', 'object', 'array']),
-  description: z.string().max(500).optional(),
-  enum: z.array(z.union([z.string(), z.number()])).optional(),
-  default: z.unknown().optional(),
-});
+/** ¿El valor es del tipo JSON Schema indicado? */
+function matchesType(type: string, value: unknown): boolean {
+  switch (type) {
+    case 'string':
+      return typeof value === 'string';
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value);
+    case 'integer':
+      return typeof value === 'number' && Number.isInteger(value);
+    case 'boolean':
+      return typeof value === 'boolean';
+    case 'array':
+      return Array.isArray(value);
+    default:
+      return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+}
+
+const jsonSchemaProp = z
+  .object({
+    type: z.enum(['string', 'number', 'integer', 'boolean', 'object', 'array']),
+    description: z.string().max(500).optional(),
+    enum: z.array(z.union([z.string(), z.number()])).min(1).max(100).optional(),
+    default: z.unknown().optional(),
+    items: z.object({ type: z.string() }).optional(),
+  })
+  .superRefine((prop, ctx) => {
+    if (prop.enum) {
+      if (!['string', 'number', 'integer'].includes(prop.type)) {
+        ctx.addIssue({ code: 'custom', path: ['enum'], message: 'Solo los parámetros de texto o numéricos admiten valores permitidos' });
+      } else if (!prop.enum.every((v) => matchesType(prop.type, v))) {
+        ctx.addIssue({ code: 'custom', path: ['enum'], message: 'Los valores permitidos deben ser del tipo del parámetro' });
+      }
+    }
+    if (prop.default !== undefined && prop.default !== null) {
+      if (!matchesType(prop.type, prop.default)) {
+        ctx.addIssue({ code: 'custom', path: ['default'], message: 'El valor por defecto debe ser del tipo del parámetro' });
+      } else if (prop.enum && !prop.enum.includes(prop.default as string | number)) {
+        ctx.addIssue({ code: 'custom', path: ['default'], message: 'El valor por defecto debe ser uno de los valores permitidos' });
+      }
+    }
+  });
 
 export const customToolSchema = z.object({
   name: z.string().regex(TOOL_NAME_RE, 'Usa minúsculas, números y guiones bajos (2-49 caracteres, empieza por letra)'),

@@ -131,6 +131,44 @@ describe('proveedores', () => {
       await fake.close();
     }
   });
+
+  it('lista los modelos de una configuración sin guardar, usando la clave guardada solo si no se envía otra', async () => {
+    const { defaultLlmFactory } = await import('../src/llm');
+    const fake = await startServer((req, res) => {
+      if (req.headers.authorization !== 'Bearer clave-buena') {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: { message: 'clave incorrecta' } }));
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'gpt-a' }, { id: 'gpt-b' }] }));
+    });
+    try {
+      await boot(defaultLlmFactory as never);
+      const config = { name: 'Remoto', kind: 'openai', baseUrl: `${fake.url}/v1` };
+
+      // Alta: todavía no hay nada guardado y se listan los modelos con la clave del formulario.
+      const unsaved = await post('/api/providers/models', { ...config, apiKey: 'clave-buena' });
+      expect(unsaved.statusCode).toBe(200);
+      expect(unsaved.json().map((m: { id: string }) => m.id)).toEqual(['gpt-a', 'gpt-b']);
+      expect((await get('/api/providers')).json()).toEqual([]); // no guarda nada
+      expect((await post('/api/providers/models', { ...config, apiKey: 'otra' })).statusCode).toBe(502);
+      expect((await post('/api/providers/models', config)).statusCode).toBe(502); // sin clave
+
+      // Edición: sin clave nueva se usa la guardada; una clave explícita (o null, «quitar clave») tiene prioridad.
+      const saved = (await post('/api/providers', { ...config, apiKey: 'clave-buena' })).json() as Provider;
+      expect((await post('/api/providers/models', { ...config, id: saved.id })).statusCode).toBe(200);
+      expect((await post('/api/providers/models', { ...config, id: saved.id, apiKey: 'otra' })).statusCode).toBe(502);
+      expect((await post('/api/providers/models', { ...config, id: saved.id, apiKey: null })).statusCode).toBe(502);
+      expect(fake.requests.at(-1)!.headers.authorization).toBeUndefined();
+
+      // Valida el cuerpo igual que el alta.
+      expect((await post('/api/providers/models', { ...config, baseUrl: 'no-es-url' })).statusCode).toBe(400);
+      // La respuesta nunca contiene la clave.
+      expect(unsaved.body).not.toContain('clave-buena');
+    } finally {
+      await fake.close();
+    }
+  });
 });
 
 describe('agentes', () => {
@@ -357,6 +395,55 @@ describe('herramientas, ajustes y espacio de trabajo', () => {
     await put(`/api/tools/custom/${created.json().id}`, { ...body, enabled: false });
     expect(ctx.tools.get('clima')).toBeUndefined();
     expect((await del(`/api/tools/custom/${created.json().id}`)).statusCode).toBe(204);
+  });
+
+  it('valida los valores permitidos y el valor por defecto de los parámetros, y los aplica al ejecutar', async () => {
+    const { defaultLlmFactory } = await import('../src/llm');
+    const api = await startServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ recibido: req.url }));
+    });
+    try {
+      await boot(defaultLlmFactory as never);
+      const tool = (props: Record<string, unknown>) => ({
+        name: 'traducir',
+        description: 'Traduce un texto a otro idioma',
+        parameters: { type: 'object', properties: props, required: ['texto'] },
+        urlTemplate: `${api.url}/t?q={{texto}}&lang={{idioma}}&n={{veces}}`,
+      });
+      const bad = async (props: Record<string, unknown>) => {
+        const res = await post('/api/tools/custom', tool({ texto: { type: 'string' }, ...props }));
+        expect(res.statusCode).toBe(400);
+        return res.json().error as string;
+      };
+      expect(await bad({ idioma: { type: 'string', enum: ['es', 3] } })).toMatch(/valores permitidos deben ser del tipo/);
+      expect(await bad({ idioma: { type: 'boolean', enum: ['si'] } })).toMatch(/Solo los parámetros de texto o numéricos/);
+      expect(await bad({ idioma: { type: 'string', enum: [] } })).toMatch(/Datos no válidos/);
+      expect(await bad({ idioma: { type: 'string', enum: ['es', 'en'], default: 'fr' } })).toMatch(/uno de los valores permitidos/);
+      expect(await bad({ veces: { type: 'integer', default: 1.5 } })).toMatch(/valor por defecto debe ser del tipo/);
+
+      const created = await post(
+        '/api/tools/custom',
+        tool({ texto: { type: 'string' }, idioma: { type: 'string', enum: ['es', 'en'], default: 'en' }, veces: { type: 'integer', default: 2 } }),
+      );
+      expect(created.statusCode).toBe(201);
+      expect(created.json().parameters.properties.idioma).toEqual({ type: 'string', enum: ['es', 'en'], default: 'en' });
+
+      await put('/api/settings', { allowPrivateNetwork: true });
+      // Sin los parámetros opcionales se aplican los valores por defecto…
+      const defaults = (await post('/api/tools/traducir/invoke', { args: { texto: 'hola mundo' } })).json();
+      expect(defaults.ok).toBe(true);
+      expect(api.requests.at(-1)!.url).toBe('/t?q=hola%20mundo&lang=en&n=2');
+      // …un valor permitido se respeta y uno que no lo es se rechaza sin llegar a la API.
+      await post('/api/tools/traducir/invoke', { args: { texto: 'x', idioma: 'es', veces: '5' } });
+      expect(api.requests.at(-1)!.url).toBe('/t?q=x&lang=es&n=5');
+      const before = api.requests.length;
+      const rejected = (await post('/api/tools/traducir/invoke', { args: { texto: 'x', idioma: 'fr' } })).json();
+      expect(rejected).toMatchObject({ ok: false, error: expect.stringContaining('"idioma" debe ser uno de: es, en') });
+      expect(api.requests.length).toBe(before);
+    } finally {
+      await api.close();
+    }
   });
 
   it('ejecuta herramientas desde el banco de pruebas y devuelve los errores sin romper', async () => {

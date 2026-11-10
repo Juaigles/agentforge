@@ -173,6 +173,16 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     return testProvider({ kind: input.kind, baseUrl: input.baseUrl, apiKey: input.apiKey === undefined ? saved?.apiKey : input.apiKey });
   });
 
+  /** Lista los modelos de una configuración sin guardarla (para elegir el modelo por defecto al dar de alta). */
+  app.post('/api/providers/models', async (req) => {
+    const body = req.body as { id?: string };
+    const input = providerSchema.parse(req.body);
+    const saved = body.id ? store.getProviderWithSecret(body.id) : null;
+    return ctx.llm
+      .create({ kind: input.kind, baseUrl: input.baseUrl, apiKey: input.apiKey === undefined ? saved?.apiKey : input.apiKey })
+      .listModels(AbortSignal.timeout(8000));
+  });
+
   app.put('/api/providers/:id', async (req) => {
     healthCache = null;
     return store.updateProvider(idOf(req), providerSchema.parse(req.body)) ?? notFound('Proveedor');

@@ -2,6 +2,7 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -55,6 +56,8 @@ function freePort(): Promise<number> {
     });
   });
 }
+
+const DEFAULT_SETTINGS = { maxConcurrentRuns: 3, allowPrivateNetwork: false, allowCodeExecution: false };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -208,6 +211,8 @@ export const test = base.extend<{ app: AppHandle }, { workerApp: AppHandle }>({
   app: async ({ workerApp }, use, testInfo) => {
     workerApp.fake.reset();
     await use(workerApp);
+    // Los ajustes son globales: se devuelven a sus valores por defecto para el siguiente test.
+    await workerApp.api('PUT', '/api/settings', DEFAULT_SETTINGS).catch(() => undefined);
     if (testInfo.status !== testInfo.expectedStatus) {
       await testInfo.attach('servidor.log', { body: workerApp.logs().slice(-20_000), contentType: 'text/plain' });
     }
@@ -232,6 +237,41 @@ export const test = base.extend<{ app: AppHandle }, { workerApp: AppHandle }>({
 });
 
 export { expect };
+
+export interface LocalApi {
+  url: string;
+  requests: Array<{ method: string; url: string; headers: http.IncomingHttpHeaders; body: string }>;
+  close(): Promise<void>;
+}
+
+/**
+ * API HTTP local de ejemplo (un «servicio interno» en 127.0.0.1) para las herramientas HTTP personalizadas.
+ * Devuelve en JSON lo que recibe, de modo que el test puede comprobar la petición real.
+ */
+export async function startLocalApi(): Promise<LocalApi> {
+  const requests: LocalApi['requests'] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      requests.push({ method: req.method ?? '', url: req.url ?? '', headers: req.headers, body });
+      const url = new URL(req.url ?? '/', 'http://local');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ producto: url.searchParams.get('producto'), almacen: url.searchParams.get('almacen'), unidades: 42 }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as net.AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    requests,
+    close: () =>
+      new Promise((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}
 
 /** Nombre único por test, para que los tests no dependan del orden ni de datos de otros. */
 export const unique = (prefix: string) => `${prefix} ${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;

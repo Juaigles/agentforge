@@ -74,16 +74,6 @@ function captureErrors(err: unknown): void {
   } else formError.value = errorText(err);
 }
 
-/** La lista de modelos solo puede pedirse para la configuración guardada (el servidor no expone otra vía). */
-const configMatchesSaved = computed(
-  () =>
-    props.provider &&
-    props.provider.kind === form.kind &&
-    props.provider.baseUrl === form.baseUrl.trim() &&
-    !form.apiKey &&
-    !removeKey.value,
-);
-
 async function test(): Promise<void> {
   testing.value = true;
   testResult.value = null;
@@ -91,9 +81,8 @@ async function test(): Promise<void> {
   try {
     testResult.value = await api.providers.testConfig({ ...payload(), id: props.provider?.id });
     fieldErrors.value = {};
-    if (testResult.value.ok && props.provider && configMatchesSaved.value) {
-      models.value = await api.providers.models(props.provider.id).catch(() => []);
-    }
+    // La lista de modelos se pide para la configuración del formulario, esté o no guardada.
+    models.value = testResult.value.ok ? await api.providers.modelsOf({ ...payload(), id: props.provider?.id }).catch(() => []) : [];
   } catch (err) {
     captureErrors(err);
   } finally {
@@ -138,7 +127,7 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
         </div>
         <div class="field">
           <label for="prv-kind">Tipo</label>
-          <select id="prv-kind" v-model="form.kind" class="select" :aria-invalid="Boolean(fieldErrors.kind)" @change="testResult = null">
+          <select id="prv-kind" v-model="form.kind" class="select" :aria-invalid="Boolean(fieldErrors.kind)" @change="((testResult = null), (models = []))">
             <option value="ollama">Ollama (API nativa)</option>
             <option value="openai">Compatible con OpenAI</option>
           </select>
@@ -159,7 +148,7 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
             spellcheck="false"
             :aria-invalid="Boolean(fieldErrors.baseUrl)"
             :placeholder="form.kind === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'"
-            @input="testResult = null"
+            @input="((testResult = null), (models = []))"
           />
           <span v-if="fieldErrors.baseUrl" class="error">{{ fieldErrors.baseUrl }}</span>
           <span v-else-if="form.kind === 'openai'" class="hint">Incluye el sufijo de versión (normalmente <code>/v1</code>).</span>
@@ -177,7 +166,7 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
               spellcheck="false"
               :aria-invalid="Boolean(fieldErrors.apiKey)"
               :placeholder="hasSavedKey ? '•••• guardada — escribe para cambiarla' : form.kind === 'ollama' ? 'No suele ser necesaria' : 'sk-…'"
-              @input="((removeKey = false), (testResult = null))"
+              @input="((removeKey = false), (testResult = null), (models = []))"
             />
             <button v-if="hasSavedKey && !form.apiKey" type="button" class="btn btn-danger" @click="removeKey = true">Quitar clave</button>
           </div>
@@ -205,7 +194,7 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
           </datalist>
           <span v-if="fieldErrors.defaultModel" class="error">{{ fieldErrors.defaultModel }}</span>
           <span v-else-if="chatModels.length" class="hint">{{ plural(chatModels.length, 'modelo disponible', 'modelos disponibles') }}: elige uno de la lista o escríbelo.</span>
-          <span v-else class="hint">Se propone al crear agentes con este proveedor.</span>
+          <span v-else class="hint">Se propone al crear agentes con este proveedor. Pulsa «Probar» para cargar la lista de modelos.</span>
         </div>
 
         <label class="check span-2">
@@ -222,7 +211,6 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
         <CircleCheck />
         <span>
           Conexión correcta: {{ plural(testResult.modelCount ?? 0, 'modelo', 'modelos') }} en {{ formatDuration(testResult.latencyMs) }}.
-          <template v-if="!configMatchesSaved"> Guarda para poder elegir el modelo de la lista.</template>
         </span>
       </div>
       <div v-else-if="testResult" class="callout danger" role="alert">

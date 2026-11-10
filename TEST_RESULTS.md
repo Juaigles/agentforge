@@ -6,12 +6,12 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 ## 1. Tests automatizados
 
 Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
-Resultados del 2026-11-10 tras el punto 4.1:
+Resultados del 2026-11-10 tras el punto 4.2:
 
 ```
-servidor     Test Files  7 passed (7)     Tests  139 passed (139)
+servidor     Test Files  7 passed (7)     Tests  141 passed (141)
 frontend     Test Files  5 passed (5)     Tests   31 passed (31)
-end-to-end   21 passed (49.7s)  ·  repetida dos veces seguidas: 42 passed (1.6m), sin fallos intermitentes
+end-to-end   34 passed (1.1m)   (tras 4.1, con 21 tests: repetida dos veces seguidas, 42 passed, sin intermitencias)
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
 npm audit    found 0 vulnerabilities
 ```
@@ -30,7 +30,7 @@ npm audit    found 0 vulnerabilities
 | `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
 | `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
 | `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
-| `e2e/*.spec.ts` (21 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
+| `e2e/*.spec.ts` (34 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
 Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
 puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
@@ -47,6 +47,17 @@ puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de
 | Persistencia tras reiniciar | `persistence.spec.ts` | Se **mata** el proceso y se relanza: agente, workflow, ejecución, eventos y entrada intactos; la ejecución a medias queda «Fallido» por reinicio |
 | Historial con filtros | `runs.spec.ts` | Estado, tipo, búsqueda por nombre y por entrada, estado vacío, borrado |
 | Tema y vista móvil | `layout.spec.ts` | Tema persistente y contraste ≥ 7:1; 14 rutas × 2 temas a 375 px con `scrollWidth == clientWidth` en documento y área principal |
+
+| Herramienta HTTP personalizada y su uso por un agente | `tools.spec.ts` | Con redes privadas bloqueadas la API local recibe 0 peticiones; al permitirlas recibe `GET /stock?producto=tuerca%20M8&almacen=sur` (valor por defecto aplicado) con la cabecera configurada |
+| Editor de `enum` y valor por defecto | `tools.spec.ts`, `api.test.ts` | Esquema guardado idéntico al construido; errores por tipo; un valor no permitido se rechaza sin llegar a la API |
+| Archivos del espacio de trabajo | `tools.spec.ts` | Archivo escrito por un agente con `file_write`; vista previa Markdown/texto; borrado confirmado en disco |
+| Proveedores y API key | `settings.spec.ts`, `api.test.ts` | Modelos listados antes de guardar; el `PUT` de edición no contiene `apiKey`; «Quitar clave» envía `null`; un agente llama por el protocolo OpenAI con `Authorization: Bearer …` |
+| Interruptores de Ajustes | `settings.spec.ts` | Con concurrencia 1 la segunda ejecución queda «En cola» y no llega al modelo; `run_javascript` y las llamadas a localhost fallan o funcionan según el interruptor |
+| Eliminar ejecuciones terminadas | `settings.spec.ts` | Solo queda la ejecución en curso |
+
+Comprobado además a mano en el navegador con Ollama real tras 4.2: «Añadir proveedor» → plantilla «Ollama local» →
+«Probar» muestra «Conexión correcta: 4 modelos» y ofrece los 3 modelos de chat sin haber guardado; el editor de
+herramientas muestra las filas de valores permitidos y valor por defecto (desactivadas para sí/no).
 
 Comprobado además a mano en el navegador con el modelo real (`qwen3.5:4b-q4_K_M`) tras los cambios de 4.1:
 agente «Calculista» → «El total de la factura es 2.965,47 euros», con `"result": 2965.468` en el resultado de la

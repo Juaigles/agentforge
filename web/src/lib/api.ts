@@ -102,6 +102,8 @@ export const api = {
     test: (id: string) => post<ProviderTestResult>(`/api/providers/${id}/test`),
     testConfig: (input: ProviderInput & { id?: string }) => post<ProviderTestResult>('/api/providers/test', input),
     models: (id: string) => get<ModelInfo[]>(`/api/providers/${id}/models`),
+    /** Modelos de una configuración aún sin guardar (con `id`, usa la clave guardada si no se envía otra). */
+    modelsOf: (input: ProviderInput & { id?: string }) => post<ModelInfo[]>('/api/providers/models', input),
     health: (force = false) => get<ProviderHealth[]>(`/api/providers/health${force ? '?force=1' : ''}`),
   },
   agents: {

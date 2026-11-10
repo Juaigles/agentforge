@@ -67,6 +67,23 @@ Se trabaja punto por punto, sin pasar al siguiente hasta implementar, verificar 
   21. **Vulnerabilidades moderadas en dependencias transitivas** de `@vue/test-utils` (`glob`, `minimatch`) →
       `overrides` en `package.json`; `npm audit` vuelve a dar 0.
 
+### 4.2 Vistas no ejercitadas (Herramientas, Ajustes, proveedores) — HECHO
+
+- **Ejercitadas de punta a punta** con 13 tests e2e nuevos (`e2e/tools.spec.ts`, `e2e/settings.spec.ts`) y a mano en
+  el navegador con Ollama real: alta/edición/desactivación/borrado de una herramienta HTTP y su uso real por un
+  agente contra una API local (con «redes privadas» bloqueadas primero y permitidas después); método POST con
+  plantilla de cuerpo; visor (Markdown y texto) y borrado de archivos del espacio de trabajo; alta, prueba, edición
+  y borrado de proveedores; cada interruptor de Ajustes con su efecto real; «Eliminar ejecuciones terminadas».
+- **API key**: comprobado en la petición real que al editar sin tocar la clave el cuerpo **no lleva** `apiKey`, que
+  «Quitar clave» envía `apiKey: null`, y que la clave no aparece ni en la respuesta de la API ni en la página.
+- **Completado lo que faltaba:**
+  - El editor de herramientas edita ahora los **valores permitidos (`enum`)** y el **valor por defecto** de cada
+    parámetro, con validación por tipo en el formulario y en el servidor (antes solo los conservaba).
+  - Nuevo endpoint `POST /api/providers/models`: lista los modelos de una configuración **sin guardar**. El modal
+    de proveedor carga la lista al pulsar «Probar», también en el alta.
+- No aparecieron defectos funcionales en estas vistas más allá de esas dos carencias; los defectos de este hito
+  salieron de las vistas del punto 4.1.
+
 ## Pendiente y limitaciones
 
 - **Sin autenticación ni multiusuario.** Pensado para uso local (escucha en 127.0.0.1).
@@ -82,7 +99,8 @@ Se trabaja punto por punto, sin pasar al siguiente hasta implementar, verificar 
   malicioso con TTL 0 podría cambiarla entre la comprobación y la conexión (rebinding).
 - **Los proveedores OpenAI reales (de pago) no se han probado**; el adaptador se ha verificado contra el
   endpoint compatible de Ollama y contra un servidor de pruebas que habla el protocolo.
-- **El editor de herramientas HTTP no edita `enum` ni valores por defecto** de los parámetros (los conserva).
+- **El editor de herramientas HTTP no edita esquemas anidados** (`items` de listas, propiedades de objetos): los conserva.
+- **Los valores permitidos se escriben separados por comas**, así que un valor no puede contener una coma.
 - **Paralelismo real limitado por el proveedor**: Ollama atiende las peticiones a un mismo modelo según
   `OLLAMA_NUM_PARALLEL`; el motor las lanza en paralelo igualmente.
 - **La suite e2e solo se ejecuta en Chromium** y con el modelo simulado; no hay CI configurado (se lanza a mano).
