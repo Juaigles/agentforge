@@ -20,6 +20,8 @@ export interface AppContext {
   startedAt: number;
   /** Ejecuciones que estaban a medias en el arranque y se han marcado como interrumpidas. */
   interruptedRuns: number;
+  /** Aplica la política de retención del historial configurada en Ajustes. Devuelve cuántas ejecuciones borra. */
+  applyRetention(): number;
   close(): Promise<void>;
 }
 
@@ -38,13 +40,29 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
   const interruptedRuns = store.markInterruptedRuns();
   const tools = new ToolRegistry(store);
   const llm = overrides.llm ?? defaultLlmFactory;
+  const applyRetention = (): number => {
+    const { retentionDays, retentionMaxRuns } = store.getSettings();
+    if (!retentionDays && !retentionMaxRuns) return 0;
+    return store.pruneRuns({ days: retentionDays, maxRuns: retentionMaxRuns });
+  };
   const runs = new RunManager({
     store,
     tools,
     llm,
     workspaceDir: config.workspaceDir,
     retryBaseDelayMs: overrides.retryBaseDelayMs,
+    onRunFinished: applyRetention,
   });
+  // La retención por antigüedad se aplica al arrancar y, después, cada hora (sin impedir que el proceso termine).
+  applyRetention();
+  const retentionTimer = setInterval(() => {
+    try {
+      applyRetention();
+    } catch {
+      /* se reintentará en la siguiente pasada */
+    }
+  }, 3_600_000);
+  retentionTimer.unref();
   return {
     config,
     db,
@@ -54,7 +72,9 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
     runs,
     startedAt: Date.now(),
     interruptedRuns,
+    applyRetention,
     async close() {
+      clearInterval(retentionTimer);
       await runs.shutdown();
       if (db.isOpen) db.close();
     },

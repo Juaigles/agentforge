@@ -152,6 +152,10 @@ export const api = {
     retry: (id: string, mode: 'all' | 'failed') => post<Run>(`/api/runs/${id}/retry`, { mode }),
     remove: (id: string) => del(`/api/runs/${id}`),
     clearFinished: () => del<{ deleted: number }>('/api/runs'),
+    /** Ejecuciones que un apagado del servidor dejó a medias y siguen pendientes de reanudar o descartar. */
+    interrupted: () => get<RunSummary[]>('/api/runs/interrupted'),
+    resumeInterrupted: (ids?: string[]) => post<Run[]>('/api/runs/interrupted/resume', ids ? { ids } : {}),
+    dismissInterrupted: (ids?: string[]) => post<{ dismissed: number }>('/api/runs/interrupted/dismiss', ids ? { ids } : {}),
   },
 };
 

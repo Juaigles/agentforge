@@ -143,6 +143,12 @@ export const settingsSchema = z.object({
   maxConcurrentRuns: z.number().int().min(1).max(10).optional(),
   allowPrivateNetwork: z.boolean().optional(),
   allowCodeExecution: z.boolean().optional(),
+  retentionDays: z.number().int().min(0).max(3650).optional(),
+  retentionMaxRuns: z.number().int().min(0).max(100_000).optional(),
+});
+
+export const runIdsSchema = z.object({
+  ids: z.array(z.string().min(1)).max(500).optional(),
 });
 
 export const invokeToolSchema = z.object({

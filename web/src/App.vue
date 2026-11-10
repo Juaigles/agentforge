@@ -2,6 +2,7 @@
 import { Activity, Bot, BookOpen, LayoutDashboard, Monitor, Moon, Settings, Sun, Workflow, Wrench } from 'lucide-vue-next';
 import { computed, onMounted } from 'vue';
 import { api } from '@/lib/api';
+import InterruptedBanner from '@/components/InterruptedBanner.vue';
 import UiHost from '@/components/UiHost.vue';
 import { useCatalog } from '@/stores/catalog';
 import { useRuns } from '@/stores/runs';
@@ -93,6 +94,7 @@ onMounted(async () => {
     </aside>
 
     <main class="main">
+      <InterruptedBanner />
       <RouterView v-slot="{ Component, route }">
         <component :is="Component" :key="route.meta.keyed ? route.fullPath : undefined" />
       </RouterView>

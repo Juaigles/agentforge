@@ -24,6 +24,7 @@ import {
   invokeToolSchema,
   providerSchema,
   retrySchema,
+  runIdsSchema,
   runInputSchema,
   settingsSchema,
   workflowSchema,
@@ -138,7 +139,12 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
   });
 
   app.get('/api/settings', async () => store.getSettings());
-  app.put('/api/settings', async (req) => store.updateSettings(settingsSchema.parse(req.body)));
+  app.put('/api/settings', async (req) => {
+    const settings = store.updateSettings(settingsSchema.parse(req.body));
+    // Un cambio en la retención se aplica en el momento, sin esperar a la siguiente pasada.
+    ctx.applyRetention();
+    return settings;
+  });
 
   // ---------- Proveedores ----------
   app.get('/api/providers', async () => store.listProviders());
@@ -370,6 +376,23 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
       limit: q.limit ? Number(q.limit) : undefined,
       offset: q.offset ? Number(q.offset) : undefined,
     });
+  });
+
+  // Ejecuciones que un apagado dejó a medias: la interfaz ofrece reanudarlas o descartarlas al arrancar.
+  app.get('/api/runs/interrupted', async () => store.listInterruptedRuns());
+
+  /** Reanuda las ejecuciones interrumpidas indicadas (o todas) reutilizando los pasos que ya habían terminado. */
+  app.post('/api/runs/interrupted/resume', async (req, reply) => {
+    const { ids } = runIdsSchema.parse(req.body ?? {});
+    const pending = store.listInterruptedRuns().filter((r) => !ids || ids.includes(r.id));
+    const resumed = pending.map((summary) => runs.retryRun(store.getRun(summary.id)!, 'failed'));
+    return reply.status(202).send(resumed);
+  });
+
+  /** Descarta el aviso de reanudación: las ejecuciones quedan como fallidas en el historial. */
+  app.post('/api/runs/interrupted/dismiss', async (req) => {
+    const { ids } = runIdsSchema.parse(req.body ?? {});
+    return { dismissed: store.clearInterrupted(ids) };
   });
 
   app.get('/api/runs/:id', async (req) => store.getRun(idOf(req)) ?? notFound('Ejecución'));

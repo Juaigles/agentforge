@@ -238,6 +238,8 @@ export interface RunSummary {
   error: string | null;
   usage: Usage;
   retryOf: string | null;
+  /** Quedó a medias por un apagado del servidor y aún no se ha reanudado ni descartado. */
+  interrupted?: boolean;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -298,12 +300,18 @@ export interface Settings {
   allowPrivateNetwork: boolean;
   /** Habilita la herramienta run_javascript. */
   allowCodeExecution: boolean;
+  /** Días que se conservan las ejecuciones terminadas (0 = sin límite). */
+  retentionDays: number;
+  /** Número máximo de ejecuciones terminadas que se conservan (0 = sin límite). */
+  retentionMaxRuns: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   maxConcurrentRuns: 3,
   allowPrivateNetwork: false,
   allowCodeExecution: false,
+  retentionDays: 0,
+  retentionMaxRuns: 0,
 };
 
 export interface ProviderHealth {

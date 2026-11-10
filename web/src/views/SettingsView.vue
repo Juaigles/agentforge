@@ -38,6 +38,8 @@ async function load(): Promise<void> {
     settings.value = s;
     stats.value = st;
     concurrentDraft.value = s.maxConcurrentRuns;
+    retentionDaysDraft.value = s.retentionDays;
+    retentionRunsDraft.value = s.retentionMaxRuns;
     void catalog.refreshHealth();
   } catch (err) {
     loadError.value = errorText(err);
@@ -150,8 +152,35 @@ async function updateSetting<K extends keyof Settings>(key: K, value: Settings[K
     ui.error(errorText(err));
   } finally {
     concurrentDraft.value = settings.value.maxConcurrentRuns;
+    retentionDaysDraft.value = settings.value.retentionDays;
+    retentionRunsDraft.value = settings.value.retentionMaxRuns;
     savingSetting.value = null;
   }
+}
+
+// ---------- Retención del historial ----------
+const retentionDaysDraft = ref(0);
+const retentionRunsDraft = ref(0);
+
+async function commitRetention(key: 'retentionDays' | 'retentionMaxRuns', max: number): Promise<void> {
+  const draft = key === 'retentionDays' ? retentionDaysDraft : retentionRunsDraft;
+  const n = draft.value === ('' as unknown) ? 0 : Math.round(Number(draft.value));
+  if (!Number.isFinite(n) || n < 0 || n > max) {
+    ui.error(`El valor debe estar entre 0 y ${formatNumber(max)} (0 = sin límite).`);
+    draft.value = settings.value?.[key] ?? 0;
+    return;
+  }
+  const message =
+    key === 'retentionDays'
+      ? n
+        ? `Las ejecuciones terminadas se conservarán ${plural(n, 'día', 'días')}.`
+        : 'El historial ya no caduca por antigüedad.'
+      : n
+        ? `Se conservarán como máximo ${plural(n, 'ejecución terminada', 'ejecuciones terminadas')}.`
+        : 'El historial ya no tiene límite de tamaño.';
+  await updateSetting(key, n, message);
+  // La retención se aplica al guardar: las cifras de la tarjeta pueden haber cambiado.
+  await refreshStats();
 }
 
 function commitConcurrent(): void {
@@ -191,7 +220,7 @@ async function toggleCodeExecution(ev: Event): Promise<void> {
     const ok = await ui.confirm({
       title: 'Permitir ejecución de código',
       message:
-        'Los agentes con la herramienta run_javascript podrán ejecutar el código que genere el modelo. El aislamiento (node:vm en un Worker) limita tiempo y memoria, pero no es una barrera de seguridad fuerte.',
+        'Los agentes con la herramienta run_javascript podrán ejecutar el código que genere el modelo. Se ejecuta en un proceso aparte sin acceso a archivos ni a otros programas y con límites de tiempo y memoria, pero no es una barrera de seguridad fuerte: no restringe la red.',
       confirmLabel: 'Permitir',
       danger: true,
     });
@@ -396,8 +425,9 @@ async function clearFinished(): Promise<void> {
               <div v-if="settings.allowCodeExecution" class="callout warning" style="margin-top: 8px">
                 <ShieldAlert />
                 <span>
-                  El aislamiento se basa en <code>node:vm</code>, que no es una barrera de seguridad fuerte: un código hostil podría llegar a
-                  escapar. Mantenlo activado solo con modelos y entradas en los que confíes.
+                  El código corre en un contexto <code>node:vm</code> dentro de un proceso aparte que no puede leer ni escribir archivos ni
+                  lanzar programas. Aun así no es una barrera de seguridad fuerte: un código hostil que escapara del contexto podría usar la
+                  red. Mantenlo activado solo con modelos y entradas en los que confíes.
                 </span>
               </div>
             </div>
@@ -434,6 +464,46 @@ async function clearFinished(): Promise<void> {
               <div><dt>Terminadas</dt><dd class="num">{{ formatNumber(finishedRuns) }}</dd></div>
               <div class="wide"><dt>Carpeta de datos</dt><dd class="mono path" :title="stats.system.dataDir">{{ stats.system.dataDir }}</dd></div>
             </dl>
+            <div class="options retention">
+              <div class="option">
+                <div class="grow">
+                  <label class="o-title" for="set-retention-days">Conservar el historial (días)</label>
+                  <p class="muted small">
+                    Las <Term id="ejecucion">ejecuciones</Term> terminadas hace más días se borran solas, con sus pasos y eventos. 0 = sin límite.
+                  </p>
+                </div>
+                <input
+                  id="set-retention-days"
+                  v-model.number="retentionDaysDraft"
+                  class="input num"
+                  type="number"
+                  min="0"
+                  max="3650"
+                  step="1"
+                  style="width: 92px"
+                  :disabled="savingSetting === 'retentionDays'"
+                  @change="commitRetention('retentionDays', 3650)"
+                />
+              </div>
+              <div class="option">
+                <div class="grow">
+                  <label class="o-title" for="set-retention-runs">Máximo de ejecuciones guardadas</label>
+                  <p class="muted small">Al superarlo se borran las terminadas más antiguas. Las que están en curso no cuentan. 0 = sin límite.</p>
+                </div>
+                <input
+                  id="set-retention-runs"
+                  v-model.number="retentionRunsDraft"
+                  class="input num"
+                  type="number"
+                  min="0"
+                  max="100000"
+                  step="1"
+                  style="width: 92px"
+                  :disabled="savingSetting === 'retentionMaxRuns'"
+                  @change="commitRetention('retentionMaxRuns', 100000)"
+                />
+              </div>
+            </div>
             <div class="card-foot">
               <p class="muted small grow">Borra el historial de ejecuciones completadas, fallidas y canceladas. Agentes y workflows no se tocan.</p>
               <button class="btn btn-danger" type="button" :disabled="clearing || !finishedRuns" @click="clearFinished">
@@ -541,6 +611,9 @@ async function clearFinished(): Promise<void> {
 }
 .option .switch {
   margin-top: 2px;
+}
+.retention {
+  border-top: 1px solid var(--border);
 }
 .o-title {
   font-weight: 600;

@@ -533,7 +533,7 @@ describe('persistencia entre reinicios', () => {
     expect((await get(`/api/workflows/${wf.id}`)).json()).toEqual(wf);
     expect((await get(`/api/runs/${run.id}`)).json()).toEqual(run);
     expect((await get(`/api/runs/${run.id}/events`)).json()).toEqual(events);
-    expect((await get('/api/settings')).json()).toEqual({ allowPrivateNetwork: true, allowCodeExecution: false, maxConcurrentRuns: 5 });
+    expect((await get('/api/settings')).json()).toEqual({ allowPrivateNetwork: true, allowCodeExecution: false, maxConcurrentRuns: 5, retentionDays: 0, retentionMaxRuns: 0 });
     expect((await get('/api/tools')).json().some((t: { name: string }) => t.name === 'mi_api')).toBe(true);
 
     // Y sigue funcionando: se puede ejecutar de nuevo y la numeración de eventos no choca.
@@ -566,6 +566,118 @@ describe('persistencia entre reinicios', () => {
     // Se puede reintentar tras el reinicio.
     const retry = await waitRun((await post(`/api/runs/${run.id}/retry`)).json().id);
     expect(retry).toMatchObject({ status: 'completed', output: 'eco(a medias)' });
+  });
+
+  it('ofrece reanudar las ejecuciones interrumpidas reutilizando los pasos que ya habían terminado', async () => {
+    let slow = true;
+    const script = () =>
+      new ScriptedLlm(async (req) => {
+        const text = userText(req);
+        if (text.startsWith('lento') && slow) await sleep(10_000, req.signal);
+        return { content: `hecho(${text})` };
+      });
+    const { dataDir, llm: firstLlm } = await boot(script());
+    const agent = await createAgent();
+    const wf = (
+      await post('/api/workflows', {
+        name: 'Dos pasos',
+        nodes: [
+          { id: 'entrada', type: 'input', position: { x: 0, y: 0 } },
+          { id: 'rapido', type: 'agent', position: { x: 1, y: 0 }, config: { agentId: agent.id, prompt: 'rapido {{input}}' } },
+          { id: 'lento', type: 'agent', position: { x: 2, y: 0 }, config: { agentId: agent.id, prompt: 'lento {{rapido}}' } },
+          { id: 'salida', type: 'output', position: { x: 3, y: 0 }, config: { template: '{{lento}}' } },
+        ],
+        edges: [
+          { id: 'e1', source: 'entrada', target: 'rapido' },
+          { id: 'e2', source: 'rapido', target: 'lento' },
+          { id: 'e3', source: 'lento', target: 'salida' },
+        ],
+      })
+    ).json() as Workflow;
+    const run = (await post(`/api/workflows/${wf.id}/run`, { input: 'dato' })).json() as Run;
+    const other = (await post(`/api/agents/${agent.id}/run`, { input: 'lento agente suelto' })).json() as Run;
+    for (let i = 0; i < 100 && firstLlm.calls.length < 3; i++) await delay(10);
+    expect((await get('/api/runs/interrupted')).json()).toEqual([]);
+    ctx.db.close();
+    await app.close();
+
+    // Arranque tras el corte: las dos ejecuciones quedan fallidas y pendientes de decisión.
+    slow = false;
+    const { llm } = await boot(script(), dataDir);
+    const pending = (await get('/api/runs/interrupted')).json() as Run[];
+    expect(pending.map((r) => r.id).sort()).toEqual([run.id, other.id].sort());
+    expect(pending.every((r) => r.status === 'failed' && r.interrupted === true)).toBe(true);
+    expect((await get(`/api/runs/${run.id}`)).json().interrupted).toBe(true);
+
+    // Reanudar una: solo se vuelve a llamar al modelo para el paso que no había terminado.
+    const resumed = (await post('/api/runs/interrupted/resume', { ids: [run.id] })).json() as Run[];
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0]).toMatchObject({ retryOf: run.id, kind: 'workflow' });
+    const finished = await waitRun(resumed[0].id);
+    expect(finished).toMatchObject({ status: 'completed', output: 'hecho(lento hecho(rapido dato))' });
+    expect(llm.calls.map((c) => userText(c))).toEqual(['lento hecho(rapido dato)']);
+    expect((await get(`/api/runs/${resumed[0].id}/events`)).json().some((e: RunEvent) => e.type === 'step.reused' && e.nodeId === 'rapido')).toBe(true);
+    // La reanudada deja de ofrecerse; la otra sigue pendiente.
+    expect(((await get('/api/runs/interrupted')).json() as Run[]).map((r) => r.id)).toEqual([other.id]);
+    // Reanudar de nuevo la misma no crea duplicados.
+    expect((await post('/api/runs/interrupted/resume', { ids: [run.id] })).json()).toEqual([]);
+
+    // Descartar: queda en el historial como fallida, sin aviso.
+    expect((await post('/api/runs/interrupted/dismiss', {})).json()).toEqual({ dismissed: 1 });
+    expect((await get('/api/runs/interrupted')).json()).toEqual([]);
+    expect((await get(`/api/runs/${other.id}`)).json()).toMatchObject({ status: 'failed', interrupted: false });
+
+    // Un segundo reinicio no resucita avisos ya atendidos.
+    ctx.db.close();
+    await app.close();
+    await boot(script(), dataDir);
+    expect(ctx.interruptedRuns).toBe(0);
+    expect((await get('/api/runs/interrupted')).json()).toEqual([]);
+  });
+
+  it('migra una base de datos de la versión anterior sin perder ejecuciones', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const { dataDir } = await boot();
+    const agent = await createAgent();
+    const run = await waitRun((await post(`/api/agents/${agent.id}/run`, { input: 'antes de migrar' })).json().id);
+    await shutdown();
+
+    // Se devuelve el archivo al esquema v1 (sin la columna `interrupted` ni su índice).
+    const raw = new DatabaseSync(path.join(dataDir, 'agentforge.db'));
+    raw.exec('DROP INDEX idx_runs_finished; ALTER TABLE runs DROP COLUMN interrupted; PRAGMA user_version = 1;');
+    raw.close();
+
+    await boot(undefined, dataDir);
+    expect((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(2);
+    expect((await get(`/api/runs/${run.id}`)).json()).toMatchObject({ status: 'completed', output: 'eco(antes de migrar)', interrupted: false });
+    expect((await get('/api/runs/interrupted')).json()).toEqual([]);
+  });
+});
+
+describe('retención configurable desde la API', () => {
+  it('valida los ajustes y aplica la retención en cuanto se guarda', async () => {
+    await boot();
+    const agent = await createAgent();
+    const ids: string[] = [];
+    for (const input of ['uno', 'dos', 'tres']) ids.push((await waitRun((await post(`/api/agents/${agent.id}/run`, { input })).json().id)).id);
+    // La primera «terminó» hace 10 días.
+    const old = new Date(Date.now() - 10 * 86_400_000).toISOString();
+    ctx.db.prepare('UPDATE runs SET created_at = ?, finished_at = ? WHERE id = ?').run(old, old, ids[0]);
+
+    expect((await put('/api/settings', { retentionDays: -1 })).statusCode).toBe(400);
+    expect((await put('/api/settings', { retentionMaxRuns: 1.5 })).statusCode).toBe(400);
+    expect((await get('/api/runs')).json().total).toBe(3);
+
+    expect((await put('/api/settings', { retentionDays: 7 })).json()).toMatchObject({ retentionDays: 7, retentionMaxRuns: 0 });
+    expect(((await get('/api/runs')).json().items as Run[]).map((r) => r.input).sort()).toEqual(['dos', 'tres']);
+
+    expect((await put('/api/settings', { retentionMaxRuns: 1 })).json()).toMatchObject({ retentionDays: 7, retentionMaxRuns: 1 });
+    expect((await get('/api/runs')).json().total).toBe(1);
+
+    // Volver a «sin límite» deja de borrar.
+    await put('/api/settings', { retentionDays: 0, retentionMaxRuns: 0 });
+    await waitRun((await post(`/api/agents/${agent.id}/run`, { input: 'cuatro' })).json().id);
+    expect((await get('/api/runs')).json().total).toBe(2);
   });
 });
 

@@ -50,6 +50,10 @@ así que no toca `data/` ni necesita Ollama. Detalles en [e2e/README.md](e2e/REA
 | `AGENTFORGE_LOG` | `0` | `1` para activar el log de peticiones |
 | `AGENTFORGE_TEST_MODEL` | (autodetectado) | Modelo de los tests de integración |
 
+En *Ajustes → Datos* se configura la **retención del historial**: días que se conservan las ejecuciones
+terminadas y número máximo de ejecuciones guardadas (0 = sin límite, el valor por defecto). Se aplica al
+arrancar, cada hora, al terminar cada ejecución y al cambiar el ajuste.
+
 Todos los datos viven en `data/` (`agentforge.db`, `secret.key`, `workspace/`). Borrar esa carpeta deja la
 aplicación como recién instalada.
 
@@ -68,7 +72,8 @@ aplicación como recién instalada.
   compartida por ejecución.
 - **Ejecuciones**: historial con filtros, monitor en vivo (grafo con estados, streaming de tokens,
   registro de actividad con llamadas a herramientas), cancelar, repetir y **reintentar desde el fallo**
-  reutilizando los pasos completados.
+  reutilizando los pasos completados. Si el servidor se apaga con ejecuciones a medias, al volver la interfaz
+  ofrece **reanudarlas** (o descartarlas) desde cualquier pantalla.
 - **Herramientas**: 11 integradas (calculadora, fecha, leer web, HTTP, archivos, memoria compartida,
   delegación, JavaScript aislado), herramientas HTTP personalizadas creadas desde la interfaz, banco de
   pruebas y visor del espacio de trabajo.
@@ -106,10 +111,20 @@ el catálogo, en el editor de agentes y en el constructor sin tocar el frontend.
 - El servidor escucha solo en `127.0.0.1` y rechaza peticiones con un `Host` ajeno (DNS rebinding).
   **No tiene autenticación**: no lo expongas a una red sin ponerle delante un proxy con control de acceso.
 - Las API keys se cifran en reposo (AES-256-GCM) y la API nunca las devuelve.
-- Las herramientas de red bloquean por defecto localhost y redes privadas (SSRF), también en redirecciones.
+- Las herramientas de red bloquean por defecto localhost y redes privadas (SSRF), también en redirecciones y
+  en cualquier notación de la dirección (IPv4 mapeada en IPv6, decimal, NAT64…). La conexión se hace siempre a la
+  IP que se validó (**fijación de DNS**), así que un DNS malicioso no puede cambiarla entre la comprobación y la
+  conexión (DNS rebinding).
 - Las herramientas de archivos están confinadas a `data/workspace`.
-- `run_javascript` está desactivada por defecto: `node:vm` en un Worker limita tiempo y memoria, pero no es
-  una frontera de seguridad fuerte.
+- `run_javascript` está desactivada por defecto. Cuando se activa, el código corre con dos capas de aislamiento:
+  un contexto `node:vm` vacío (sin `require`, `process`, `fetch`, temporizadores ni `eval`) dentro de un **proceso
+  hijo** lanzado con el modelo de permisos de Node (`--permission`) y sin variables de entorno, con límites de
+  tiempo (5 s), memoria (64 MB) y tamaño de salida.
+  **Lo que NO es:** no es un aislamiento fuerte. `node:vm` no está diseñado para código hostil; el modelo de
+  permisos impide leer o escribir archivos, lanzar programas y crear workers, pero **en Node 22–24 no restringe
+  la red** (un código que escapara del contexto podría hacer peticiones, incluso a tu red local); y no hay
+  aislamiento del sistema operativo (contenedor, usuario sin privilegios, seccomp). Para ejecutar código de
+  terceros no confiables hace falta un contenedor o una máquina virtual, que este proyecto no incluye.
 - La salida de los modelos se renderiza como Markdown saneado con DOMPurify.
 
 ## Limitaciones conocidas

@@ -24,6 +24,8 @@ export interface RunManagerDeps {
   llm: LlmFactory;
   workspaceDir: string;
   retryBaseDelayMs?: number;
+  /** Se llama cada vez que termina una ejecución (p. ej. para aplicar la retención del historial). */
+  onRunFinished?: () => void;
 }
 
 interface ActiveRun {
@@ -143,6 +145,8 @@ export class RunManager {
       retryOf: original.id,
       steps: this.stepsFor(original.snapshot.workflow),
     });
+    // Reintentarla es la forma de atender una ejecución interrumpida: deja de ofrecerse la reanudación.
+    this.deps.store.clearInterrupted([original.id]);
     const seeded = new Map<string, string>();
     if (mode === 'failed') {
       for (const step of original.steps) {
@@ -195,6 +199,11 @@ export class RunManager {
         this.deps.store.releaseRun(runId);
         for (const resolve of this.waiters.get(runId) ?? []) resolve();
         this.waiters.delete(runId);
+        try {
+          this.deps.onRunFinished?.();
+        } catch {
+          /* la retención es secundaria: no debe afectar a la cola */
+        }
         this.pump();
       });
     }

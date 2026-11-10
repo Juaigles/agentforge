@@ -85,7 +85,7 @@ const STEP_COLUMNS: Record<keyof StepPatch, string> = {
 };
 
 const RUN_SUMMARY_COLS =
-  'id, kind, workflow_id, agent_id, name, status, input, output, error, usage, retry_of, created_at, started_at, finished_at';
+  'id, kind, workflow_id, agent_id, name, status, input, output, error, usage, retry_of, interrupted, created_at, started_at, finished_at';
 
 function toSql(value: unknown): SQLInputValue {
   if (value === undefined || value === null) return null;
@@ -436,6 +436,7 @@ export class Store {
       error: r.error ?? null,
       usage: parseJson<Usage>(r.usage, { ...ZERO_USAGE }),
       retryOf: r.retry_of ?? null,
+      interrupted: Boolean(r.interrupted),
       createdAt: r.created_at,
       startedAt: r.started_at ?? null,
       finishedAt: r.finished_at ?? null,
@@ -586,7 +587,7 @@ export class Store {
         id,
       );
       this.exec(
-        "UPDATE runs SET status='failed', error=?, finished_at=? WHERE id=?",
+        "UPDATE runs SET status='failed', error=?, finished_at=?, interrupted=1 WHERE id=?",
         'Ejecución interrumpida por un reinicio del servidor.',
         now,
         id,
@@ -597,6 +598,42 @@ export class Store {
       });
     }
     return stale.length;
+  }
+
+  /** Ejecuciones interrumpidas por un apagado que siguen pendientes de reanudar o descartar. */
+  listInterruptedRuns(): RunSummary[] {
+    return this.all(`SELECT ${RUN_SUMMARY_COLS} FROM runs WHERE interrupted = 1 ORDER BY created_at DESC, id DESC`).map((r) => this.mapRunSummary(r));
+  }
+
+  /** Da por atendidas las ejecuciones interrumpidas indicadas (o todas). Devuelve cuántas. */
+  clearInterrupted(ids?: string[]): number {
+    if (!ids) return this.exec('UPDATE runs SET interrupted = 0 WHERE interrupted = 1');
+    let changed = 0;
+    for (const id of ids) changed += this.exec('UPDATE runs SET interrupted = 0 WHERE id = ? AND interrupted = 1', id);
+    return changed;
+  }
+
+  /**
+   * Retención del historial: borra las ejecuciones terminadas (con sus pasos y eventos) más antiguas que
+   * `days` días y, si se supera `maxRuns`, las más antiguas que sobren. Las que están en curso o pendientes
+   * de reanudar no se tocan. Devuelve cuántas se han borrado.
+   */
+  pruneRuns(policy: { days: number; maxRuns: number }, now = Date.now()): number {
+    const finished = "status IN ('completed','failed','cancelled') AND interrupted = 0";
+    let deleted = 0;
+    if (policy.days > 0) {
+      const cutoff = new Date(now - policy.days * 86_400_000).toISOString();
+      deleted += this.exec(`DELETE FROM runs WHERE ${finished} AND COALESCE(finished_at, created_at) < ?`, cutoff);
+    }
+    if (policy.maxRuns > 0) {
+      deleted += this.exec(
+        `DELETE FROM runs WHERE ${finished} AND id NOT IN (
+           SELECT id FROM runs WHERE ${finished} ORDER BY COALESCE(finished_at, created_at) DESC, id DESC LIMIT ?
+         )`,
+        policy.maxRuns,
+      );
+    }
+    return deleted;
   }
 
   // ---------- Eventos ----------

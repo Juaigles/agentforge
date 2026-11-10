@@ -102,6 +102,11 @@ const MIGRATIONS: string[] = [
     value TEXT NOT NULL
   );
   `,
+  // v2: ejecuciones interrumpidas por un apagado, pendientes de reanudar o descartar; índice para la retención.
+  `
+  ALTER TABLE runs ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX idx_runs_finished ON runs(finished_at);
+  `,
 ];
 
 /** Abre (o crea) la base de datos y aplica las migraciones pendientes. Usa ':memory:' en tests. */

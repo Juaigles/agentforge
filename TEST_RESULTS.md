@@ -6,12 +6,12 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 ## 1. Tests automatizados
 
 Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
-Resultados del 2026-11-10 tras el punto 4.3:
+Resultados del 2026-11-10 tras el punto 4.4:
 
 ```
-servidor     Test Files  7 passed (7)     Tests  141 passed (141)
+servidor     Test Files  8 passed (8)     Tests  172 passed (172)
 frontend     Test Files  6 passed (6)     Tests   36 passed (36)
-end-to-end   34 passed (1.1m)   (tras 4.1, con 21 tests: repetida dos veces seguidas, 42 passed, sin intermitencias)
+end-to-end   37 passed (1.2m)   (tras 4.1, con 21 tests: repetida dos veces seguidas, 42 passed, sin intermitencias)
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
 npm audit    found 0 vulnerabilities
 ```
@@ -23,6 +23,7 @@ npm audit    found 0 vulnerabilities
 | `server/test/llm.test.ts` | Adaptadores Ollama y OpenAI: cuerpo enviado, streaming troceado, tool-calls, errores, cancelación | Servidor HTTP local que habla el protocolo real |
 | `server/test/engine.test.ts` | Secuencia, paralelismo, uniones, condiciones, reintentos, políticas de error, timeouts, límites, cancelación, delegación, memoria compartida, eventos, instantáneas, reintento desde el fallo | Solo el proveedor LLM (frontera `LlmFactory`) |
 | `server/test/api.test.ts` | API HTTP, SSE (historial + directo + `Last-Event-ID`), cifrado de claves, **persistencia tras reinicio** en disco, ejecuciones interrumpidas, datos de ejemplo | Solo el proveedor LLM |
+| `server/test/hardening.test.ts` | **SSRF**: direcciones privadas en todas sus notaciones, rechazo sin conectar, **rebinding** (dos servidores reales en 127.0.0.1/127.0.0.2 y un DNS que cambia), redirecciones, compresión, límites y cancelación. **Sandbox**: sin `require`/`process`/`eval`, bucles y memoria acotados, promesas, y segunda capa (el proceso no puede leer, escribir, lanzar programas ni crear workers). **Retención**: por antigüedad y por número, con pasos y eventos | La resolución DNS se inyecta como función (seam); los sockets y procesos son reales |
 | `server/test/static.test.ts` | Servido del frontend: fallback de la SPA, caché, 404 de assets, archivos nuevos sin reiniciar | Ninguno |
 | `server/test/ollama.integration.test.ts` | **Modelo real**: chat nativo, adaptador OpenAI vía `/v1`, agente con herramienta por ambos adaptadores, workflow paralelo de 3 agentes | **Ninguno** (se omite si no hay Ollama) |
 | `web/src/lib/run-state.test.ts` | Reductor de eventos del monitor en vivo, emparejado de llamadas a herramientas, formato | Ninguno |
@@ -31,7 +32,7 @@ npm audit    found 0 vulnerabilities
 | `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
 | `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
 | `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
-| `e2e/*.spec.ts` (34 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
+| `e2e/*.spec.ts` (37 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
 Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
 puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
@@ -55,6 +56,21 @@ puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de
 | Proveedores y API key | `settings.spec.ts`, `api.test.ts` | Modelos listados antes de guardar; el `PUT` de edición no contiene `apiKey`; «Quitar clave» envía `null`; un agente llama por el protocolo OpenAI con `Authorization: Bearer …` |
 | Interruptores de Ajustes | `settings.spec.ts` | Con concurrencia 1 la segunda ejecución queda «En cola» y no llega al modelo; `run_javascript` y las llamadas a localhost fallan o funcionan según el interruptor |
 | Eliminar ejecuciones terminadas | `settings.spec.ts` | Solo queda la ejecución en curso |
+
+| Retención del historial | `settings.spec.ts`, `hardening.test.ts`, `api.test.ts` | Con máximo 2 quedan las dos más recientes y se sigue aplicando al terminar la siguiente; ajuste persistente |
+| Reanudar tras un apagado | `persistence.spec.ts`, `api.test.ts` | Tras matar el servidor aparece el aviso; «Reanudar» crea una ejecución que solo llama al modelo para el paso inacabado; «Descartar» lo retira; aparece sin recargar; migración v1→v2 |
+
+Comprobado a mano con el servidor real y Ollama tras 4.4:
+
+- **Reanudación**: workflow «Informe de investigación multiagente» lanzado; con `redactar` en curso se mató el
+  proceso (`taskkill /F`). Al arrancar, el Panel mostraba «Una ejecución se interrumpió al apagarse el servidor».
+  «Reanudar» → nueva ejecución **Completado**, `retryOf` correcto, eventos `step.reused` para `tema`,
+  `investigar` y `analizar`, **2 llamadas al modelo** (redactar y revisar) e informe final generado.
+- **SSRF**: `http://localhost:11434` y `http://[::ffff:127.0.0.1]:11434` → «Acceso bloqueado a red privada o
+  local»; `https://example.com/` (TLS con la IP fijada) → «Example Domain»; `https://www.wikipedia.org/`
+  (respuesta comprimida) → 200 con HTML legible.
+- **Sandbox**: `fib(20)` → 6765 en 62 ms con su `console.log`; `while(true){}` → cortado a los 5 s;
+  `this.constructor.constructor("return process.env")()` → «Code generation from strings disallowed».
 
 Comprobado además a mano en el navegador con Ollama real tras 4.2: «Añadir proveedor» → plantilla «Ollama local» →
 «Probar» muestra «Conexión correcta: 4 modelos» y ofrece los 3 modelos de chat sin haber guardado; el editor de
@@ -118,6 +134,11 @@ de una ejecución anterior al reinicio.
 
 - Proveedores de pago reales (OpenAI, OpenRouter, Groq…): no se usan servicios de pago. El adaptador
   OpenAI-compatible sí está verificado contra el endpoint `/v1` de Ollama.
+- **Red desde el entorno aislado**: comprobado que con Node 24 el proceso con `--permission` **sí puede** abrir
+  conexiones (`net.connect` y `fetch` a localhost funcionan); no se ha podido restringir sin dependencias externas.
+- **Rebinding contra un DNS real**: el test inyecta la resolución; no se ha montado un servidor DNS ni se ha
+  probado con un dominio de rebinding público.
+- **Retención con historiales grandes** (decenas de miles de ejecuciones): no medido el tiempo de borrado.
 - Navegadores distintos de Chromium (la suite e2e solo define el proyecto Chromium).
 - La suite e2e usa un modelo simulado: prueba la interfaz y el protocolo, no la calidad de las respuestas de
   un modelo real (eso lo cubren `ollama.integration.test.ts` y las comprobaciones manuales).

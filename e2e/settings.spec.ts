@@ -312,6 +312,51 @@ test.describe('Ajustes · ejecución, seguridad y datos', () => {
     await app.waitForRun(running.id);
   });
 
+  test('retención del historial: el límite configurado borra las ejecuciones antiguas y se conserva', async ({ page, app }) => {
+    const agent = await app.createAgent({ name: unique('Retención') });
+    for (const text of ['uno', 'dos', 'tres']) await app.runToEnd('agents', agent.id, `[[decir:${text}]]`);
+    const finished = async () => (await app.api('GET', '/api/runs?limit=200')).items.filter((r: any) => !['queued', 'running'].includes(r.status));
+    expect((await finished()).length).toBeGreaterThanOrEqual(3);
+
+    await page.goto('/settings');
+    const data = page.locator('section[aria-labelledby="sec-data"]');
+    const maxRuns = page.getByLabel('Máximo de ejecuciones guardadas');
+    const days = page.getByLabel('Conservar el historial (días)');
+    await expect(maxRuns).toHaveValue('0');
+    await expect(days).toHaveValue('0');
+
+    // Valores no válidos: se avisa y se restaura el anterior.
+    await maxRuns.fill('-5');
+    await maxRuns.blur();
+    await expect(toast(page, '0 = sin límite')).toBeVisible();
+    await expect(maxRuns).toHaveValue('0');
+
+    // Con un máximo de 2 solo sobreviven las dos más recientes, y las cifras se actualizan.
+    await maxRuns.fill('2');
+    await maxRuns.blur();
+    await expect(toast(page, 'Se conservarán como máximo 2 ejecuciones terminadas.')).toBeVisible();
+    const kept = await finished();
+    expect(kept.map((r: any) => r.output).sort()).toEqual(['dos', 'tres']);
+    await expect(data.locator('.facts div').filter({ hasText: 'Ejecuciones guardadas' }).locator('dd')).toHaveText('2');
+
+    // El límite se sigue aplicando solo, al terminar cada ejecución nueva.
+    await app.runToEnd('agents', agent.id, '[[decir:cuatro]]');
+    expect((await finished()).map((r: any) => r.output).sort()).toEqual(['cuatro', 'tres']);
+
+    await days.fill('30');
+    await days.blur();
+    await expect(toast(page, 'Las ejecuciones terminadas se conservarán 30 días.')).toBeVisible();
+    expect(await app.api('GET', '/api/settings')).toMatchObject({ retentionDays: 30, retentionMaxRuns: 2 });
+    expect((await finished()).length).toBe(2); // nada tiene más de 30 días
+
+    await page.reload();
+    await expect(page.getByLabel('Máximo de ejecuciones guardadas')).toHaveValue('2');
+    await expect(page.getByLabel('Conservar el historial (días)')).toHaveValue('30');
+    await page.getByLabel('Conservar el historial (días)').fill('0');
+    await page.getByLabel('Conservar el historial (días)').blur();
+    await expect(toast(page, 'El historial ya no caduca por antigüedad.')).toBeVisible();
+  });
+
   test('la sección Sistema muestra datos reales del servidor', async ({ page, app }) => {
     await page.goto('/settings');
     const system = page.locator('section[aria-labelledby="sec-system"]');

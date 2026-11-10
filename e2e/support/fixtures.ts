@@ -57,7 +57,7 @@ function freePort(): Promise<number> {
   });
 }
 
-const DEFAULT_SETTINGS = { maxConcurrentRuns: 3, allowPrivateNetwork: false, allowCodeExecution: false };
+const DEFAULT_SETTINGS = { maxConcurrentRuns: 3, allowPrivateNetwork: false, allowCodeExecution: false, retentionDays: 0, retentionMaxRuns: 0 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -213,6 +213,8 @@ export const test = base.extend<{ app: AppHandle }, { workerApp: AppHandle }>({
     await use(workerApp);
     // Los ajustes son globales: se devuelven a sus valores por defecto para el siguiente test.
     await workerApp.api('PUT', '/api/settings', DEFAULT_SETTINGS).catch(() => undefined);
+    // Ningún aviso de «ejecuciones interrumpidas» debe colarse en el test siguiente.
+    await workerApp.api('POST', '/api/runs/interrupted/dismiss', {}).catch(() => undefined);
     if (testInfo.status !== testInfo.expectedStatus) {
       await testInfo.attach('servidor.log', { body: workerApp.logs().slice(-20_000), contentType: 'text/plain' });
     }

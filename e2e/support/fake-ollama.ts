@@ -11,6 +11,7 @@
 //   [[ritmo:MS]]                     milisegundos entre fragmentos del stream (por defecto 8)
 //   [[palabras:N]]                   responde N palabras numeradas (para respuestas largas)
 //   [[lento]]                        atajo de [[ritmo:100]] [[palabras:400]] (≈40 s: da tiempo a cancelar)
+//   [[lentosi:CLAVE]]                como [[lento]], pero solo mientras CLAVE esté en `failing`
 //   [[pensar]]                       emite antes un fragmento de razonamiento
 //   [[fallo:CLAVE]]                  falla (error no reintentable) mientras CLAVE esté en `failing`
 //   [[herramienta:NOMBRE {json}]]    pide la herramienta NOMBRE con esos argumentos y, al recibir su
@@ -74,6 +75,7 @@ function plan(messages: WireMessage[], toolNames: string[], failing: Set<string>
   const system = messages.find((m) => m.role === 'system')?.content ?? '';
   const user = messages.find((m) => m.role === 'user')?.content ?? '';
   const d = directives(`${system}\n${user}`);
+  if (d.has('lentosi') && failing.has(d.get('lentosi')!)) d.set('lento', '');
   const paceMs = d.has('lento') ? 100 : Number(d.get('ritmo') ?? 8);
   const base: Plan = { words: [], paceMs, thinking: d.has('pensar') ? 'Razonamiento simulado sobre la tarea.' : undefined };
 

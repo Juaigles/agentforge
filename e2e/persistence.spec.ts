@@ -53,12 +53,81 @@ test.describe('Persistencia tras reiniciar el servidor', () => {
 
     await page.goto(`/runs/${halfway.id}`);
     await expect(page.locator('.page-header .badge').first()).toHaveText('Fallido');
-    await expect(page.getByRole('alert')).toContainText('Ejecución interrumpida por un reinicio del servidor.');
+    await expect(page.locator('main .page').getByRole('alert')).toContainText('Ejecución interrumpida por un reinicio del servidor.');
 
     // Y el servidor reiniciado sigue ejecutando con normalidad.
     const after = await app.runToEnd('workflows', wf.id, 'después del reinicio');
     expect(after.status).toBe('completed');
     expect(after.output).toContain('respuesta que debe sobrevivir');
+  });
+
+  test('al arrancar se ofrece reanudar las ejecuciones interrumpidas, reutilizando los pasos ya completados', async ({ page, app }) => {
+    const agent = await app.createAgent({ name: unique('Reanudable') });
+    const wf = await app.createWorkflow(
+      unique('Flujo interrumpido'),
+      [
+        { id: 'entrada', type: 'input' },
+        { id: 'a', type: 'agent', label: 'Paso hecho', config: { agentId: agent.id, prompt: '[[decir:alfa]] {{input}}' } },
+        { id: 'b', type: 'agent', label: 'Paso a medias', config: { agentId: agent.id, prompt: '[[lentosi:corte]] continúa con {{a}}' } },
+        { id: 'salida', type: 'output', config: { template: '{{b}}' } },
+      ],
+      ['entrada>a', 'a>b', 'b>salida'],
+    );
+    app.fake.failing.add('corte');
+    const run = await app.api('POST', `/api/workflows/${wf.id}/run`, { input: 'dato' });
+    // El primer paso termina y el segundo se queda generando cuando se va la luz.
+    await expect.poll(async () => (await app.api('GET', `/api/runs/${run.id}`)).steps.find((s: any) => s.nodeId === 'b').status).toBe('running');
+    await app.restart();
+    app.fake.failing.clear();
+
+    await page.goto('/');
+    const banner = page.locator('.interrupted');
+    await expect(banner).toContainText('Una ejecución se interrumpió al apagarse el servidor.');
+    await expect(banner.getByRole('link', { name: wf.name })).toHaveAttribute('href', `/runs/${run.id}`);
+    // El aviso acompaña al usuario en cualquier pantalla hasta que decide.
+    await page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: 'Agentes' }).click();
+    await expect(banner).toBeVisible();
+
+    const before = app.fake.chats.length;
+    await banner.getByRole('button', { name: 'Reanudar' }).click();
+    await expect(page).toHaveURL(/\/runs\/run_/);
+    expect(page.url()).not.toContain(run.id);
+    await expect(page.locator('.page-header .badge').first()).toHaveText('Completado');
+    await expect(page.getByRole('link', { name: 'reintento de una ejecución anterior' })).toHaveAttribute('href', `/runs/${run.id}`);
+    await expect(page.locator('.panel .output')).toContainText('Eco: continúa con alfa');
+    await expect(banner).toHaveCount(0);
+    // Solo se repitió el paso que no había terminado.
+    expect(app.fake.chats.slice(before).map((c) => c.user)).toEqual(['[[lentosi:corte]] continúa con alfa']);
+    await page.reload();
+    await expect(page.locator('.page-header .badge').first()).toHaveText('Completado');
+    await expect(banner).toHaveCount(0);
+    expect(await app.api('GET', '/api/runs/interrupted')).toEqual([]);
+  });
+
+  test('las ejecuciones interrumpidas se pueden descartar, y el aviso aparece sin recargar si el servidor se reinicia', async ({ page, app }) => {
+    const agent = await app.createAgent({ name: unique('Descartable'), systemPrompt: '[[lento]]' });
+    await page.goto('/runs');
+    const banner = page.locator('.interrupted');
+    await expect(banner).toHaveCount(0);
+
+    const first = await app.api('POST', `/api/agents/${agent.id}/run`, { input: 'uno' });
+    const second = await app.api('POST', `/api/agents/${agent.id}/run`, { input: 'dos' });
+    await expect.poll(async () => (await app.api('GET', `/api/runs/${second.id}`)).status).toBe('running');
+    await app.restart();
+
+    // La página sigue abierta: al reconectar el canal de eventos aparece el aviso.
+    await expect(banner).toContainText('2 ejecuciones se interrumpieron al apagarse el servidor.', { timeout: 20_000 });
+    await expect(banner.getByRole('button', { name: 'Reanudar todas' })).toBeVisible();
+    await banner.getByRole('button', { name: 'Descartar' }).click();
+    await expect(banner).toHaveCount(0);
+
+    // Quedan en el historial como fallidas y el aviso no vuelve.
+    await page.reload();
+    await expect(banner).toHaveCount(0);
+    for (const id of [first.id, second.id]) expect(await app.api('GET', `/api/runs/${id}`)).toMatchObject({ status: 'failed', interrupted: false });
+    await page.getByLabel('Buscar ejecuciones').fill(agent.name);
+    await expect(page.locator('tbody tr')).toHaveCount(2);
+    await expect(page.locator('tbody tr').first()).toContainText('Ejecución interrumpida por un reinicio del servidor.');
   });
 
   test('una página abierta se recupera sola cuando el servidor vuelve', async ({ page, app }) => {
