@@ -164,7 +164,7 @@ async function clearFinished(): Promise<void> {
         <table class="table">
           <thead>
             <tr>
-              <th>Nombre</th><th>Estado</th><th>Entrada / resultado</th><th class="right">Duración</th><th class="right">Tokens</th><th class="right">Inicio</th><th><span class="sr-only">Acciones</span></th>
+              <th>Nombre</th><th>Estado</th><th>Entrada / resultado</th><th class="right">Duración</th><th class="right"><Term id="tokens">Tokens</Term></th><th class="right">Inicio</th><th><span class="sr-only">Acciones</span></th>
             </tr>
           </thead>
           <tbody>
@@ -204,7 +204,7 @@ async function clearFinished(): Promise<void> {
         </template>
         <template v-else>
           <h3>Aún no hay ejecuciones</h3>
-          <p>Prueba un agente desde su ficha o lanza un workflow: su progreso aparecerá aquí en tiempo real.</p>
+          <p>Prueba un <Term id="agente">agente</Term> desde su ficha o lanza un <Term id="workflow">workflow</Term>: su progreso aparecerá aquí en tiempo real.</p>
           <RouterLink class="btn btn-primary" to="/workflows">Ir a workflows</RouterLink>
         </template>
       </div>

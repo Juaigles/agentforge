@@ -167,6 +167,9 @@ async function copy(text: string): Promise<void> {
 
       <section v-if="isWorkflow" class="card graph">
         <RunGraph :snapshot="run.snapshot" :live="live" :selected="selected" @select="selected = $event" />
+        <p class="tiny faint snapshot-note">
+          Se muestra la <Term id="instantanea">instantánea</Term> del <Term id="workflow">workflow</Term> tal como era al lanzar esta ejecución.
+        </p>
       </section>
 
       <div class="detail">
@@ -251,7 +254,8 @@ async function copy(text: string): Promise<void> {
 
             <!-- Entrada -->
             <template v-else>
-              <span class="eyebrow">{{ step ? (step.nodeType === 'agent' ? 'Tarea enviada al agente (plantilla ya resuelta)' : 'Datos de entrada del paso') : 'Entrada de la ejecución' }}</span>
+              <span v-if="step?.nodeType === 'agent'" class="eyebrow">Tarea enviada al agente (<Term id="plantilla">plantilla</Term> ya resuelta)</span>
+              <span v-else class="eyebrow">{{ step ? 'Datos de entrada del paso' : 'Entrada de la ejecución' }}</span>
               <pre v-if="step ? step.input : run.input" class="codeblock" style="max-height: none">{{ step ? step.input : run.input }}</pre>
               <p v-else class="muted">{{ step ? 'Este paso no registró ninguna entrada.' : 'La ejecución se lanzó sin texto de entrada.' }}</p>
             </template>
@@ -296,7 +300,15 @@ async function copy(text: string): Promise<void> {
   font-size: 19px;
   font-weight: 650;
 }
+.snapshot-note {
+  position: absolute;
+  left: 12px;
+  top: 8px;
+  margin: 0;
+  z-index: 5;
+}
 .graph {
+  position: relative;
   height: 340px;
   margin-bottom: 14px;
   overflow: hidden;

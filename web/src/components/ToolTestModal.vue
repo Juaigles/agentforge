@@ -6,6 +6,7 @@ import { computed, reactive, ref } from 'vue';
 import { api, errorText, type ToolInvokeResult } from '@/lib/api';
 import { formatDuration } from '@/lib/format';
 import AppModal from './AppModal.vue';
+import Term from './Term.vue';
 
 const props = defineProps<{ tool: ToolInfo }>();
 const emit = defineEmits<{ close: [] }>();
@@ -121,7 +122,7 @@ const TYPE_LABEL: Record<JsonSchemaProp['type'], string> = {
   <AppModal :title="`Probar ${tool.title}`" :width="640" @close="emit('close')">
     <form class="col" style="gap: 14px" @submit.prevent="run">
       <p class="muted small">
-        Se ejecuta la herramienta real <code>{{ tool.name }}</code> en el servidor, con los ajustes de seguridad actuales.
+        Se ejecuta la <Term id="herramienta">herramienta</Term> real <code>{{ tool.name }}</code> en el servidor, con los ajustes de seguridad actuales.
       </p>
 
       <p v-if="!fields.length" class="faint small">Esta herramienta no necesita parámetros.</p>

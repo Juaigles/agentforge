@@ -175,7 +175,7 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
             La clave guardada se eliminará al guardar.
             <button type="button" class="linkish" @click="removeKey = false">Deshacer</button>
           </span>
-          <span v-else class="hint row" style="gap: 5px"><KeyRound style="width: 12px; height: 12px" /> Se guarda cifrada y no se vuelve a mostrar.</span>
+          <span v-else class="hint row" style="gap: 5px"><KeyRound style="width: 12px; height: 12px" /> Se guarda <Term id="cifrado">cifrada</Term> y no se vuelve a mostrar.</span>
         </div>
 
         <div class="field span-2">
@@ -201,7 +201,7 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
           <input v-model="form.enabled" type="checkbox" />
           <span>
             <strong>Activado</strong>
-            <span class="muted small" style="display: block">Los agentes de un proveedor desactivado no pueden ejecutarse.</span>
+            <span class="muted small" style="display: block">Los <Term id="agente">agentes</Term> de un proveedor desactivado no pueden ejecutarse.</span>
           </span>
         </label>
       </div>

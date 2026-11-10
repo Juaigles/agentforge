@@ -96,7 +96,7 @@ async function remove(wf: Workflow): Promise<void> {
         <h1>Workflows</h1>
         <p class="subtitle">
           Un <Term id="workflow">workflow</Term> conecta <Term id="nodo">nodos</Term> en un <Term id="dag">DAG</Term>: los pasos independientes se ejecutan
-          en paralelo y cada agente recibe los resultados de los anteriores.
+          <Term id="paralelo">en paralelo</Term> y cada <Term id="agente">agente</Term> recibe los resultados de los anteriores.
         </p>
       </div>
       <RouterLink class="btn btn-primary" to="/workflows/new"><Plus /> Nuevo workflow</RouterLink>

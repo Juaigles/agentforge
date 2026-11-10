@@ -407,7 +407,7 @@ onBeforeRouteLeave(async (to) => {
     <div v-else class="body">
       <!-- Paleta -->
       <aside class="palette" aria-label="Paleta de nodos">
-        <div class="eyebrow">Agentes</div>
+        <div class="eyebrow"><Term id="agente">Agentes</Term></div>
         <p class="tiny faint">Arrastra al lienzo o haz clic.</p>
         <button
           v-for="agent in catalog.agents"
@@ -438,7 +438,7 @@ onBeforeRouteLeave(async (to) => {
           <span class="pal-ico"><component :is="item.icon" /></span>
           <span class="truncate">{{ NODE_LABEL[item.kind] }}</span>
         </button>
-        <p class="tiny faint help">Con un nodo seleccionado, el siguiente que añadas se conecta a él (desde una condición, a su primera rama libre). También puedes unir los puntos a mano. Supr borra el nodo o la conexión seleccionados.</p>
+        <p class="tiny faint help">Con un <Term id="nodo">nodo</Term> seleccionado, el siguiente que añadas se conecta a él (desde una <Term id="condicion">condición</Term>, a su primera rama libre). También puedes unir los puntos a mano. Supr borra el nodo o la conexión seleccionados.</p>
       </aside>
 
       <!-- Lienzo -->
@@ -514,6 +514,7 @@ onBeforeRouteLeave(async (to) => {
             <div class="field">
               <label for="in-prompt">Tarea (<Term id="plantilla">plantilla</Term>)</label>
               <textarea id="in-prompt" v-model="selectedData.config.prompt" data-tpl="prompt" class="textarea" rows="7" placeholder="Qué debe hacer el agente en este paso…" />
+              <span class="hint">Es el <Term id="prompt">prompt</Term> que recibe el agente en este paso, con las referencias ya sustituidas.</span>
             </div>
           </template>
 
@@ -671,7 +672,7 @@ onBeforeRouteLeave(async (to) => {
       <div class="field">
         <label for="run-input">{{ inputNode?.data?.config.description || 'Entrada del workflow' }}</label>
         <textarea id="run-input" v-model="runInput" class="textarea" rows="5" placeholder="Texto con el que arranca el workflow" @keydown.ctrl.enter="launch" />
-        <span class="hint">Disponible en los nodos como <code v-text="'{{input}}'" />.</span>
+        <span class="hint">Disponible en los <Term id="nodo">nodos</Term> como <code v-text="'{{input}}'" />.</span>
       </div>
       <p v-if="dirty" class="small muted" style="margin-top: 10px">Los cambios pendientes se guardarán antes de ejecutar.</p>
       <template #footer>

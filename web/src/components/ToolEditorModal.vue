@@ -263,7 +263,7 @@ async function save(): Promise<void> {
             :aria-invalid="!!(nameError || issueFor('name'))"
           />
           <span v-if="nameError || issueFor('name')" class="error" role="alert">{{ nameError || issueFor('name') }}</span>
-          <span v-else class="hint">Identificador que verá el modelo. Sin espacios ni mayúsculas.</span>
+          <span v-else class="hint">Identificador que verá el <Term id="modelo">modelo</Term>. Sin espacios ni mayúsculas.</span>
         </div>
         <div class="field">
           <span class="label">Estado</span>
@@ -292,13 +292,13 @@ async function save(): Promise<void> {
         <legend>Petición</legend>
         <div class="request">
           <div class="field">
-            <label for="te-method">Método</label>
+            <label for="te-method"><Term id="metodo-http">Método</Term></label>
             <select id="te-method" v-model="form.method" class="select">
               <option v-for="m in METHODS" :key="m" :value="m">{{ m }}</option>
             </select>
           </div>
           <div class="field">
-            <label for="te-url">URL</label>
+            <label for="te-url"><Term id="url">URL</Term></label>
             <input
               id="te-url"
               v-model="form.urlTemplate"
@@ -316,7 +316,7 @@ async function save(): Promise<void> {
 
         <div class="col" style="gap: 6px">
           <div class="row between">
-            <span class="label">Cabeceras</span>
+            <span class="label"><Term id="cabecera">Cabeceras</Term></span>
             <button class="btn btn-ghost btn-sm" type="button" @click="addHeader"><Plus /> Añadir cabecera</button>
           </div>
           <p v-if="!form.headers.length" class="faint small">Sin cabeceras adicionales.</p>

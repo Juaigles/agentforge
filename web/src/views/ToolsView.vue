@@ -209,7 +209,7 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
         <h1>Herramientas</h1>
         <p class="subtitle">
           Una <Term id="herramienta">herramienta</Term> permite a un <Term id="agente">agente</Term> hacer operaciones reales: calcular, leer una
-          web, escribir archivos o llamar a tus propias APIs.
+          web, escribir archivos o llamar a tus propias <Term id="api">APIs</Term>.
         </p>
       </div>
       <button class="btn btn-primary" type="button" :disabled="loading || !!loadError" @click="editor = {}"><Plus /> Nueva herramienta HTTP</button>

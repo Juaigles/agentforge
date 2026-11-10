@@ -84,6 +84,18 @@ Se trabaja punto por punto, sin pasar al siguiente hasta implementar, verificar 
 - No aparecieron defectos funcionales en estas vistas más allá de esas dos carencias; los defectos de este hito
   salieron de las vistas del punto 4.1.
 
+### 4.3 Glosario completo — HECHO
+
+- Revisadas todas las pantallas y modales: el glosario pasa de 34 a **44 entradas** (API, URL, cabecera, método
+  HTTP, cola, en paralelo, capacidades, cifrado, base de datos, Node.js) y de 62 a más de 90 usos de `<Term>`.
+- Las cinco entradas que existían pero no se usaban en ninguna pantalla (condición, delegación, instantánea,
+  memoria compartida, prompt) tienen ahora su sitio, con texto de ayuda nuevo donde hacía falta (p. ej. la nota
+  «Se muestra la instantánea del workflow…» sobre el grafo de una ejecución).
+- Dos términos estaban dentro de títulos `h2`, en contra de la norma: se han pasado al texto de ayuda.
+- **Test de coherencia** (`web/src/lib/glossary.test.ts`): analiza las plantillas con el compilador de Vue y falla
+  si un `<Term id>` no existe, si una entrada no se usa, si un término está dentro de un botón, enlace, código o
+  título, o si una definición no cabe en un tooltip. Comprobado que detecta cada infracción introduciéndolas a mano.
+
 ## Pendiente y limitaciones
 
 - **Sin autenticación ni multiusuario.** Pensado para uso local (escucha en 127.0.0.1).
@@ -106,6 +118,9 @@ Se trabaja punto por punto, sin pasar al siguiente hasta implementar, verificar 
 - **La suite e2e solo se ejecuta en Chromium** y con el modelo simulado; no hay CI configurado (se lanza a mano).
 - **El texto parcial de un paso cancelado no se persiste**: se ve en la sesión en la que se canceló, pero no al
   volver a abrir la ejecución más tarde.
+- **Glosario**: «primera aparición por sección» se ha aplicado a mano; el test no puede comprobar que no falte
+  ningún término por marcar, solo que lo marcado es coherente. Los textos que llegan del servidor (descripciones de
+  herramientas, mensajes de error) y los de las opciones de un desplegable no llevan tooltip.
 - Las estadísticas diarias se agrupan por fecha UTC.
 
 ## Próximos pasos sugeridos

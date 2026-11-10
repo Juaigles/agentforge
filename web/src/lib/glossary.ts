@@ -10,6 +10,10 @@ export const GLOSSARY = {
     term: 'Agente',
     definition: 'Un modelo de lenguaje con un papel, unas instrucciones y unas herramientas. Como un empleado con su puesto y su caja de herramientas.',
   },
+  api: {
+    term: 'API',
+    definition: 'Puerta de entrada que un programa ofrece a otros programas: se le envía una petición y devuelve datos, sin pantallas de por medio.',
+  },
   'api-key': {
     term: 'API key',
     definition: 'Contraseña que identifica tu cuenta ante un servicio. AgentForge la guarda cifrada y nunca la vuelve a mostrar.',
@@ -17,6 +21,26 @@ export const GLOSSARY = {
   'base-url': {
     term: 'URL base',
     definition: 'Dirección raíz del servidor del proveedor, por ejemplo http://localhost:11434 para Ollama en tu equipo.',
+  },
+  'base-datos': {
+    term: 'Base de datos',
+    definition: 'Archivo donde AgentForge guarda agentes, workflows y ejecuciones (SQLite, en la carpeta de datos). Sobrevive a los reinicios.',
+  },
+  cabecera: {
+    term: 'Cabecera',
+    definition: 'Dato adicional que acompaña a una petición HTTP, como la credencial (Authorization) o el formato del contenido.',
+  },
+  capacidades: {
+    term: 'Capacidades',
+    definition: 'Lo que un modelo sabe hacer además de conversar: usar herramientas (tools), razonar (thinking), ver imágenes (vision)…',
+  },
+  cifrado: {
+    term: 'Cifrado',
+    definition: 'Transformar un dato con una clave para que sea ilegible sin ella. Las API keys se guardan así en el disco.',
+  },
+  cola: {
+    term: 'Cola',
+    definition: 'Fila de espera: cuando se alcanza el máximo de ejecuciones simultáneas, las nuevas aguardan aquí su turno.',
   },
   condicion: {
     term: 'Condición',
@@ -70,6 +94,10 @@ export const GLOSSARY = {
     term: 'Memoria compartida',
     definition: 'Pizarra común de una ejecución: un agente apunta un dato y los demás agentes del mismo workflow pueden leerlo.',
   },
+  'metodo-http': {
+    term: 'Método HTTP',
+    definition: 'El tipo de petición: GET pide datos, POST los envía, PUT y PATCH los modifican y DELETE los borra.',
+  },
   modelo: {
     term: 'Modelo',
     definition: 'La versión concreta de IA que usa el agente, por ejemplo qwen3:8b. Los grandes razonan mejor; los pequeños responden antes.',
@@ -78,6 +106,10 @@ export const GLOSSARY = {
     term: 'Nodo',
     definition: 'Cada caja del workflow: una entrada, un agente, una herramienta, una condición, una transformación o una salida.',
   },
+  nodejs: {
+    term: 'Node.js',
+    definition: 'Entorno que ejecuta el servidor de AgentForge en tu equipo. Su versión importa si algo deja de funcionar tras actualizarlo.',
+  },
   ollama: {
     term: 'Ollama',
     definition: 'Programa gratuito que ejecuta modelos de IA en tu propio ordenador, sin enviar datos a ningún servicio externo.',
@@ -85,6 +117,10 @@ export const GLOSSARY = {
   'openai-compatible': {
     term: 'Compatible con OpenAI',
     definition: 'Servicio que habla el mismo «idioma» que la API de OpenAI (OpenRouter, Groq, LM Studio…), así que se conecta igual.',
+  },
+  paralelo: {
+    term: 'En paralelo',
+    definition: 'Varios pasos que no dependen entre sí se ejecutan a la vez en lugar de uno detrás de otro, y el workflow termina antes.',
   },
   plantilla: {
     term: 'Plantilla',
@@ -133,6 +169,10 @@ export const GLOSSARY = {
   tokens: {
     term: 'Tokens',
     definition: 'Trozos de palabra con los que el modelo mide el texto. Unas 100 palabras en español rondan los 150 tokens.',
+  },
+  url: {
+    term: 'URL',
+    definition: 'Dirección web completa de un recurso, por ejemplo https://api.ejemplo.com/clima?ciudad=Madrid.',
   },
   workflow: {
     term: 'Workflow',

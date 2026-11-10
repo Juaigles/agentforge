@@ -250,7 +250,7 @@ async function clearFinished(): Promise<void> {
     <header class="page-header">
       <div>
         <h1>Ajustes</h1>
-        <p class="subtitle">Conecta los servicios que ejecutan los modelos y decide los límites y permisos con los que trabajan los agentes.</p>
+        <p class="subtitle">Conecta los servicios que ejecutan los <Term id="modelo">modelos</Term> y decide los límites y permisos con los que trabajan los agentes.</p>
       </div>
     </header>
 
@@ -350,7 +350,7 @@ async function clearFinished(): Promise<void> {
               <label class="o-title" for="set-concurrent">Ejecuciones simultáneas máximas</label>
               <p class="muted small">
                 Límite de <Term id="concurrencia">concurrencia</Term> global: cuántas <Term id="ejecucion">ejecuciones</Term> pueden estar en marcha a
-                la vez. El resto espera en cola. Con modelos locales, un valor bajo evita saturar el equipo.
+                la vez. El resto espera en <Term id="cola">cola</Term>. Con modelos locales, un valor bajo evita saturar el equipo.
               </p>
             </div>
             <input
@@ -373,7 +373,7 @@ async function clearFinished(): Promise<void> {
               <p class="muted small">
                 Por defecto, las herramientas de red no pueden llamar a una <Term id="red-privada">red privada</Term> ni a localhost. Así, una web
                 maliciosa que lea un agente no puede convencerlo de consultar tu router u otros servicios internos y filtrar lo que encuentre.
-                Actívalo solo si necesitas que los agentes usen APIs de tu red local.
+                Actívalo solo si necesitas que los agentes usen <Term id="api">APIs</Term> de tu red local.
               </p>
             </div>
             <input
@@ -429,7 +429,7 @@ async function clearFinished(): Promise<void> {
           </div>
           <template v-else>
             <dl class="facts">
-              <div><dt>Base de datos</dt><dd class="num">{{ formatBytes(stats.system.dbSizeBytes) }}</dd></div>
+              <div><dt><Term id="base-datos">Base de datos</Term></dt><dd class="num">{{ formatBytes(stats.system.dbSizeBytes) }}</dd></div>
               <div><dt>Ejecuciones guardadas</dt><dd class="num">{{ formatNumber(stats.counts.runs) }}</dd></div>
               <div><dt>Terminadas</dt><dd class="num">{{ formatNumber(finishedRuns) }}</dd></div>
               <div class="wide"><dt>Carpeta de datos</dt><dd class="mono path" :title="stats.system.dataDir">{{ stats.system.dataDir }}</dd></div>
@@ -455,7 +455,7 @@ async function clearFinished(): Promise<void> {
           </div>
           <dl v-else class="facts">
             <div><dt>Versión de AgentForge</dt><dd class="num">{{ stats.system.version }}</dd></div>
-            <div><dt>Node.js</dt><dd class="num">{{ stats.system.nodeVersion }}</dd></div>
+            <div><dt><Term id="nodejs">Node.js</Term></dt><dd class="num">{{ stats.system.nodeVersion }}</dd></div>
             <div><dt>Tiempo en marcha</dt><dd class="num">{{ formatUptime(stats.system.uptimeSec) }}</dd></div>
             <div><dt>Memoria del servidor</dt><dd class="num">{{ formatNumber(stats.system.memoryMb) }} MB</dd></div>
             <div class="wide"><dt>Plataforma</dt><dd>{{ stats.system.platform }}</dd></div>

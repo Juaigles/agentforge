@@ -80,7 +80,7 @@ async function cancel(run: RunSummary): Promise<void> {
     <header class="page-header">
       <div>
         <h1>Panel</h1>
-        <p class="subtitle">Estado en vivo de tus agentes, workflows y ejecuciones.</p>
+        <p class="subtitle">Estado en vivo de tus <Term id="agente">agentes</Term>, <Term id="workflow">workflows</Term> y ejecuciones.</p>
       </div>
       <div class="row wrap">
         <RouterLink class="btn" to="/agents/new"><Plus /> Nuevo agente</RouterLink>
@@ -109,7 +109,7 @@ async function cancel(run: RunSummary): Promise<void> {
           <div class="kpi-value num">{{ formatNumber(stats.counts.runs) }}</div>
           <div class="kpi-foot">
             <span v-if="stats.activeRuns || stats.queuedRuns" class="row" style="gap: 6px">
-              <span class="dot info pulse" /> {{ stats.activeRuns }} en curso<template v-if="stats.queuedRuns"> · {{ stats.queuedRuns }} en cola</template>
+              <span class="dot info pulse" /> {{ stats.activeRuns }} en curso<template v-if="stats.queuedRuns"> · {{ stats.queuedRuns }} en <Term id="cola">cola</Term></template>
             </span>
             <span v-else>Ninguna en curso</span>
           </div>
@@ -191,7 +191,7 @@ async function cancel(run: RunSummary): Promise<void> {
             <p>No hay nada ejecutándose ahora mismo.</p>
           </div>
           <div class="providers">
-            <div class="eyebrow">Proveedores</div>
+            <div class="eyebrow"><Term id="proveedor">Proveedores</Term></div>
             <p v-if="!catalog.health.length" class="small faint">{{ catalog.providers.length ? 'Comprobando…' : 'Ninguno configurado' }}</p>
             <div v-for="h in catalog.health" :key="h.providerId" class="row small" :title="h.error">
               <span class="dot" :class="h.ok ? 'success' : 'danger'" />
@@ -210,7 +210,7 @@ async function cancel(run: RunSummary): Promise<void> {
         <div v-if="stats.recentRuns.length" class="table-wrap">
           <table class="table">
             <thead>
-              <tr><th>Nombre</th><th>Estado</th><th>Entrada</th><th class="right">Duración</th><th class="right">Tokens</th><th class="right">Inicio</th></tr>
+              <tr><th>Nombre</th><th>Estado</th><th>Entrada</th><th class="right">Duración</th><th class="right"><Term id="tokens">Tokens</Term></th><th class="right">Inicio</th></tr>
             </thead>
             <tbody>
               <tr v-for="run in stats.recentRuns" :key="run.id" class="clickable" @click="router.push(`/runs/${run.id}`)">
@@ -255,7 +255,7 @@ async function cancel(run: RunSummary): Promise<void> {
               <div class="meter"><span :style="{ width: pct(t.calls, maxToolCalls) }" /></div>
             </div>
           </div>
-          <p v-else class="small faint">Ningún agente ha usado herramientas todavía.</p>
+          <p v-else class="small faint">Ningún agente ha usado <Term id="herramienta">herramientas</Term> todavía.</p>
         </section>
 
         <section class="card card-pad">
@@ -269,7 +269,7 @@ async function cancel(run: RunSummary): Promise<void> {
             <dt>Versión</dt><dd>{{ stats.system.version }} · Node {{ stats.system.nodeVersion }}</dd>
             <dt>En marcha</dt><dd>{{ formatUptime(stats.system.uptimeSec) }}</dd>
             <dt>Memoria</dt><dd>{{ stats.system.memoryMb }} MB</dd>
-            <dt>Base de datos</dt><dd>{{ formatBytes(stats.system.dbSizeBytes) }}</dd>
+            <dt><Term id="base-datos">Base de datos</Term></dt><dd>{{ formatBytes(stats.system.dbSizeBytes) }}</dd>
           </dl>
         </section>
       </div>

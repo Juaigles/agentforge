@@ -220,11 +220,12 @@ const playgroundBlocked = computed(() => {
             <div class="field">
               <label for="ag-role">Rol</label>
               <input id="ag-role" v-model="form.role" class="input" maxlength="160" placeholder="especialista en recopilar hechos" />
-              <span class="hint">Se le dice al modelo: «Eres {{ form.name || '…' }}, {{ form.role || '…' }}».</span>
+              <span class="hint">Se le dice al <Term id="modelo">modelo</Term>: «Eres {{ form.name || '…' }}, {{ form.role || '…' }}».</span>
             </div>
             <div class="field span-2">
               <label for="ag-desc">Descripción</label>
-              <input id="ag-desc" v-model="form.description" class="input" maxlength="1000" placeholder="Para qué sirve este agente (la ven otros agentes al delegar)" />
+              <input id="ag-desc" v-model="form.description" class="input" maxlength="1000" placeholder="Para qué sirve este agente" />
+              <span class="hint">La leen otros agentes para decidir si le encargan una tarea (<Term id="delegacion">delegación</Term>).</span>
             </div>
             <div class="field span-2">
               <span class="label">Color</span>
@@ -280,7 +281,7 @@ const playgroundBlocked = computed(() => {
               <span v-else-if="modelsError" class="error">No se pudo obtener la lista de modelos: {{ modelsError }}</span>
               <span v-else-if="modelMissing" class="error">Este modelo ya no está disponible en el proveedor.</span>
               <span v-else class="hint">
-                <template v-if="currentModel?.capabilities">Capacidades: {{ currentModel.capabilities.join(', ') }}. </template>
+                <template v-if="currentModel?.capabilities"><Term id="capacidades">Capacidades</Term>: {{ currentModel.capabilities.join(', ') }}. </template>
                 <button v-if="models.length" class="link-btn text" type="button" @click="manualModel = !manualModel">
                   {{ manualModel ? 'Elegir de la lista' : 'Escribir a mano' }}
                 </button>
@@ -320,7 +321,7 @@ const playgroundBlocked = computed(() => {
         </section>
 
         <section class="card card-pad">
-          <h2 class="section-title"><Term id="prompt-sistema">Instrucciones del sistema</Term></h2>
+          <h2 class="section-title">Instrucciones del sistema</h2>
           <div class="field">
             <label for="ag-prompt" class="sr-only">Instrucciones del sistema</label>
             <textarea
@@ -331,15 +332,23 @@ const playgroundBlocked = computed(() => {
               maxlength="20000"
               placeholder="Describe cómo debe trabajar: objetivo, formato de respuesta, tono, límites…"
             />
-            <span class="hint">{{ form.systemPrompt.length.toLocaleString('es-ES') }} caracteres</span>
+            <span class="hint">
+              Son las <Term id="prompt-sistema">instrucciones del sistema</Term>: se envían al modelo en todas las tareas.
+              {{ form.systemPrompt.length.toLocaleString('es-ES') }} caracteres.
+            </span>
           </div>
         </section>
 
         <section class="card card-pad">
           <div class="row between" style="margin-bottom: 12px">
-            <h2><Term id="herramienta">Herramientas</Term></h2>
+            <h2>Herramientas</h2>
             <span class="badge" :class="{ accent: form.tools.length }">{{ form.tools.length }} activas</span>
           </div>
+          <p class="small muted" style="margin-bottom: 12px">
+            Cada <Term id="herramienta">herramienta</Term> activada se ofrece al modelo, que decide cuándo usarla. Además de calcular o leer la web,
+            un agente puede anotar datos en la <Term id="memoria-compartida">memoria compartida</Term> de la ejecución o encargar parte del
+            trabajo a otro agente.
+          </p>
           <div v-if="unknownTools.length" class="callout warning" style="margin-bottom: 12px">
             <TriangleAlert />
             <div>Herramientas que ya no existen y se quitarán al guardar: {{ unknownTools.join(', ') }}.</div>

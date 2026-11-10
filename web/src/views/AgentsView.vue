@@ -116,7 +116,7 @@ async function remove(agent: Agent): Promise<void> {
         </template>
         <template v-else>
           <h3>Todavía no tienes agentes</h3>
-          <p>Crea el primero: elige un modelo, dale un papel y decide qué herramientas puede usar.</p>
+          <p>Crea el primero: elige un <Term id="modelo">modelo</Term>, dale un papel y decide qué <Term id="herramienta">herramientas</Term> puede usar.</p>
           <RouterLink class="btn btn-primary" to="/agents/new"><Plus /> Crear agente</RouterLink>
         </template>
       </div>

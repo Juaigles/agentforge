@@ -12,6 +12,7 @@ import { useUi } from '@/stores/ui';
 import MarkdownView from './MarkdownView.vue';
 import RunActivity from './RunActivity.vue';
 import StatusBadge from './StatusBadge.vue';
+import Term from './Term.vue';
 
 const props = defineProps<{ agentId: string | null; blocked?: string | null }>();
 const ui = useUi();
@@ -97,7 +98,7 @@ async function cancel(): Promise<void> {
         <span v-else-if="!isActive" class="tiny faint">Ctrl + Intro</span>
         <span v-if="live?.startedAt" class="small muted num" style="margin-left: auto">
           {{ formatDuration(elapsedMs(live.startedAt, live.finishedAt, now)) }}
-          <template v-if="usage"> · {{ formatCompact(usage.promptTokens + usage.completionTokens) }} tokens</template>
+          <template v-if="usage"> · {{ formatCompact(usage.promptTokens + usage.completionTokens) }} <Term id="tokens">tokens</Term></template>
         </span>
       </div>
 
