@@ -217,6 +217,39 @@ const MIGRATIONS: Migration[] = [
       if (mode !== 2) db.exec('PRAGMA auto_vacuum = INCREMENTAL; VACUUM;');
     },
   },
+  // v5: motor ampliado.
+  //  - Subworkflows: una ejecución puede ser hija de otra (parent_run_id / parent_node_id).
+  //  - Texto parcial de un paso cancelado o fallido a medias.
+  //  - Resultado de cada elemento de un «para cada» (para reutilizar los completados al reintentar).
+  //  - Aprobaciones humanas.
+  `
+  ALTER TABLE runs ADD COLUMN parent_run_id TEXT;
+  ALTER TABLE runs ADD COLUMN parent_node_id TEXT;
+  CREATE INDEX idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
+  ALTER TABLE run_steps ADD COLUMN partial_output TEXT;
+  CREATE TABLE run_step_items (
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    node_id TEXT NOT NULL,
+    idx INTEGER NOT NULL,
+    item TEXT NOT NULL,
+    status TEXT NOT NULL,
+    output TEXT,
+    error TEXT,
+    PRIMARY KEY (run_id, node_id, idx)
+  ) WITHOUT ROWID;
+  CREATE TABLE approvals (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    node_id TEXT NOT NULL,
+    message TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    comment TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    decided_at TEXT
+  );
+  CREATE INDEX idx_approvals_pending ON approvals(created_at) WHERE status = 'pending';
+  CREATE INDEX idx_approvals_run ON approvals(run_id);
+  `,
 ];
 
 /** Versión de esquema que conoce este código. */

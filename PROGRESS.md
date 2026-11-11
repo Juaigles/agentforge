@@ -1,6 +1,6 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-11 (hito 5, fases 1 y 2; ver «Hito 5» más abajo)._
+_Última actualización: 2026-11-11 (hito 5, fases 1 a 3; ver «Hito 5» más abajo)._
 
 ## Estado real
 
@@ -260,6 +260,35 @@ contra un modelo simulado no cambian de ritmo (≈ 250 por minuto con 10 a la ve
 filas cargadas; al preparar una restauración quedaba abierto el archivo de la copia (en Windows, bloqueado); la
 sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
 
+### Fase 3 · Motor — HECHA (2026-11-11)
+
+- **Subworkflows.** Un nodo puede lanzar otro workflow como un paso y recibir su resultado. La subejecución es
+  una ejecución propia, visible en el historial y enlazada en los dos sentidos con la que la lanza; no pasa por
+  la cola, se cancela con su madre y su uso se suma al paso. La instantánea de la ejecución incluye los
+  subworkflows tal como eran al lanzarla. Se anidan hasta 5 niveles; la validación impide los ciclos entre
+  workflows y el servidor no deja borrar un workflow que otro usa.
+- **«Para cada» ampliado.** El cuerpo puede ser un agente, una **herramienta** (sin pasar por un modelo) o un
+  **subworkflow** (un flujo de varios nodos por elemento). **Política por elemento**: detener el nodo o seguir
+  con los demás, señalando el fallo en el resultado. El resultado de cada elemento se guarda y, **al reintentar
+  desde el fallo, los elementos ya completados no se repiten**.
+- **Aprobación humana.** Nodo con dos salidas (aprobado / rechazado). La ejecución queda «en espera», aparece
+  un aviso en cualquier pantalla con el texto a aprobar y se decide con un comentario opcional, que los nodos
+  siguientes pueden usar (`{{id.comment}}`). Mientras espera **no ocupa un hueco de ejecución ni consume la
+  duración máxima**. **Sobrevive a un reinicio**: al arrancar, la ejecución vuelve sola a pedir la decisión sin
+  repetir los pasos ya hechos.
+- **Reanudación automática opcional** (*Ajustes*): las ejecuciones interrumpidas por un apagado siguen solas al
+  arrancar. Las que solo esperaban una aprobación se reanudan siempre.
+- **Texto parcial persistido**: si un paso se cancela o falla con el modelo a media respuesta, lo que llevaba
+  escrito se guarda con el paso y se ve al volver a abrir la ejecución.
+- **Listas tolerantes**: «para cada» entiende un array JSON precedido de una frase, dentro de una valla de
+  código, con una coma final o envuelto en un objeto; «2024. Informe» ya no se toma por un elemento numerado.
+- **Respuestas cortadas (protocolo de OpenAI)**: un flujo que se cierra sin fin de mensaje es un error
+  reintentable, no una respuesta; una llamada a herramienta con argumentos a medias **no se ejecuta** (el
+  modelo recibe el motivo), y la respuesta cortada por el límite de tokens queda marcada.
+- **Ids de nodo reservados**: un nodo no puede llamarse `input`, `total`, etc., y los ids generados lo evitan.
+- **Verificado con Ollama**: un workflow real con subworkflow (Analista) → aprobación → Redactor; la decisión se
+  tomó en el navegador con un comentario, que el modelo recibió.
+
 ## Pendiente y limitaciones
 
 - **Sin multiusuario.** Una única clave de acceso opcional (obligatoria fuera de este equipo); no hay cuentas ni permisos.
@@ -271,9 +300,16 @@ sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
   propias API de red. Para código no confiable, el contenedor.
 - **Las cabeceras con credenciales de las herramientas HTTP siguen guardándose en claro** (previsto en la fase 5).
 - **La política de contenido admite estilos en línea** (`style-src 'unsafe-inline'`): Vue y Vue Flow los necesitan.
-- **Los workflows son DAG**: no hay bucles; la iteración sobre listas se hace con el nodo «para cada» (un solo agente por elemento, sin subflujos).
-- **«Para cada» ejecuta un solo agente por elemento**: no admite un subflujo de varios nodos ni una herramienta
-  como cuerpo. Si falla un elemento falla el nodo entero, y al reintentar desde el fallo se repiten todos.
+- **Los workflows son DAG**: no hay bucles; la iteración sobre listas se hace con el nodo «para cada».
+- **Un subworkflow es una ejecución aparte**, no pasos anidados dentro de la misma: su detalle se ve abriendo la
+  subejecución. Al reintentar desde el fallo la ejecución madre, el nodo de subworkflow se repite entero.
+- **Una aprobación pendiente se vuelve a crear tras un reinicio** (la ejecución se reanuda como una nueva que
+  reutiliza los pasos hechos): quien decide ve la misma pregunta, pero es otra petición. No hay permisos: decide
+  cualquiera que tenga acceso a la interfaz. Varias aprobaciones en paralelo detienen el reloj de toda la ejecución.
+- **La reutilización de elementos de «para cada»** exige que el elemento esté en la misma posición con el mismo
+  texto; si la lista cambia entre intentos, se repite.
+- **Sin registro único de tipos de nodo**: añadir uno sigue obligando a tocar el motor, la validación compartida,
+  el esquema de la API y el inspector.
 - **Programación sencilla, no cron**: intervalos o una hora diaria; sin días de la semana ni zonas horarias (usa la
   hora local del servidor). Solo corre con el servidor en marcha; tras un apagado se lanza **una** vez la cita
   vencida, no las perdidas. Una programación por workflow. Sin disparadores externos (webhooks).
@@ -295,8 +331,8 @@ sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
 - **El texto del modelo llega con hasta 33 ms de retraso** añadido (los fragmentos se agrupan).
 - **Sin tope global de llamadas simultáneas al modelo ni de la cola de ejecuciones**; cada pestaña mantiene su
   propia conexión en vivo (con muchas pestañas el navegador agota sus 6 conexiones por servidor).
-- **La reanudación tras un apagado la decide el usuario** (aviso en la interfaz); no hay reanudación automática
-  desatendida. Un paso que estaba a medias se repite entero: el texto parcial del modelo no se recupera.
+- **Tras un apagado, un paso que estaba a medias se repite entero**: su texto parcial se conserva para
+  consultarlo, pero el modelo no continúa desde él. La reanudación automática es opcional y viene desactivada.
 - **Fijación de DNS**: probada contra un servidor DNS local real (UDP, protocolo de cable). El producto resuelve con
   el sistema operativo; la prueba usa el resolvedor de Node apuntando a ese servidor. No se ha probado contra un
   dominio de rebinding real en Internet.
@@ -308,8 +344,8 @@ sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
   `OLLAMA_NUM_PARALLEL`; el motor las lanza en paralelo igualmente.
 - **La suite e2e solo se ejecuta en Chromium** y con el modelo simulado; no hay CI configurado (se lanza a mano).
 - **Las instantáneas no se deduplican**: cada ejecución guarda su copia del workflow y de sus agentes.
-- **El texto parcial de un paso cancelado no se persiste**: se ve en la sesión en la que se canceló, pero no al
-  volver a abrir la ejecución más tarde.
+- **El texto parcial que se guarda es el de la respuesta en curso**, no el de los elementos de un «para cada»
+  ni el de un agente delegado.
 - **Glosario**: «primera aparición por sección» se ha aplicado a mano; el test no puede comprobar que no falte
   ningún término por marcar, solo que lo marcado es coherente. Los textos que llegan del servidor (descripciones de
   herramientas, mensajes de error) y los de las opciones de un desplegable no llevan tooltip.

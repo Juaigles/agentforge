@@ -208,7 +208,7 @@ test.describe('Constructor de workflows', () => {
     await expect(each).toContainText('Cada elemento → Sin agente asignado');
     await expect(page.locator('.check-badge')).toContainText('error');
 
-    await inspector.getByLabel('Agente').selectOption(agent.id);
+    await inspector.getByLabel('Agente', { exact: true }).selectOption(agent.id);
     await expect(each).toContainText(`Cada elemento → ${agent.name}`);
     // La tarea se compone con las referencias propias del nodo.
     const task = inspector.locator('#in-prompt');

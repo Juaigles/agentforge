@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import type { RunStatus, StepStatus } from '@shared/types';
-import { Ban, Check, CircleDashed, Clock, LoaderCircle, SkipForward, X } from 'lucide-vue-next';
+import { Ban, Check, CircleDashed, Clock, Hourglass, LoaderCircle, SkipForward, X } from 'lucide-vue-next';
 import { computed } from 'vue';
 import { STATUS_LABEL, STATUS_TONE } from '@/lib/format';
 
 const props = defineProps<{ status: RunStatus | StepStatus; iconOnly?: boolean }>();
-const ICONS = { queued: Clock, pending: CircleDashed, running: LoaderCircle, completed: Check, failed: X, cancelled: Ban, skipped: SkipForward };
+const ICONS = { queued: Clock, pending: CircleDashed, running: LoaderCircle, waiting: Hourglass, completed: Check, failed: X, cancelled: Ban, skipped: SkipForward };
 const icon = computed(() => ICONS[props.status]);
 </script>
 

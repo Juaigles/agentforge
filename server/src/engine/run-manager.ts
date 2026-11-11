@@ -1,13 +1,16 @@
 // Gestor de ejecuciones: crea runs, los encola, limita la concurrencia global, permite cancelar
 // y publica los eventos (persistidos y transitorios) para la monitorización en tiempo real.
 import { EventEmitter } from 'node:events';
-import { topologicalOrder } from '../../../shared/graph';
+import { nodeSubworkflowId, nodeUsesAgent, topologicalOrder } from '../../../shared/graph';
 import {
   DEFAULT_WORKFLOW_SETTINGS,
+  MAX_SUBWORKFLOW_DEPTH,
   type Agent,
+  type Approval,
   type Run,
   type RunEvent,
   type RunEventType,
+  type RunSnapshot,
   type RunSummary,
   type Workflow,
   type WorkflowDefinition,
@@ -15,9 +18,9 @@ import {
 import type { Store } from '../db/store';
 import type { LlmFactory } from '../llm/types';
 import type { ToolRegistry } from '../tools/registry';
-import { ShutdownSignal } from '../errors';
+import { ConfigError, HttpError, ShutdownSignal } from '../errors';
 import { errorMessage, nowIso, silentLogger, type Logger } from '../util';
-import { WorkflowExecution } from './workflow-engine';
+import { WorkflowExecution, type ExecutionResult } from './workflow-engine';
 
 export interface RunManagerDeps {
   store: Store;
@@ -52,6 +55,12 @@ export class RunManager {
   private readonly active = new Map<string, ActiveRun>();
   private readonly queue: Array<{ runId: string; seeded: Map<string, string> }> = [];
   private readonly waiters = new Map<string, Array<() => void>>();
+  /** Aprobaciones a la espera de una decisión: quien la toma resuelve la promesa en la que el nodo está parado. */
+  private readonly approvals = new Map<string, { runId: string; nodeId: string; resolve: (d: { approved: boolean; comment: string }) => void }>();
+  /** Ejecuciones (de primer nivel) detenidas esperando a una persona: no ocupan un hueco de ejecución. */
+  private readonly waitingRuns = new Map<string, number>();
+  /** Ejecución de primer nivel a la que pertenece cada subejecución en curso. */
+  private readonly rootOf = new Map<string, string>();
 
   constructor(private readonly deps: RunManagerDeps) {
     this.emitter.setMaxListeners(0);
@@ -92,7 +101,15 @@ export class RunManager {
     const partials = this.active.get(runId)?.partials;
     if (partials && nodeId) {
       if (type === 'llm.delta' && !data.depth) partials.set(nodeId, (partials.get(nodeId) ?? '') + data.text);
-      else if (type === 'llm.start' || type === 'llm.message' || type === 'step.finished') partials.delete(nodeId);
+      else if (type === 'llm.start' || type === 'llm.message' || type === 'step.finished') {
+        // Un paso que se cancela o falla con el modelo a media respuesta conserva lo que llevaba escrito.
+        const partial = partials.get(nodeId);
+        if (type === 'step.finished' && data.status !== 'completed' && partial) {
+          this.deps.store.updateStep(runId, nodeId, { partialOutput: partial });
+          data = { ...data, partialOutput: partial };
+        }
+        partials.delete(nodeId);
+      }
     }
     // Un modelo emite decenas de fragmentos por segundo. Enviarlos uno a uno multiplica los mensajes SSE, las
     // serializaciones y los repintados del navegador; se agrupan en ventanas cortas, imperceptibles a la vista.
@@ -133,14 +150,36 @@ export class RunManager {
   }
 
   // ---------- Creación ----------
-  startWorkflowRun(workflow: Workflow, input: string, opts: { scheduled?: boolean } = {}): Run {
+  /**
+   * Instantánea de un workflow: su definición, los agentes que usa y, de forma recursiva, los workflows que
+   * lanza como subworkflow (con sus agentes). Así la ejecución entera es reproducible aunque luego se editen.
+   */
+  private snapshotOf(workflow: Workflow): RunSnapshot {
     const agents: Record<string, Agent> = {};
-    for (const node of workflow.nodes) {
-      if (node.type !== 'agent' && node.type !== 'foreach') continue;
-      const agent = this.deps.store.getAgent(node.config?.agentId);
-      if (agent) agents[agent.id] = agent;
-    }
-    const definition: WorkflowDefinition = { nodes: workflow.nodes, edges: workflow.edges, settings: workflow.settings };
+    const subworkflows: NonNullable<RunSnapshot['subworkflows']> = {};
+    const collect = (nodes: Workflow['nodes'], depth: number): void => {
+      for (const node of nodes) {
+        if (nodeUsesAgent(node)) {
+          const agent = this.deps.store.getAgent(node.config?.agentId);
+          if (agent) agents[agent.id] = agent;
+        }
+        const childId = nodeSubworkflowId(node);
+        if (!childId || childId in subworkflows || childId === workflow.id || depth >= MAX_SUBWORKFLOW_DEPTH) continue;
+        const child = this.deps.store.getWorkflow(childId);
+        if (!child) continue;
+        subworkflows[childId] = { name: child.name, definition: { nodes: child.nodes, edges: child.edges, settings: child.settings } };
+        collect(child.nodes, depth + 1);
+      }
+    };
+    collect(workflow.nodes, 1);
+    const snapshot: RunSnapshot = { workflow: { nodes: workflow.nodes, edges: workflow.edges, settings: workflow.settings }, agents };
+    if (Object.keys(subworkflows).length) snapshot.subworkflows = subworkflows;
+    return snapshot;
+  }
+
+  startWorkflowRun(workflow: Workflow, input: string, opts: { scheduled?: boolean } = {}): Run {
+    const snapshot = this.snapshotOf(workflow);
+    const definition = snapshot.workflow;
     const run = this.deps.store.createRun({
       kind: 'workflow',
       workflowId: workflow.id,
@@ -148,7 +187,7 @@ export class RunManager {
       name: workflow.name,
       input,
       scheduled: opts.scheduled,
-      snapshot: { workflow: definition, agents },
+      snapshot,
       steps: this.stepsFor(definition),
     });
     this.enqueue(run.id, new Map());
@@ -199,6 +238,8 @@ export class RunManager {
       // Con los pasos reutilizados viaja también lo que guardaron en la memoria compartida: un paso posterior
       // que la consulte debe encontrar lo mismo que habría encontrado en la ejecución original.
       this.deps.store.copyMemory(original.id, run.id);
+      // Y los elementos de «para cada» que ya se completaron: al repetir ese nodo solo se procesan los que faltan.
+      this.deps.store.copyCompletedStepItems(original.id, run.id);
       for (const step of original.steps) {
         if (step.status !== 'completed' || step.output === null) continue;
         seeded.set(step.nodeId, step.output);
@@ -225,7 +266,7 @@ export class RunManager {
       nodeId: n.id,
       nodeType: n.type,
       label: n.label || n.id,
-      agentId: n.type === 'agent' || n.type === 'foreach' ? (n.config?.agentId ?? null) : null,
+      agentId: nodeUsesAgent(n) ? (n.config?.agentId ?? null) : null,
     }));
   }
 
@@ -242,12 +283,14 @@ export class RunManager {
   private pump(): void {
     if (this.closed) return;
     const max = Math.max(1, this.deps.store.getSettings().maxConcurrentRuns);
-    while (this.active.size < max && this.queue.length) {
+    // Las ejecuciones detenidas esperando una aprobación no cuentan: no están usando el modelo ni el equipo.
+    while (this.active.size - this.waitingRuns.size < max && this.queue.length) {
       const { runId, seeded } = this.queue.shift()!;
       const controller = new AbortController();
       const entry: ActiveRun = { controller, partials: new Map(), done: Promise.resolve() };
       this.active.set(runId, entry);
       entry.done = this.execute(runId, controller.signal, seeded)
+        .then(() => undefined)
         .catch((err) => {
           // Ni siquiera se pudo cerrar la ejecución (base de datos ocupada, disco lleno): que no tumbe el proceso.
           this.log.error({ err, runId }, 'No se pudo cerrar la ejecución');
@@ -269,10 +312,10 @@ export class RunManager {
     }
   }
 
-  private async execute(runId: string, signal: AbortSignal, seeded: Map<string, string>): Promise<void> {
+  private async execute(runId: string, signal: AbortSignal, seeded: Map<string, string>, depth = 1): Promise<ExecutionResult | null> {
     const { store } = this.deps;
     const run = store.getRun(runId);
-    if (!run) return;
+    if (!run) return null;
     store.updateRun(runId, { status: 'running', startedAt: nowIso() });
     this.emit(runId, 'run.started', null, { name: run.name, kind: run.kind });
     this.publishRun(runId);
@@ -292,6 +335,8 @@ export class RunManager {
             this.emit(runId, type, nodeId, data, transient);
             if (type === 'step.finished') this.publishRun(runId);
           },
+          runSubworkflow: (opts) => this.runSubworkflow(run, depth, opts),
+          requestApproval: (opts) => this.requestApproval(run, opts),
         },
         run,
         signal,
@@ -313,12 +358,160 @@ export class RunManager {
     if (signal.reason instanceof ShutdownSignal) {
       this.flushDeltas(runId);
       store.updateRun(runId, { usage: result.usage });
-      return;
+      return result;
     }
     this.log.info({ runId, status: result.status, usage: result.usage }, 'Ejecución terminada');
     store.finishRun(runId, { status: result.status as 'completed' | 'failed' | 'cancelled', output: result.output, error: result.error, usage: result.usage });
     this.emit(runId, 'run.finished', null, { status: result.status, output: result.output, error: result.error, usage: result.usage });
     this.publishRun(runId);
+    return result;
+  }
+
+  // ---------- Subworkflows ----------
+  /**
+   * Lanza un subworkflow como una ejecución propia (aparece en el historial, enlazada con la que la lanza) y
+   * espera a que termine. No pasa por la cola: forma parte de la ejecución que la contiene y se cancela con ella.
+   */
+  private async runSubworkflow(
+    parent: Run,
+    depth: number,
+    opts: { nodeId: string; workflowId: string; input: string; signal: AbortSignal },
+  ): Promise<ExecutionResult & { runId: string }> {
+    const sub = parent.snapshot.subworkflows?.[opts.workflowId];
+    if (!sub) throw new ConfigError('El subworkflow ya no existe (no estaba disponible al lanzar la ejecución).');
+    if (depth >= MAX_SUBWORKFLOW_DEPTH) throw new ConfigError(`Se han anidado más de ${MAX_SUBWORKFLOW_DEPTH} niveles de workflows.`);
+    const { store } = this.deps;
+    const child = store.createRun({
+      kind: 'workflow',
+      workflowId: opts.workflowId,
+      agentId: null,
+      name: sub.name,
+      input: opts.input,
+      // La subejecución hereda la instantánea de la ejecución entera: mismos agentes y mismos subworkflows.
+      snapshot: { workflow: sub.definition, agents: parent.snapshot.agents, subworkflows: parent.snapshot.subworkflows },
+      parentRunId: parent.id,
+      parentNodeId: opts.nodeId,
+      steps: this.stepsFor(sub.definition),
+    });
+    this.emit(parent.id, 'subrun.started', opts.nodeId, { runId: child.id, name: sub.name });
+    const controller = new AbortController();
+    const onAbort = () => controller.abort(opts.signal.reason);
+    if (opts.signal.aborted) onAbort();
+    else opts.signal.addEventListener('abort', onAbort, { once: true });
+    this.active.set(child.id, { controller, partials: new Map(), done: Promise.resolve() });
+    this.rootOf.set(child.id, this.rootOf.get(parent.id) ?? parent.id);
+    this.publishRun(child.id);
+    try {
+      const result = (await this.execute(child.id, controller.signal, new Map(), depth + 1)) ?? {
+        status: 'failed' as const,
+        output: null,
+        error: 'No se pudo iniciar el subworkflow.',
+        usage: child.usage,
+      };
+      return { ...result, runId: child.id };
+    } finally {
+      opts.signal.removeEventListener('abort', onAbort);
+      this.active.delete(child.id);
+      this.rootOf.delete(child.id);
+      this.deps.store.releaseRun(child.id);
+      for (const resolve of this.waiters.get(child.id) ?? []) resolve();
+      this.waiters.delete(child.id);
+    }
+  }
+
+  // ---------- Aprobaciones humanas ----------
+  /** Detiene el nodo hasta que una persona apruebe o rechace. Mientras tanto la ejecución queda «en espera». */
+  private requestApproval(run: Run, opts: { nodeId: string; message: string; signal: AbortSignal }): Promise<{ approved: boolean; comment: string }> {
+    const { store } = this.deps;
+    const approval = store.createApproval(run.id, opts.nodeId, opts.message);
+    const root = this.rootOf.get(run.id) ?? run.id;
+    store.updateStep(run.id, opts.nodeId, { status: 'waiting' });
+    store.updateRun(run.id, { status: 'waiting' });
+    this.emit(run.id, 'approval.requested', opts.nodeId, { approvalId: approval.id, message: opts.message });
+    this.publishRun(run.id);
+    this.emitter.emit('approvals');
+    this.waitingRuns.set(root, (this.waitingRuns.get(root) ?? 0) + 1);
+    this.log.info({ runId: run.id, nodeId: opts.nodeId, approvalId: approval.id }, 'Ejecución a la espera de una aprobación');
+    // El hueco que deja la ejecución en espera puede ocuparlo otra de la cola.
+    setImmediate(() => this.pump());
+
+    return new Promise<{ approved: boolean; comment: string }>((resolve, reject) => {
+      const settle = () => {
+        this.approvals.delete(approval.id);
+        opts.signal.removeEventListener('abort', onAbort);
+        const left = (this.waitingRuns.get(root) ?? 1) - 1;
+        if (left > 0) this.waitingRuns.set(root, left);
+        else this.waitingRuns.delete(root);
+        // Vuelve a «en curso» salvo que la ejecución se esté apagando (queda como está, para reanudarse al arrancar).
+        if (!(opts.signal.reason instanceof ShutdownSignal) && !store.listApprovals({ runId: run.id, pendingOnly: true }).length) {
+          store.updateRun(run.id, { status: 'running' });
+          this.publishRun(run.id);
+        }
+        this.emitter.emit('approvals');
+      };
+      const onAbort = () => {
+        // Cancelación, tiempo máximo o apagado: la petición deja de estar pendiente.
+        if (!(opts.signal.reason instanceof ShutdownSignal)) store.closeApproval(approval.id, 'cancelled');
+        settle();
+        reject(opts.signal.reason);
+      };
+      this.approvals.set(approval.id, {
+        runId: run.id,
+        nodeId: opts.nodeId,
+        resolve: (decision) => {
+          settle();
+          store.updateStep(run.id, opts.nodeId, { status: 'running' });
+          this.emit(run.id, 'approval.decided', opts.nodeId, { approvalId: approval.id, approved: decision.approved, comment: decision.comment });
+          resolve(decision);
+        },
+      });
+      if (opts.signal.aborted) onAbort();
+      else opts.signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  /** Registra la decisión de una persona sobre una aprobación pendiente y reanuda el nodo que la esperaba. */
+  decideApproval(id: string, approved: boolean, comment = ''): Approval {
+    const { store } = this.deps;
+    const approval = store.getApproval(id);
+    if (!approval) throw new HttpError(404, 'Aprobación no encontrada.');
+    const waiting = this.approvals.get(id);
+    if (approval.status !== 'pending' || !waiting) {
+      // Sin nodo esperando (p. ej. el servidor se reinició): la petición ya no sirve.
+      if (approval.status === 'pending') store.closeApproval(id, 'cancelled');
+      throw new HttpError(409, 'Esta aprobación ya no está pendiente.');
+    }
+    store.closeApproval(id, approved ? 'approved' : 'rejected', comment);
+    waiting.resolve({ approved, comment });
+    this.log.info({ approvalId: id, runId: approval.runId, approved }, 'Aprobación decidida');
+    return store.getApproval(id)!;
+  }
+
+  /** Avisa cuando cambia el conjunto de aprobaciones pendientes (para la interfaz en vivo). */
+  subscribeApprovals(listener: () => void): () => void {
+    this.emitter.on('approvals', listener);
+    return () => this.emitter.off('approvals', listener);
+  }
+
+  // ---------- Reanudación automática ----------
+  /**
+   * Al arrancar: reanuda sin preguntar las ejecuciones interrumpidas que solo esperaban una aprobación y, si el
+   * ajuste «reanudar automáticamente» está activado, todas las demás. Devuelve las ejecuciones nuevas.
+   */
+  autoResume(): Run[] {
+    const { store } = this.deps;
+    const resumed: Run[] = [];
+    for (const id of store.listAutoResumableRuns(store.getSettings().autoResume)) {
+      const original = store.getRun(id);
+      if (!original) continue;
+      try {
+        resumed.push(this.retryRun(original, 'failed'));
+      } catch (err) {
+        this.log.error({ err, runId: id }, 'No se pudo reanudar automáticamente una ejecución interrumpida');
+      }
+    }
+    if (resumed.length) this.log.info({ resumed: resumed.length }, 'Ejecuciones interrumpidas reanudadas automáticamente');
+    return resumed;
   }
 
   // ---------- Control ----------

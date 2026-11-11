@@ -533,7 +533,7 @@ describe('persistencia entre reinicios', () => {
     expect((await get(`/api/workflows/${wf.id}`)).json()).toEqual(wf);
     expect((await get(`/api/runs/${run.id}`)).json()).toEqual(run);
     expect((await get(`/api/runs/${run.id}/events`)).json()).toEqual(events);
-    expect((await get('/api/settings')).json()).toEqual({ allowPrivateNetwork: true, allowCodeExecution: false, codeSandbox: 'process', maxConcurrentRuns: 5, retentionDays: 0, retentionMaxRuns: 0 });
+    expect((await get('/api/settings')).json()).toEqual({ allowPrivateNetwork: true, allowCodeExecution: false, codeSandbox: 'process', autoResume: false, maxConcurrentRuns: 5, retentionDays: 0, retentionMaxRuns: 0 });
     expect((await get('/api/tools')).json().some((t: { name: string }) => t.name === 'mi_api')).toBe(true);
 
     // Y sigue funcionando: se puede ejecutar de nuevo y la numeración de eventos no choca.
@@ -645,6 +645,10 @@ describe('persistencia entre reinicios', () => {
     // Se devuelve el archivo al esquema v1: se deshace, de la más reciente a la más antigua, cada migración.
     const raw = new DatabaseSync(path.join(dataDir, 'agentforge.db'));
     raw.exec(`
+      -- v5
+      DROP TABLE approvals; DROP TABLE run_step_items; DROP INDEX idx_runs_parent;
+      ALTER TABLE runs DROP COLUMN parent_run_id; ALTER TABLE runs DROP COLUMN parent_node_id;
+      ALTER TABLE run_steps DROP COLUMN partial_output;
       -- v4
       DROP TRIGGER runs_fts_insert; DROP TRIGGER runs_fts_update; DROP TRIGGER runs_fts_delete;
       DROP TABLE runs_fts; DROP TABLE stats_daily; DROP TABLE stats_agent; DROP TABLE stats_tool; DROP TABLE run_memory;
@@ -662,7 +666,7 @@ describe('persistencia entre reinicios', () => {
     raw.close();
 
     await boot(undefined, dataDir);
-    expect((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(4);
+    expect((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(5);
     expect((await get(`/api/runs/${run.id}`)).json()).toMatchObject({ status: 'completed', output: 'eco(antes de migrar)', interrupted: false });
     expect((await get('/api/runs/interrupted')).json()).toEqual([]);
     // Antes de migrar se guardó una copia de la versión anterior.

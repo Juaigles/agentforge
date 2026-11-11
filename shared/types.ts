@@ -111,7 +111,7 @@ export interface CustomTool {
 export type CustomToolInput = Omit<CustomTool, 'id' | 'createdAt' | 'updatedAt'>;
 
 // ---------- Workflows ----------
-export type NodeType = 'input' | 'agent' | 'tool' | 'condition' | 'transform' | 'foreach' | 'output';
+export type NodeType = 'input' | 'agent' | 'tool' | 'condition' | 'transform' | 'foreach' | 'subworkflow' | 'approval' | 'output';
 
 export type ConditionOperator =
   | 'contains'
@@ -148,9 +148,23 @@ export interface ConditionNodeConfig {
 export interface TransformNodeConfig {
   template: string;
 }
-/** «Para cada»: ejecuta un agente una vez por cada elemento de una lista, con concurrencia limitada. */
+/** Qué se ejecuta con cada elemento de un «para cada». */
+export type ForeachBody = 'agent' | 'tool' | 'subworkflow';
+
+/** «Para cada»: ejecuta un agente, una herramienta o un subworkflow una vez por cada elemento de una lista. */
 export interface ForeachNodeConfig {
+  /** Por defecto, 'agent'. */
+  body?: ForeachBody;
+  /** Con body 'agent'. */
   agentId: string;
+  /** Con body 'tool': la herramienta y sus argumentos (admiten {{item}}, {{index}} y {{total}}). */
+  tool?: string;
+  args?: Record<string, unknown>;
+  /** Con body 'subworkflow': el workflow que se lanza con cada elemento y su entrada (por defecto, {{item}}). */
+  workflowId?: string;
+  input?: string;
+  /** Qué hacer si falla un elemento: detener el nodo ('fail', por defecto) o seguir con los demás ('continue'). */
+  onItemError?: 'fail' | 'continue';
   /** Plantilla que produce la lista (array JSON o un elemento por línea). Por defecto, {{upstream}}. */
   items: string;
   /** Tarea para cada elemento; admite {{item}}, {{index}} y {{total}} además de las referencias habituales. */
@@ -165,6 +179,29 @@ export interface ForeachNodeConfig {
   timeoutMs?: number;
 }
 export const FOREACH_DEFAULTS = { concurrency: 2, maxItems: 20, maxConcurrency: 8, hardMaxItems: 100 } as const;
+
+/** Ejecuta otro workflow como un paso de este y devuelve su resultado. */
+export interface SubworkflowNodeConfig {
+  workflowId: string;
+  /** Entrada del subworkflow. Por defecto, {{upstream}}. */
+  input?: string;
+  retries?: number;
+  timeoutMs?: number;
+}
+
+/**
+ * Aprobación humana: la ejecución se detiene hasta que una persona aprueba o rechaza. Como una condición, tiene
+ * dos salidas: «sí» (aprobado) y «no» (rechazado). El comentario queda disponible como {{id_nodo.comment}}.
+ */
+export interface ApprovalNodeConfig {
+  /** Qué se le pregunta a la persona (admite plantillas). */
+  message: string;
+  /** Tiempo máximo de espera; pasado ese tiempo el nodo falla. 0 o ausente = sin límite. */
+  timeoutMs?: number;
+}
+
+/** Profundidad máxima de workflows anidados (un subworkflow que lanza otro, etc.). */
+export const MAX_SUBWORKFLOW_DEPTH = 5;
 
 export interface OutputNodeConfig {
   template?: string;
@@ -226,8 +263,9 @@ export interface ValidationIssue {
 }
 
 // ---------- Ejecuciones ----------
-export type RunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'cancelled';
+/** 'waiting': detenida a la espera de una aprobación humana (no ocupa un hueco de ejecución). */
+export type RunStatus = 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+export type StepStatus = 'pending' | 'running' | 'waiting' | 'completed' | 'failed' | 'skipped' | 'cancelled';
 export type RunKind = 'agent' | 'workflow';
 
 export interface Usage {
@@ -242,6 +280,8 @@ export const ZERO_USAGE: Usage = { promptTokens: 0, completionTokens: 0, llmCall
 export interface RunSnapshot {
   workflow: WorkflowDefinition;
   agents: Record<string, Agent>;
+  /** Workflows que este usa como subworkflow (directa o indirectamente), tal como eran al lanzar la ejecución. */
+  subworkflows?: Record<string, { name: string; definition: WorkflowDefinition }>;
 }
 
 /**
@@ -264,6 +304,9 @@ export interface RunSummary {
   interrupted?: boolean;
   /** La lanzó la programación del workflow, no una persona. */
   scheduled?: boolean;
+  /** Si es la ejecución de un subworkflow: la ejecución y el nodo que la lanzaron. */
+  parentRunId?: string | null;
+  parentNodeId?: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -283,6 +326,32 @@ export interface RunStep {
   usage: Usage;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Texto que el modelo llevaba generado cuando el paso se canceló o falló a medias. */
+  partialOutput?: string | null;
+}
+
+/** Elemento de un nodo «para cada», con su resultado. */
+export interface RunStepItem {
+  index: number;
+  item: string;
+  status: 'completed' | 'failed';
+  output: string | null;
+  error: string | null;
+}
+
+/** Petición de aprobación humana de una ejecución. */
+export interface Approval {
+  id: string;
+  runId: string;
+  nodeId: string;
+  /** Nombre de la ejecución y etiqueta del nodo, para mostrarla sin más consultas. */
+  runName: string;
+  nodeLabel: string;
+  message: string;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  comment: string;
+  createdAt: string;
+  decidedAt: string | null;
 }
 
 export interface Run extends RunSummary {
@@ -306,6 +375,9 @@ export type RunEventType =
   | 'tool.call'
   | 'tool.result'
   | 'foreach.item'
+  | 'subrun.started'
+  | 'approval.requested'
+  | 'approval.decided'
   | 'log';
 
 export interface RunEvent {
@@ -327,6 +399,8 @@ export interface Settings {
   allowCodeExecution: boolean;
   /** Cómo se aísla run_javascript: en un proceso de Node restringido o en un contenedor sin red (Docker/Podman). */
   codeSandbox: 'process' | 'container';
+  /** Reanuda sin preguntar, al arrancar, las ejecuciones que un apagado dejó a medias. */
+  autoResume: boolean;
   /** Días que se conservan las ejecuciones terminadas (0 = sin límite). */
   retentionDays: number;
   /** Número máximo de ejecuciones terminadas que se conservan (0 = sin límite). */
@@ -338,6 +412,7 @@ export const DEFAULT_SETTINGS: Settings = {
   allowPrivateNetwork: false,
   allowCodeExecution: false,
   codeSandbox: 'process',
+  autoResume: false,
   retentionDays: 0,
   retentionMaxRuns: 0,
 };

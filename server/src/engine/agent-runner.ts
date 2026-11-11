@@ -115,6 +115,8 @@ export async function runAgent(agent: Agent, input: string, ctx: AgentRunContext
       thinking: res.thinking ? truncate(res.thinking, 8000) : undefined,
       toolCalls: toolCalls.map((tc) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })),
       usage: res.usage,
+      // La respuesta se cortó por el límite de tokens de salida: lo que sigue puede estar incompleto.
+      ...(res.finishReason === 'length' ? { truncated: true } : {}),
     });
 
     if (!toolCalls.length) {
@@ -139,6 +141,12 @@ export async function runAgent(agent: Agent, input: string, ctx: AgentRunContext
         }
         if (!allowed.has(call.name)) {
           throw new ToolError(`La herramienta "${call.name}" no está disponible. Disponibles: ${[...allowed].join(', ') || 'ninguna'}.`);
+        }
+        if (call.invalidArguments !== undefined) {
+          // No se ejecuta una herramienta con argumentos a medias: se le dice al modelo para que los repita bien.
+          throw new ToolError(
+            `Los argumentos de "${call.name}" no son JSON válido${res.finishReason === 'length' ? ' (la respuesta se cortó por el límite de tokens)' : ''}: ${truncate(call.invalidArguments, 200)}. Repite la llamada con un objeto JSON completo.`,
+          );
         }
         const result = await ctx.tools.invoke(call.name, call.arguments, {
           runId: ctx.runId,

@@ -6,6 +6,7 @@ import {
   ZERO_USAGE,
   type Agent,
   type AgentInput,
+  type Approval,
   type CustomTool,
   type CustomToolInput,
   type NodeType,
@@ -18,6 +19,7 @@ import {
   type RunSnapshot,
   type RunStatus,
   type RunStep,
+  type RunStepItem,
   type RunSummary,
   type Schedule,
   type ScheduleInput,
@@ -27,6 +29,7 @@ import {
   type Workflow,
   type WorkflowInput,
 } from '../../../shared/types';
+import { nodeSubworkflowId, nodeUsesAgent } from '../../../shared/graph';
 import type { SecretBox } from '../crypto/secrets';
 import { ConfigError } from '../errors';
 import { localDate, newId, nowIso } from '../util';
@@ -65,6 +68,7 @@ export interface StepPatch {
   usage?: Usage;
   startedAt?: string | null;
   finishedAt?: string | null;
+  partialOutput?: string | null;
 }
 
 const RUN_COLUMNS: Record<keyof RunPatch, string> = {
@@ -85,6 +89,7 @@ const STEP_COLUMNS: Record<keyof StepPatch, string> = {
   usage: 'usage',
   startedAt: 'started_at',
   finishedAt: 'finished_at',
+  partialOutput: 'partial_output',
 };
 
 /** Caracteres de la entrada y del resultado que viajan en un resumen (las listas solo pintan una línea). */
@@ -94,7 +99,10 @@ export const SUMMARY_PREVIEW_CHARS = 300;
 // con salidas grandes no debe transportar megabytes que nadie va a leer. El texto completo está en getRun().
 const RUN_SUMMARY_COLS = `id, kind, workflow_id, agent_id, name, status, substr(input, 1, ${SUMMARY_PREVIEW_CHARS}) AS input,
   substr(output, 1, ${SUMMARY_PREVIEW_CHARS}) AS output, substr(error, 1, 1000) AS error, usage, retry_of, interrupted, scheduled,
-  created_at, started_at, finished_at`;
+  parent_run_id, parent_node_id, created_at, started_at, finished_at`;
+
+/** Valores de `runs.interrupted`: pendiente de que el usuario decida, o que se reanuda sola al arrancar. */
+export const INTERRUPTED = { no: 0, pending: 1, autoResume: 2 } as const;
 
 /** Coincidencias más recientes que examina una búsqueda de texto (ver listRuns). */
 export const SEARCH_WINDOW = 2000;
@@ -458,7 +466,12 @@ export class Store {
 
   /** Workflows que usan un agente en alguno de sus nodos. */
   workflowsUsingAgent(agentId: string): Workflow[] {
-    return this.listWorkflows().filter((w) => w.nodes.some((n) => (n.type === 'agent' || n.type === 'foreach') && n.config?.agentId === agentId));
+    return this.listWorkflows().filter((w) => w.nodes.some((n) => nodeUsesAgent(n) && n.config?.agentId === agentId));
+  }
+
+  /** Workflows que lanzan otro como subworkflow. */
+  workflowsUsingWorkflow(workflowId: string): Workflow[] {
+    return this.listWorkflows().filter((w) => w.id !== workflowId && w.nodes.some((n) => nodeSubworkflowId(n) === workflowId));
   }
 
   // ---------- Programaciones ----------
@@ -532,6 +545,8 @@ export class Store {
       retryOf: r.retry_of ?? null,
       interrupted: Boolean(r.interrupted),
       scheduled: Boolean(r.scheduled),
+      parentRunId: r.parent_run_id ?? null,
+      parentNodeId: r.parent_node_id ?? null,
       createdAt: r.created_at,
       startedAt: r.started_at ?? null,
       finishedAt: r.finished_at ?? null,
@@ -553,6 +568,7 @@ export class Store {
       usage: parseJson<Usage>(r.usage, { ...ZERO_USAGE }),
       startedAt: r.started_at ?? null,
       finishedAt: r.finished_at ?? null,
+      partialOutput: r.partial_output ?? null,
     };
   }
 
@@ -565,14 +581,17 @@ export class Store {
     snapshot: RunSnapshot;
     retryOf?: string | null;
     scheduled?: boolean;
+    /** Ejecución y nodo que la lanzan, si es un subworkflow. */
+    parentRunId?: string | null;
+    parentNodeId?: string | null;
     steps: Array<{ nodeId: string; nodeType: NodeType; label: string; agentId: string | null }>;
   }): Run {
     const id = newId('run');
     const now = nowIso();
     this.transaction(() => {
       this.exec(
-        `INSERT INTO runs (id, kind, workflow_id, agent_id, name, status, input, snapshot, usage, retry_of, scheduled, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO runs (id, kind, workflow_id, agent_id, name, status, input, snapshot, usage, retry_of, scheduled, parent_run_id, parent_node_id, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         id,
         input.kind,
         input.workflowId,
@@ -584,6 +603,8 @@ export class Store {
         ZERO_USAGE,
         input.retryOf ?? null,
         Boolean(input.scheduled),
+        input.parentRunId ?? null,
+        input.parentNodeId ?? null,
         now,
       );
       input.steps.forEach((s, i) => {
@@ -678,6 +699,11 @@ export class Store {
     return capped ? { items, total, capped } : { items, total };
   }
 
+  /** Subejecuciones lanzadas por una ejecución (sus subworkflows). */
+  listChildRuns(parentRunId: string): RunSummary[] {
+    return this.all(`SELECT ${RUN_SUMMARY_COLS} FROM runs WHERE parent_run_id = ? ORDER BY created_at, id LIMIT 500`, parentRunId).map((r) => this.mapRunSummary(r));
+  }
+
   updateRun(id: string, patch: RunPatch): void {
     const keys = Object.keys(patch) as Array<keyof RunPatch>;
     if (!keys.length) return;
@@ -719,14 +745,18 @@ export class Store {
    */
   markInterruptedRuns(message = 'Ejecución interrumpida por un reinicio del servidor.'): number {
     const now = nowIso();
-    const stale = this.all("SELECT id FROM runs WHERE status IN ('queued','running')");
-    for (const { id } of stale) {
+    const stale = this.all("SELECT id, status, parent_run_id FROM runs WHERE status IN ('queued','running','waiting')");
+    for (const { id, status, parent_run_id } of stale) {
       this.exec(
-        "UPDATE run_steps SET status='cancelled', finished_at=? WHERE run_id=? AND status IN ('pending','running')",
+        "UPDATE run_steps SET status='cancelled', finished_at=? WHERE run_id=? AND status IN ('pending','running','waiting')",
         now,
         id,
       );
-      this.finishRun(id, { status: 'failed', error: message, finishedAt: now, interrupted: true });
+      this.exec("UPDATE approvals SET status='cancelled', decided_at=? WHERE run_id=? AND status='pending'", now, id);
+      // Una subejecución no se reanuda por separado: lo hace la ejecución que la lanzó, que repite ese nodo.
+      // Una ejecución que solo esperaba una aprobación no tenía trabajo a medias: se reanuda sola al arrancar.
+      const interrupted = parent_run_id ? INTERRUPTED.no : status === 'waiting' ? INTERRUPTED.autoResume : INTERRUPTED.pending;
+      this.finishRun(id, { status: 'failed', error: message, finishedAt: now, interrupted });
       this.appendEvent(id, 'run.finished', null, { status: 'failed', error: message });
       this.eventSeq.delete(id);
     }
@@ -738,11 +768,19 @@ export class Store {
     return this.all(`SELECT ${RUN_SUMMARY_COLS} FROM runs WHERE interrupted = 1 ORDER BY created_at DESC, id DESC`).map((r) => this.mapRunSummary(r));
   }
 
+  /**
+   * Ejecuciones interrumpidas que se reanudan sin preguntar al arrancar: siempre las que solo esperaban una
+   * aprobación y, si `all` (ajuste «reanudar automáticamente»), también el resto.
+   */
+  listAutoResumableRuns(all: boolean): string[] {
+    return this.all(`SELECT id FROM runs WHERE interrupted ${all ? '> 0' : '= 2'} ORDER BY created_at, id`).map((r) => String(r.id));
+  }
+
   /** Da por atendidas las ejecuciones interrumpidas indicadas (o todas). Devuelve cuántas. */
   clearInterrupted(ids?: string[]): number {
-    if (!ids) return this.exec('UPDATE runs SET interrupted = 0 WHERE interrupted = 1');
+    if (!ids) return this.exec('UPDATE runs SET interrupted = 0 WHERE interrupted > 0');
     let changed = 0;
-    for (const id of ids) changed += this.exec('UPDATE runs SET interrupted = 0 WHERE id = ? AND interrupted = 1', id);
+    for (const id of ids) changed += this.exec('UPDATE runs SET interrupted = 0 WHERE id = ? AND interrupted > 0', id);
     return changed;
   }
 
@@ -752,7 +790,7 @@ export class Store {
    */
   finishRun(
     id: string,
-    final: { status: Exclude<RunStatus, 'queued' | 'running'>; output?: string | null; error?: string | null; usage?: Usage; finishedAt?: string; interrupted?: boolean },
+    final: { status: 'completed' | 'failed' | 'cancelled'; output?: string | null; error?: string | null; usage?: Usage; finishedAt?: string; interrupted?: number },
   ): void {
     this.transaction(() => {
       const row = this.get('SELECT created_at, started_at, ended_at, usage FROM runs WHERE id = ?', id);
@@ -762,7 +800,7 @@ export class Store {
       this.exec(
         `UPDATE runs SET status = ?, error = ?, usage = ?, finished_at = ?, ended_at = ?, interrupted = ?
            ${final.output !== undefined ? ', output = ?' : ''} WHERE id = ?`,
-        ...[final.status, final.error ?? null, usage, finishedAt, finishedAt, Boolean(final.interrupted)],
+        ...[final.status, final.error ?? null, usage, finishedAt, finishedAt, final.interrupted ?? 0],
         ...(final.output !== undefined ? [final.output] : []),
         id,
       );
@@ -832,6 +870,85 @@ export class Store {
     const free = Number((this.db.prepare('PRAGMA freelist_count').get() as { freelist_count: number }).freelist_count);
     if (free === 0) this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     return free;
+  }
+
+  // ---------- Elementos de un «para cada» ----------
+  listStepItems(runId: string, nodeId: string): RunStepItem[] {
+    return this.all('SELECT idx, item, status, output, error FROM run_step_items WHERE run_id = ? AND node_id = ? ORDER BY idx', runId, nodeId).map((r) => ({
+      index: Number(r.idx),
+      item: r.item,
+      status: r.status,
+      output: r.output ?? null,
+      error: r.error ?? null,
+    }));
+  }
+
+  saveStepItem(runId: string, nodeId: string, item: RunStepItem): void {
+    this.exec(
+      `INSERT INTO run_step_items (run_id, node_id, idx, item, status, output, error) VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(run_id, node_id, idx) DO UPDATE SET item = excluded.item, status = excluded.status, output = excluded.output, error = excluded.error`,
+      runId,
+      nodeId,
+      item.index,
+      item.item,
+      item.status,
+      item.output,
+      item.error,
+    );
+  }
+
+  /** Copia a otra ejecución los elementos ya completados (reintentar desde el fallo): no se repiten. */
+  copyCompletedStepItems(fromRunId: string, toRunId: string): void {
+    this.exec(
+      `INSERT OR REPLACE INTO run_step_items (run_id, node_id, idx, item, status, output, error)
+         SELECT ?, node_id, idx, item, status, output, error FROM run_step_items WHERE run_id = ? AND status = 'completed'`,
+      toRunId,
+      fromRunId,
+    );
+  }
+
+  // ---------- Aprobaciones humanas ----------
+  private mapApproval(r: Row): Approval {
+    return {
+      id: r.id,
+      runId: r.run_id,
+      nodeId: r.node_id,
+      runName: r.run_name ?? '',
+      nodeLabel: r.node_label ?? r.node_id,
+      message: r.message,
+      status: r.status,
+      comment: r.comment ?? '',
+      createdAt: r.created_at,
+      decidedAt: r.decided_at ?? null,
+    };
+  }
+
+  private static readonly APPROVAL_SELECT = `SELECT a.*, r.name AS run_name, s.label AS node_label FROM approvals a
+    LEFT JOIN runs r ON r.id = a.run_id LEFT JOIN run_steps s ON s.run_id = a.run_id AND s.node_id = a.node_id`;
+
+  createApproval(runId: string, nodeId: string, message: string): Approval {
+    const id = newId('apr');
+    this.exec('INSERT INTO approvals (id, run_id, node_id, message, created_at) VALUES (?,?,?,?,?)', id, runId, nodeId, message, nowIso());
+    return this.getApproval(id)!;
+  }
+
+  getApproval(id: string): Approval | null {
+    const r = this.get(`${Store.APPROVAL_SELECT} WHERE a.id = ?`, id);
+    return r ? this.mapApproval(r) : null;
+  }
+
+  /** Aprobaciones de una ejecución, o todas las pendientes (de la más antigua a la más reciente). */
+  listApprovals(filter: { runId?: string; pendingOnly?: boolean } = {}): Approval[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (filter.runId) (where.push('a.run_id = ?'), params.push(filter.runId));
+    if (filter.pendingOnly) where.push("a.status = 'pending'");
+    return this.all(`${Store.APPROVAL_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.created_at, a.id LIMIT 500`, ...params).map((r) => this.mapApproval(r));
+  }
+
+  /** Cierra una aprobación pendiente. Devuelve false si ya estaba decidida o cancelada. */
+  closeApproval(id: string, status: 'approved' | 'rejected' | 'cancelled', comment = ''): boolean {
+    return this.exec("UPDATE approvals SET status = ?, comment = ?, decided_at = ? WHERE id = ? AND status = 'pending'", status, comment, nowIso(), id) > 0;
   }
 
   // ---------- Memoria compartida de una ejecución ----------
@@ -926,7 +1043,7 @@ export class Store {
    */
   stats(days = 14, now = Date.now()) {
     const count = (table: string) => Number(this.get(`SELECT COUNT(*) AS n FROM ${table}`)!.n);
-    const runsByStatus: Record<RunStatus, number> = { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0 };
+    const runsByStatus: Record<RunStatus, number> = { queued: 0, running: 0, waiting: 0, completed: 0, failed: 0, cancelled: 0 };
     for (const r of this.all('SELECT status, COUNT(*) AS n FROM runs GROUP BY status')) {
       runsByStatus[r.status as RunStatus] = Number(r.n);
     }

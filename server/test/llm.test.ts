@@ -262,7 +262,8 @@ describe('OpenAiCompatibleClient', () => {
     try {
       const req = { model: 'm', messages: [{ role: 'user' as const, content: 'x' }], think: false };
       const res = await new OpenAiCompatibleClient(server.url).chat(req);
-      expect(res.toolCalls).toEqual([{ id: 'call_1', name: 't', arguments: {} }]);
+      // Los argumentos que no son JSON válido no se inventan: se marca la llamada para que el agente lo diga al modelo.
+      expect(res.toolCalls).toEqual([{ id: 'call_1', name: 't', arguments: {}, invalidArguments: '{roto' }]);
       expect(server.requests).toHaveLength(3); // con ambos, sin stream_options, sin ninguno
       // Un cliente nuevo para el mismo servidor y modelo ya no vuelve a enviar los parámetros rechazados.
       await new OpenAiCompatibleClient(server.url).chat(req);

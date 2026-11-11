@@ -109,7 +109,7 @@ const MAX_NODE_TIMEOUT_MS = 6 * 3_600_000;
 const nodeSchema = z
   .object({
     id: z.string().min(1).max(64),
-    type: z.enum(['input', 'agent', 'tool', 'condition', 'transform', 'foreach', 'output']),
+    type: z.enum(['input', 'agent', 'tool', 'condition', 'transform', 'foreach', 'subworkflow', 'approval', 'output']),
     label: z.string().max(80).default(''),
     position: z.object({ x: z.number(), y: z.number() }),
     config: z.record(z.string(), z.unknown()).default({}),
@@ -204,13 +204,14 @@ export const settingsSchema = z.object({
   allowPrivateNetwork: z.boolean().optional(),
   allowCodeExecution: z.boolean().optional(),
   codeSandbox: z.enum(['process', 'container']).optional(),
+  autoResume: z.boolean().optional(),
   retentionDays: z.number().int().min(0).max(3650).optional(),
   retentionMaxRuns: z.number().int().min(0).max(100_000).optional(),
 });
 
 /** Parámetros de consulta del historial. Los valores llegan como texto: se convierten y se acotan aquí. */
 export const runsQuerySchema = z.object({
-  status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled'], { error: 'estado no reconocido' }).optional(),
+  status: z.enum(['queued', 'running', 'waiting', 'completed', 'failed', 'cancelled'], { error: 'estado no reconocido' }).optional(),
   kind: z.enum(['agent', 'workflow'], { error: 'tipo no reconocido' }).optional(),
   workflowId: z.string().max(64).optional(),
   agentId: z.string().max(64).optional(),
@@ -234,6 +235,11 @@ export const eventsQuerySchema = z.object({
 
 export const runIdsSchema = z.object({
   ids: z.array(z.string().min(1)).max(500).optional(),
+});
+
+export const approvalDecisionSchema = z.object({
+  approved: z.boolean({ error: 'Indica si se aprueba o se rechaza' }),
+  comment: z.string().trim().max(2000, 'El comentario no puede superar los 2000 caracteres').default(''),
 });
 
 export const invokeToolSchema = z.object({

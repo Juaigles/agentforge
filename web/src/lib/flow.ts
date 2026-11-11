@@ -10,6 +10,8 @@ export interface FlowNodeData {
   status?: StepStatus;
   agentName?: string;
   agentColor?: string;
+  /** Nombre del subworkflow tal como era al lanzar la ejecución (monitor). */
+  workflowName?: string;
   /** Nº de errores de validación (constructor). */
   errors?: number;
   warnings?: number;
@@ -37,6 +39,8 @@ export function toFlowEdge(edge: WorkflowEdge): Edge {
     type: 'smoothstep',
     markerEnd: MarkerType.ArrowClosed,
     label: branch === 'true' ? 'sí' : branch === 'false' ? 'no' : undefined,
+    // Para lectores de pantalla: de dónde a dónde va la conexión, en español.
+    ariaLabel: `Conexión de ${edge.source} a ${edge.target}${branch ? ` (rama ${branch === 'true' ? 'sí' : 'no'})` : ''}`,
     class: branch ? `branch-${branch}` : undefined,
   };
 }
@@ -61,6 +65,8 @@ export const NODE_HINT: Record<NodeType, string> = {
   condition: 'Elige una rama según el resultado anterior',
   transform: 'Combina resultados con una plantilla',
   foreach: 'Repite una tarea con cada elemento de una lista',
+  subworkflow: 'Ejecuta otro workflow como un paso de este',
+  approval: 'Detiene la ejecución hasta que una persona aprueba o rechaza',
   output: 'El resultado final del workflow',
 };
 

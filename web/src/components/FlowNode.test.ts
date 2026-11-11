@@ -83,7 +83,7 @@ describe('FlowNode', () => {
   it('refleja selección, errores de validación y estado de ejecución', () => {
     const invalid = render({ kind: 'tool', label: 'T', config: { tool: '' }, errors: 2 });
     expect(invalid.get('.flow-node').classes()).toContain('invalid');
-    expect(invalid.get('.warn').attributes('title')).toBe('2 error(es) de configuración');
+    expect(invalid.get('.warn').attributes('title')).toBe('2 errores de configuración');
 
     const selected = render({ kind: 'tool', label: 'T', config: { tool: 'x' } }, { selected: true });
     expect(selected.get('.flow-node').classes()).toContain('selected');

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Nodo de workflow para Vue Flow. Se usa en el constructor (editable) y en el monitor (con estado).
 import { Handle, Position } from '@vue-flow/core';
-import { Bot, Flag, GitBranch, LogIn, Repeat, Shuffle, TriangleAlert, Wrench } from 'lucide-vue-next';
+import { foreachBody } from '@shared/graph';
+import { Bot, Flag, GitBranch, LogIn, Repeat, Shuffle, TriangleAlert, UserCheck, Workflow, Wrench } from 'lucide-vue-next';
 import { computed } from 'vue';
 import type { FlowNodeData } from '@/lib/flow';
 import { OPERATOR_LABEL } from '@/lib/flow';
@@ -12,10 +13,28 @@ import StatusBadge from './StatusBadge.vue';
 const props = defineProps<{ id: string; data: FlowNodeData; selected?: boolean }>();
 const catalog = useCatalog();
 
-const ICONS = { input: LogIn, agent: Bot, tool: Wrench, condition: GitBranch, transform: Shuffle, foreach: Repeat, output: Flag };
-const TINT = { input: '#64748b', agent: '#c2410c', tool: '#0d9488', condition: '#d97706', transform: '#7c3aed', foreach: '#be185d', output: '#16a34a' };
+const ICONS = { input: LogIn, agent: Bot, tool: Wrench, condition: GitBranch, transform: Shuffle, foreach: Repeat, subworkflow: Workflow, approval: UserCheck, output: Flag };
+const TINT = {
+  input: '#64748b',
+  agent: '#c2410c',
+  tool: '#0d9488',
+  condition: '#d97706',
+  transform: '#7c3aed',
+  foreach: '#be185d',
+  subworkflow: '#2563eb',
+  approval: '#b45309',
+  output: '#16a34a',
+};
 
-const usesAgent = computed(() => props.data.kind === 'agent' || props.data.kind === 'foreach');
+const body = computed(() => (props.data.kind === 'foreach' ? foreachBody({ id: props.id, type: 'foreach', label: '', position: { x: 0, y: 0 }, config: props.data.config }) : null));
+const usesAgent = computed(() => props.data.kind === 'agent' || body.value === 'agent');
+const workflowName = computed(() => {
+  const id = props.data.config.workflowId;
+  if (!id) return 'Sin workflow asignado';
+  return props.data.workflowName ?? catalog.workflows.find((w) => w.id === id)?.name ?? 'Workflow eliminado';
+});
+/** Nodos con dos salidas: condición (sí / no) y aprobación (aprobado / rechazado). */
+const branching = computed(() => props.data.kind === 'condition' || props.data.kind === 'approval');
 const agent = computed(() => (usesAgent.value ? catalog.agentById.get(props.data.config.agentId) : undefined));
 const agentLabel = computed(() => props.data.agentName ?? agent.value?.name ?? (props.data.config.agentId ? 'Agente eliminado' : 'Sin agente asignado'));
 const tint = computed(() => (props.data.kind === 'agent' ? (props.data.agentColor ?? agent.value?.color ?? TINT.agent) : TINT[props.data.kind]));
@@ -26,7 +45,11 @@ const subtitle = computed(() => {
     case 'agent':
       return agentLabel.value;
     case 'foreach':
-      return `Cada elemento → ${agentLabel.value}`;
+      return `Cada elemento → ${body.value === 'tool' ? c.tool || 'sin herramienta' : body.value === 'subworkflow' ? workflowName.value : agentLabel.value}`;
+    case 'subworkflow':
+      return workflowName.value;
+    case 'approval':
+      return c.message || 'Sin texto que aprobar';
     case 'tool':
       return c.tool || 'Sin herramienta asignada';
     case 'condition':
@@ -51,12 +74,14 @@ const subtitle = computed(() => {
       <span class="ico"><component :is="ICONS[data.kind]" /></span>
       <span class="type">{{ NODE_LABEL[data.kind] }}</span>
       <StatusBadge v-if="data.status && data.status !== 'pending'" :status="data.status" icon-only />
-      <span v-else-if="data.errors" class="warn" :title="`${data.errors} error(es) de configuración`"><TriangleAlert /></span>
+      <span v-else-if="data.errors" class="warn" :title="data.errors === 1 ? '1 error de configuración' : `${data.errors} errores de configuración`">
+        <TriangleAlert aria-hidden="true" /><span class="sr-only">{{ data.errors === 1 ? '1 error de configuración' : `${data.errors} errores de configuración` }}</span>
+      </span>
     </div>
     <div class="title">{{ data.label || id }}</div>
     <div class="sub">{{ subtitle }}</div>
 
-    <template v-if="data.kind === 'condition'">
+    <template v-if="branching">
       <Handle id="true" type="source" :position="Position.Right" class="h-true" :style="{ top: '36%' }" />
       <Handle id="false" type="source" :position="Position.Right" class="h-false" :style="{ top: '72%' }" />
       <span class="branch yes">sí</span>

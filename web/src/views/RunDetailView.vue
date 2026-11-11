@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Monitor de una ejecución: grafo con estados en vivo, pasos, resultado en streaming y registro de actividad.
-import { ArrowLeft, Bot, CircleAlert, Copy, LayoutList, Pencil, RotateCcw, SkipForward, Square, Trash2, Workflow } from 'lucide-vue-next';
+import type { RunSummary } from '@shared/types';
+import { ArrowLeft, Bot, CircleAlert, Copy, Hourglass, LayoutList, Pencil, RotateCcw, SkipForward, Square, Trash2, Workflow } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import MarkdownView from '@/components/MarkdownView.vue';
@@ -46,6 +47,7 @@ const steps = computed(() => (live.value ? live.value.order.map((id) => live.val
 const step = computed(() => (selected.value && live.value ? (live.value.steps[selected.value] ?? null) : null));
 const labels = computed(() => Object.fromEntries(steps.value.map((s) => [s.nodeId, s.label])));
 const runningSteps = computed(() => steps.value.filter((s) => s.status === 'running'));
+const waitingSteps = computed(() => steps.value.filter((s) => s.status === 'waiting'));
 const isWorkflow = computed(() => run.value?.kind === 'workflow');
 const duration = computed(() => (live.value ? elapsedMs(live.value.startedAt, live.value.finishedAt, now.value) : null));
 const progress = computed(() => {
@@ -63,9 +65,32 @@ const sourceLink = computed(() => (run.value?.workflowId ? `/workflows/${run.val
 
 /** Texto que se muestra en la pestaña Resultado según la selección. */
 const resultText = computed(() => {
-  if (step.value) return step.value.output ?? step.value.streamText ?? '';
+  // Un paso cancelado o fallido a medias no tiene salida: se muestra lo que el modelo llevaba escrito.
+  if (step.value) return step.value.output ?? (step.value.streamText || step.value.partialOutput) ?? '';
   return live.value?.output ?? '';
 });
+/** ¿Lo que se muestra es el texto a medias de un paso que no llegó a terminar? */
+const isPartial = computed(() => !!step.value && step.value.output === null && !['running', 'waiting'].includes(step.value.status) && resultText.value !== '');
+
+// Subejecuciones (subworkflows) que ha lanzado esta ejecución, agrupadas por el paso que las lanzó.
+const children = ref<RunSummary[]>([]);
+async function loadChildren(): Promise<void> {
+  try {
+    children.value = await api.runs.children(runId.value);
+  } catch {
+    /* dato secundario */
+  }
+}
+const hasSubworkflows = computed(() => steps.value.some((s) => s.nodeType === 'subworkflow' || s.nodeType === 'foreach'));
+watch(
+  () => [runId.value, hasSubworkflows.value, steps.value.filter((s) => s.status === 'running' || s.status === 'completed' || s.status === 'failed').length],
+  () => {
+    if (hasSubworkflows.value) void loadChildren();
+    else children.value = [];
+  },
+  { immediate: true },
+);
+const stepChildren = computed(() => (step.value ? children.value.filter((c) => c.parentNodeId === step.value!.nodeId) : []));
 const stepDuration = (s: { startedAt: string | null; finishedAt: string | null; status: string }) =>
   s.startedAt ? formatDuration(elapsedMs(s.startedAt, s.finishedAt, s.status === 'running' ? now.value : Date.parse(s.startedAt))) : '';
 
@@ -129,6 +154,7 @@ async function copy(text: string): Promise<void> {
               {{ formatDateTime(run.createdAt) }}
               <template v-if="run.scheduled"> · ejecución programada</template>
               <template v-if="run.retryOf"> · <RouterLink :to="`/runs/${run.retryOf}`">reintento de una ejecución anterior</RouterLink></template>
+              <template v-if="run.parentRunId"> · <RouterLink :to="`/runs/${run.parentRunId}`">subejecución lanzada por otro workflow</RouterLink></template>
               <template v-if="isActive && steps.length > 1"> · {{ progress.done }} de {{ progress.total }} pasos</template>
             </p>
           </div>
@@ -211,7 +237,7 @@ async function copy(text: string): Promise<void> {
 
               <template v-if="resultText">
                 <div class="row between">
-                  <span class="eyebrow">{{ step ? (step.status === 'running' ? 'Generando…' : 'Salida del paso') : 'Resultado final' }}</span>
+                  <span class="eyebrow">{{ step ? (step.status === 'running' ? 'Generando…' : isPartial ? 'Texto generado antes de interrumpirse' : 'Salida del paso') : 'Resultado final' }}</span>
                   <div class="row" style="gap: 4px">
                     <div class="segmented">
                       <button type="button" :class="{ active: !raw }" @click="raw = false">Formato</button>
@@ -226,7 +252,14 @@ async function copy(text: string): Promise<void> {
 
               <!-- Resumen en curso: lo que están generando ahora mismo los pasos activos -->
               <template v-else-if="!step && isActive">
-                <p v-if="!runningSteps.length" class="muted row"><span class="dot info pulse" /> {{ live.status === 'queued' ? 'En cola, esperando turno…' : 'Preparando el siguiente paso…' }}</p>
+                <p v-if="waitingSteps.length" class="callout warning" role="status">
+                  <Hourglass />
+                  <span>
+                    La ejecución está detenida en «{{ waitingSteps.map((s) => s.label).join('», «') }}» a la espera de que alguien apruebe o rechace. Decide en el aviso de la parte superior de
+                    la página.
+                  </span>
+                </p>
+                <p v-else-if="!runningSteps.length" class="muted row"><span class="dot info pulse" /> {{ live.status === 'queued' ? 'En cola, esperando turno…' : 'Preparando el siguiente paso…' }}</p>
                 <div v-for="s in runningSteps" :key="s.nodeId" class="stream">
                   <button class="row stream-head" type="button" @click="selected = s.nodeId">
                     <StatusBadge status="running" icon-only /> <strong>{{ s.label }}</strong>
@@ -242,12 +275,25 @@ async function copy(text: string): Promise<void> {
                 <p v-if="step.status === 'running'" class="muted row">
                   <span class="dot info pulse" /> {{ step.thinkingText ? 'El modelo está razonando…' : 'Esperando al modelo…' }}
                 </p>
+                <p v-else-if="step.status === 'waiting'" class="muted row"><Hourglass style="width: 15px; height: 15px" /> Esperando a que una persona apruebe o rechace.</p>
                 <p v-else-if="step.status === 'pending'" class="muted">Este paso todavía no ha empezado.</p>
                 <p v-else-if="step.status === 'skipped'" class="muted">Este paso se omitió: pertenece a una rama no tomada o dependía de un paso fallido.</p>
                 <p v-else-if="step.status === 'cancelled'" class="muted">Este paso se canceló antes de terminar.</p>
                 <p v-else-if="!step.error" class="muted">Este paso no produjo salida.</p>
               </template>
               <p v-else-if="!live.error" class="muted">La ejecución no produjo ningún resultado.</p>
+
+              <!-- Subejecuciones lanzadas por este paso (subworkflow, o «para cada» con un subworkflow por elemento) -->
+              <div v-if="stepChildren.length" class="children">
+                <span class="eyebrow">{{ stepChildren.length === 1 ? 'Subejecución' : `Subejecuciones (${stepChildren.length})` }}</span>
+                <ul>
+                  <li v-for="child in stepChildren" :key="child.id">
+                    <StatusBadge :status="child.status" icon-only />
+                    <RouterLink :to="`/runs/${child.id}`">{{ child.name }}</RouterLink>
+                    <span class="muted small truncate">{{ child.input }}</span>
+                  </li>
+                </ul>
+              </div>
             </template>
 
             <!-- Actividad -->
@@ -268,6 +314,27 @@ async function copy(text: string): Promise<void> {
 </template>
 
 <style scoped>
+.children {
+  margin-top: 14px;
+}
+.children ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.children li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.children a {
+  text-decoration: underline;
+  flex: none;
+}
 .progress {
   height: 4px;
   border-radius: 2px;

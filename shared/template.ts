@@ -7,6 +7,11 @@ export const BUILTIN_REFS = new Set(['input', 'upstream', 'date']);
 /** Referencias que solo existen dentro de la tarea de un nodo «para cada». */
 export const FOREACH_REFS = new Set(['item', 'index', 'total']);
 
+/** Sufijos admitidos tras el id de un nodo: su salida y, en una aprobación, el comentario de quien decidió. */
+export const NODE_REF_SUFFIXES = ['.output', '.comment'];
+/** Ids que un nodo no puede tener: chocarían con las referencias integradas. */
+export const RESERVED_NODE_IDS = new Set([...BUILTIN_REFS, ...FOREACH_REFS, 'constructor', 'prototype', '__proto__']);
+
 /** Devuelve las referencias (sin duplicados) usadas en una plantilla. */
 export function extractRefs(template: string): string[] {
   const refs = new Set<string>();
@@ -17,7 +22,8 @@ export function extractRefs(template: string): string[] {
 /** Id de nodo al que apunta una referencia, o null si es una referencia integrada. */
 export function refNodeId(ref: string): string | null {
   if (BUILTIN_REFS.has(ref) || FOREACH_REFS.has(ref)) return null;
-  return ref.endsWith('.output') ? ref.slice(0, -'.output'.length) : ref;
+  for (const suffix of NODE_REF_SUFFIXES) if (ref.endsWith(suffix)) return ref.slice(0, -suffix.length);
+  return ref;
 }
 
 /** Sustituye cada referencia usando `resolve`. Las desconocidas se sustituyen por cadena vacía. */

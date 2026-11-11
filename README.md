@@ -94,8 +94,9 @@ proceso muere de golpe. Un segundo Ctrl+C fuerza la salida. Sondas para un orque
   instrucciones y herramientas; **banco de pruebas** con respuesta en streaming.
 - **Workflows**: constructor visual (Vue Flow) con paleta, inspector, plantillas `{{input}}`,
   `{{upstream}}`, `{{id_nodo}}`, validación en vivo (ciclos, referencias, agentes eliminados…).
-  Nodos: entrada, agente, herramienta, condición (ramas sí/no), **para cada** (repite una tarea con cada
-  elemento de una lista, varios a la vez), transformación y salida.
+  Nodos: entrada, agente, herramienta, condición (ramas sí/no), **para cada** (repite con cada elemento de una
+  lista un agente, una herramienta o un subworkflow, varios a la vez), **subworkflow** (otro workflow como un
+  paso), **aprobación** (la ejecución espera a que una persona apruebe o rechace), transformación y salida.
 - **Exportar e importar** workflows como archivos JSON (con los agentes que usan) y **ejecución programada**
   (cada cierto tiempo o a una hora fija cada día).
 - **Motor**: ejecución del grafo con paralelismo y límite de concurrencia, dependencias, ramas
@@ -104,8 +105,10 @@ proceso muere de golpe. Un segundo Ctrl+C fuerza la salida. Sondas para un orque
   compartida por ejecución.
 - **Ejecuciones**: historial con filtros y búsqueda en el contenido (nombre, entrada y resultado), monitor en vivo (grafo con estados, streaming de tokens,
   registro de actividad con llamadas a herramientas), cancelar, repetir y **reintentar desde el fallo**
-  reutilizando los pasos completados. Si el servidor se apaga con ejecuciones a medias, al volver la interfaz
-  ofrece **reanudarlas** (o descartarlas) desde cualquier pantalla.
+  reutilizando los pasos completados (y los elementos ya hechos de un «para cada»). Si el servidor se apaga con
+  ejecuciones a medias, al volver la interfaz ofrece **reanudarlas** (o descartarlas) desde cualquier pantalla, o
+  lo hace sola si se activa en *Ajustes*. Las **aprobaciones pendientes** se deciden desde un aviso visible en
+  toda la aplicación.
 - **Herramientas**: 11 integradas (calculadora, fecha, leer web, HTTP, archivos, memoria compartida,
   delegación, JavaScript aislado), herramientas HTTP personalizadas creadas desde la interfaz, banco de
   pruebas y visor del espacio de trabajo.

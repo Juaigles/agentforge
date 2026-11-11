@@ -240,6 +240,16 @@ async function toggleCodeExecution(ev: Event): Promise<void> {
   if (settings.value?.allowCodeExecution) void loadSandbox();
 }
 
+async function toggleAutoResume(ev: Event): Promise<void> {
+  const input = ev.target as HTMLInputElement;
+  await updateSetting(
+    'autoResume',
+    input.checked,
+    input.checked ? 'Las ejecuciones interrumpidas se reanudarán solas al arrancar.' : 'Las ejecuciones interrumpidas esperarán a que decidas.',
+  );
+  input.checked = settings.value?.autoResume ?? false;
+}
+
 // Estado real del aislamiento (lo comprueba el servidor: red del proceso y motor de contenedores).
 const sandbox = ref<SandboxStatus | null>(null);
 const sandboxLoading = ref(false);
@@ -525,6 +535,17 @@ async function clearFinished(): Promise<void> {
               :disabled="savingSetting === 'maxConcurrentRuns'"
               @change="commitConcurrent"
             />
+          </div>
+
+          <div class="option">
+            <div class="grow">
+              <label class="o-title" for="set-autoresume">Reanudar automáticamente tras un apagado</label>
+              <p class="muted small">
+                Si el servidor se apaga con <Term id="ejecucion">ejecuciones</Term> a medias, al arrancar siguen solas donde se quedaron, reutilizando los pasos ya terminados.
+                Desactivado, la interfaz pregunta antes. Las que solo esperaban una <Term id="aprobacion">aprobación</Term> se reanudan siempre.
+              </p>
+            </div>
+            <input id="set-autoresume" type="checkbox" class="switch" :checked="settings.autoResume" :disabled="savingSetting === 'autoResume'" @change="toggleAutoResume" />
           </div>
 
           <div class="option">

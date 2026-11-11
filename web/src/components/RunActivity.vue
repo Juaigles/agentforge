@@ -24,6 +24,7 @@ const where = (nodeId: string | null) => (!props.nodeId && nodeId ? (props.label
         <span>
           {{ item.text }}
           <span v-if="where(item.nodeId)" class="faint"> · {{ where(item.nodeId) }}</span>
+          <template v-if="item.link"> · <RouterLink :to="item.link.to" class="marker-link">{{ item.link.label }}</RouterLink></template>
         </span>
         <p v-if="item.detail" class="detail">{{ item.detail }}</p>
       </div>
@@ -77,6 +78,9 @@ const where = (nodeId: string | null) => (!props.nodeId && nodeId ? (props.label
 </template>
 
 <style scoped>
+.marker-link {
+  text-decoration: underline;
+}
 .activity {
   list-style: none;
   margin: 0;

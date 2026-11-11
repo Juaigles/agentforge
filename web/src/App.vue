@@ -3,6 +3,7 @@ import { Activity, Bot, BookOpen, LayoutDashboard, Monitor, Moon, Settings, Sun,
 import { computed, onMounted, ref } from 'vue';
 import { api, authRequired } from '@/lib/api';
 import AccessGate from '@/components/AccessGate.vue';
+import ApprovalsBanner from '@/components/ApprovalsBanner.vue';
 import InterruptedBanner from '@/components/InterruptedBanner.vue';
 import UiHost from '@/components/UiHost.vue';
 import { useCatalog } from '@/stores/catalog';
@@ -52,8 +53,8 @@ onMounted(async () => {
   try {
     await catalog.ensure();
     // Las ejecuciones que ya estaban en marcha al abrir la página también se siguen en vivo.
-    const [running, queued] = await Promise.all([api.runs.list({ status: 'running' }), api.runs.list({ status: 'queued' })]);
-    runs.seed([...running.items, ...queued.items]);
+    const [running, queued, waiting] = await Promise.all([api.runs.list({ status: 'running' }), api.runs.list({ status: 'queued' }), api.runs.list({ status: 'waiting' })]);
+    runs.seed([...running.items, ...queued.items, ...waiting.items]);
   } catch {
     /* el estado de conexión se muestra en la barra lateral y en cada vista */
   }
@@ -108,6 +109,7 @@ onMounted(async () => {
 
     <main class="main">
       <InterruptedBanner />
+      <ApprovalsBanner />
       <RouterView v-slot="{ Component, route }">
         <component :is="Component" :key="route.meta.keyed ? route.fullPath : undefined" />
       </RouterView>

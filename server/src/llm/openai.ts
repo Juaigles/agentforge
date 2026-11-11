@@ -2,7 +2,7 @@
 // Funciona con OpenAI, OpenRouter, Groq, LM Studio, vLLM, llama.cpp, el endpoint /v1 de Ollama, etc.
 import type { ModelInfo } from '../../../shared/types';
 import { LlmError } from '../errors';
-import { llmFetch, normalizeBaseUrl, parseToolArguments, readLines } from './http';
+import { invalidToolArguments, llmFetch, normalizeBaseUrl, parseToolArguments, readLines } from './http';
 import type { ChatMessage, ChatRequest, ChatResult, LlmClient } from './types';
 
 function toOpenAiMessage(m: ChatMessage): Record<string, unknown> {
@@ -108,11 +108,17 @@ export class OpenAiCompatibleClient implements LlmClient {
     // Las tool-calls llegan troceadas por índice: el nombre primero y los argumentos en fragmentos.
     const partial = new Map<number, { id: string; name: string; args: string }>();
     let sawData = false;
+    // Una respuesta completa termina con «[DONE]» o trae un motivo de fin. Si la conexión se cierra sin ninguno
+    // de los dos (un proxy, el servidor descargando el modelo), lo recibido es un trozo, no la respuesta.
+    let finished = false;
 
     for await (const line of readLines(res.body)) {
       if (!line.startsWith('data:')) continue;
       const payload = line.slice(5).trim();
-      if (payload === '[DONE]') break;
+      if (payload === '[DONE]') {
+        finished = true;
+        break;
+      }
       let chunk: Record<string, any>;
       try {
         chunk = JSON.parse(payload);
@@ -151,10 +157,14 @@ export class OpenAiCompatibleClient implements LlmClient {
           partial.set(index, entry);
         }
       }
-      if (choice.finish_reason) result.finishReason = choice.finish_reason;
+      if (choice.finish_reason) {
+        result.finishReason = choice.finish_reason;
+        finished = true;
+      }
     }
     if (req.signal?.aborted) throw req.signal.reason;
     if (!sawData) throw new LlmError('El proveedor no devolvió ningún dato.', { retryable: true });
+    if (!finished) throw new LlmError('La respuesta del proveedor se cortó antes de terminar.', { retryable: true });
 
     for (const [index, entry] of [...partial.entries()].sort((a, b) => a[0] - b[0])) {
       if (!entry.name) continue;
@@ -162,9 +172,11 @@ export class OpenAiCompatibleClient implements LlmClient {
         id: entry.id || `call_${index + 1}`,
         name: entry.name,
         arguments: parseToolArguments(entry.args),
+        invalidArguments: invalidToolArguments(entry.args),
       });
     }
-    if (result.toolCalls.length) result.finishReason = 'tool_calls';
+    // Si la respuesta se cortó por el límite de tokens, se conserva ese motivo: los argumentos pueden estar a medias.
+    if (result.toolCalls.length && result.finishReason !== 'length') result.finishReason = 'tool_calls';
     return result;
   }
 }

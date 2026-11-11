@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nodeSubworkflowId, nodeUsesAgent } from '@shared/graph';
 // Grafo de solo lectura de una ejecución: cada nodo muestra su estado en vivo.
 import type { RunSnapshot } from '@shared/types';
 import { Background } from '@vue-flow/background';
@@ -19,8 +20,11 @@ onNodesInitialized(() => void fitView({ padding: 0.15, maxZoom: 1 }));
 
 const nodes = computed(() =>
   props.snapshot.workflow.nodes.map((n) => {
-    const agent = n.type === 'agent' || n.type === 'foreach' ? props.snapshot.agents[n.config?.agentId] : undefined;
-    return toFlowNode(n, { status: props.live.steps[n.id]?.status ?? 'pending', agentName: agent?.name, agentColor: agent?.color });
+    const agent = nodeUsesAgent(n) ? props.snapshot.agents[n.config?.agentId] : undefined;
+    // El subworkflow se muestra con el nombre que tenía al lanzar la ejecución (instantánea), no con el actual.
+    const childId = nodeSubworkflowId(n);
+    const workflowName = childId ? props.snapshot.subworkflows?.[childId]?.name : undefined;
+    return toFlowNode(n, { status: props.live.steps[n.id]?.status ?? 'pending', agentName: agent?.name, agentColor: agent?.color, workflowName });
   }),
 );
 

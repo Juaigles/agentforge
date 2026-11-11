@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Constructor visual de workflows: paleta → lienzo (Vue Flow) → inspector.
-import { ancestorsOf, slugifyNodeId, topologicalOrder, validateWorkflow } from '@shared/graph';
+import { ancestorsOf, foreachBody, isBranchingNode, slugifyNodeId, topologicalOrder, validateWorkflow } from '@shared/graph';
 import { DEFAULT_WORKFLOW_SETTINGS, type NodeType, type Schedule, type ValidationIssue, type WorkflowInput, type WorkflowSettings } from '@shared/types';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
@@ -24,6 +24,8 @@ import {
   Shuffle,
   Trash2,
   TriangleAlert,
+  UserCheck,
+  Workflow as WorkflowIcon,
   Wrench,
 } from 'lucide-vue-next';
 import { computed, nextTick, onMounted, reactive, ref, watch, type Ref } from 'vue';
@@ -73,9 +75,16 @@ const PALETTE: Array<{ kind: NodeType; icon: typeof Bot }> = [
   { kind: 'tool', icon: Wrench },
   { kind: 'condition', icon: GitBranch },
   { kind: 'foreach', icon: Repeat },
+  { kind: 'subworkflow', icon: WorkflowIcon },
+  { kind: 'approval', icon: UserCheck },
   { kind: 'transform', icon: Shuffle },
   { kind: 'output', icon: Flag },
 ];
+const FOREACH_BODIES = [
+  { value: 'agent', label: 'Un agente' },
+  { value: 'tool', label: 'Una herramienta' },
+  { value: 'subworkflow', label: 'Un subworkflow' },
+] as const;
 const OPERATORS = Object.entries(OPERATOR_LABEL);
 const UNARY = new Set(['is_empty', 'not_empty']);
 
@@ -90,8 +99,17 @@ const serialized = computed(() => JSON.stringify(definition.value));
 const dirty = computed(() => !loading.value && serialized.value !== saved.value);
 
 const issues = computed<ValidationIssue[]>(() =>
-  validateWorkflow(definition.value, { agentIds: catalog.agents.map((a) => a.id), toolNames: catalog.enabledToolNames }),
+  validateWorkflow(definition.value, {
+    agentIds: catalog.agents.map((a) => a.id),
+    toolNames: catalog.enabledToolNames,
+    // Los demás workflows: para comprobar los subworkflows y que no se formen ciclos entre workflows.
+    workflows: catalog.workflows,
+    selfId: workflowId.value,
+  }),
 );
+
+/** Workflows que este puede lanzar como subworkflow (todos menos él mismo). */
+const otherWorkflows = computed(() => catalog.workflows.filter((w) => w.id !== workflowId.value));
 const errors = computed(() => issues.value.filter((i) => i.level === 'error'));
 const warnings = computed(() => issues.value.filter((i) => i.level === 'warning'));
 
@@ -122,7 +140,9 @@ const availableRefs = computed(() => {
   if (def.edges.some((e) => e.target === selected.value!.id)) refs.push({ ref: 'upstream', hint: 'Resultado de los nodos conectados a este' });
   const ancestors = ancestorsOf(selected.value.id, def.edges);
   for (const n of def.nodes) {
-    if (ancestors.has(n.id) && n.type !== 'input' && n.type !== 'condition') refs.push({ ref: n.id, hint: `Resultado de «${n.label || n.id}»` });
+    if (!ancestors.has(n.id)) continue;
+    if (n.type === 'approval') refs.push({ ref: `${n.id}.comment`, hint: `Comentario de quien decidió en «${n.label || n.id}»` });
+    else if (n.type !== 'input' && n.type !== 'condition') refs.push({ ref: n.id, hint: `Resultado de «${n.label || n.id}»` });
   }
   if (selected.value.data?.kind === 'foreach') {
     refs.unshift(
@@ -134,7 +154,23 @@ const availableRefs = computed(() => {
   return refs;
 });
 
-const selectedTool = computed(() => (selectedData.value?.kind === 'tool' ? catalog.toolByName.get(selectedData.value.config.tool) : undefined));
+/** Cuerpo del «para cada» seleccionado (agente, herramienta o subworkflow). */
+const selectedBody = computed(() => (selected.value && selectedData.value?.kind === 'foreach' ? foreachBody({ ...fromFlow([selected.value], []).nodes[0] }) : null));
+/** Herramienta cuyos argumentos se editan: la del nodo herramienta o la del cuerpo de un «para cada». */
+const selectedTool = computed(() => {
+  const data = selectedData.value;
+  if (!data) return undefined;
+  return data.kind === 'tool' || (data.kind === 'foreach' && selectedBody.value === 'tool') ? catalog.toolByName.get(data.config.tool) : undefined;
+});
+
+function setForeachBody(body: 'agent' | 'tool' | 'subworkflow'): void {
+  const data = selectedData.value;
+  if (!data) return;
+  data.config.body = body;
+  if (body === 'tool') data.config.args ??= {};
+  if (body === 'subworkflow') data.config.input ??= '{{item}}';
+  if (body === 'agent') data.config.prompt ||= 'Procesa este elemento:\n\n{{item}}';
+}
 
 // ---------- Carga ----------
 onMounted(async () => {
@@ -166,7 +202,7 @@ onMounted(async () => {
 // ---------- Edición del grafo ----------
 function addNode(kind: NodeType, position?: { x: number; y: number }, agentId?: string): void {
   const agent = agentId ? catalog.agentById.get(agentId) : undefined;
-  const label = agent?.name ?? (kind === 'condition' ? '¿Condición?' : NODE_LABEL[kind]);
+  const label = agent?.name ?? (kind === 'condition' ? '¿Condición?' : kind === 'approval' ? 'Revisión' : NODE_LABEL[kind]);
   const config: Record<string, any> =
     kind === 'agent'
       ? { agentId: agentId ?? '', prompt: '{{upstream}}' }
@@ -175,7 +211,11 @@ function addNode(kind: NodeType, position?: { x: number; y: number }, agentId?: 
         : kind === 'condition'
           ? { left: '{{upstream}}', operator: 'contains', right: '' }
           : kind === 'foreach'
-            ? { agentId: '', items: '{{upstream}}', prompt: 'Procesa este elemento:\n\n{{item}}', concurrency: 2 }
+            ? { body: 'agent', agentId: '', items: '{{upstream}}', prompt: 'Procesa este elemento:\n\n{{item}}', concurrency: 2 }
+            : kind === 'subworkflow'
+            ? { workflowId: '', input: '{{upstream}}' }
+            : kind === 'approval'
+            ? { message: '¿Apruebas este resultado?\n\n{{upstream}}' }
             : kind === 'transform'
             ? { template: '{{upstream}}' }
             : kind === 'input'
@@ -195,9 +235,10 @@ function addNode(kind: NodeType, position?: { x: number; y: number }, agentId?: 
   nodes.value = [...nodes.value, toFlowNode({ id, type: kind, label, position: pos, config })];
   const anchorKind = anchor?.data?.kind;
   if (anchor && kind !== 'input' && anchorKind !== 'output') {
-    // Desde una condición se usa la primera rama libre (sí y, si ya está ocupada, no).
-    const branch = anchorKind === 'condition' ? (['true', 'false'].find((h) => !edges.value.some((e) => e.source === anchor.id && e.sourceHandle === h)) ?? null) : null;
-    if (anchorKind !== 'condition' || branch) onConnect({ source: anchor.id, target: id, sourceHandle: branch, targetHandle: null });
+    // Desde una condición o una aprobación se usa la primera rama libre (sí y, si ya está ocupada, no).
+    const branches = anchorKind === 'condition' || anchorKind === 'approval';
+    const branch = branches ? (['true', 'false'].find((h) => !edges.value.some((e) => e.source === anchor.id && e.sourceHandle === h)) ?? null) : null;
+    if (!branches || branch) onConnect({ source: anchor.id, target: id, sourceHandle: branch, targetHandle: null });
   }
   selectedId.value = id;
   void nextTick(() => ensureVisible(pos!));
@@ -238,7 +279,7 @@ function onDrop(ev: DragEvent): void {
 function onConnect(c: Connection): void {
   if (!c.source || !c.target || c.source === c.target) return;
   const source = nodes.value.find((n) => n.id === c.source);
-  const handle = source?.data?.kind === 'condition' ? (c.sourceHandle === 'false' ? 'false' : 'true') : null;
+  const handle = source?.data && isBranchingNode({ type: source.data.kind }) ? (c.sourceHandle === 'false' ? 'false' : 'true') : null;
   if (edges.value.some((e) => e.source === c.source && e.target === c.target && (e.sourceHandle ?? null) === handle)) return;
   const candidate = { id: `${c.source}-${handle ?? 'out'}-${c.target}`, source: c.source, target: c.target, sourceHandle: handle };
   const def = definition.value;
@@ -279,8 +320,22 @@ function insertRef(refName: string): void {
     void nextTick(() => el.setSelectionRange(start + token.length, start + token.length));
     return;
   }
-  const main = data.kind === 'agent' || data.kind === 'foreach' ? 'prompt' : data.kind === 'condition' ? 'left' : 'template';
-  if (data.kind === 'tool') return void navigator.clipboard?.writeText(token).then(() => ui.info(`${token} copiado al portapapeles.`));
+  const usesArgs = data.kind === 'tool' || (data.kind === 'foreach' && selectedBody.value === 'tool');
+  if (usesArgs) return void navigator.clipboard?.writeText(token).then(() => ui.info(`${token} copiado al portapapeles.`));
+  const main =
+    data.kind === 'agent'
+      ? 'prompt'
+      : data.kind === 'foreach'
+        ? selectedBody.value === 'subworkflow'
+          ? 'input'
+          : 'prompt'
+        : data.kind === 'condition'
+          ? 'left'
+          : data.kind === 'subworkflow'
+            ? 'input'
+            : data.kind === 'approval'
+              ? 'message'
+              : 'template';
   setTemplate(main, `${data.config[main] ?? ''}${token}`);
 }
 function setTemplate(key: string, value: string): void {
@@ -583,20 +638,58 @@ onBeforeRouteLeave(async (to) => {
                 <Term id="para-cada">«para cada»</Term> repite la tarea con cada uno.
               </span>
             </div>
-            <div class="field">
-              <label for="in-agent">Agente</label>
-              <select id="in-agent" v-model="selectedData.config.agentId" class="select">
-                <option value="" disabled>Selecciona…</option>
-                <option v-for="a in catalog.agents" :key="a.id" :value="a.id">{{ a.name }}{{ a.role ? ` — ${a.role}` : '' }}</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="in-prompt">Tarea para cada elemento</label>
-              <textarea id="in-prompt" v-model="selectedData.config.prompt" data-tpl="prompt" class="textarea" rows="6" placeholder="Qué debe hacer el agente con cada elemento…" />
-              <span class="hint">
-                <code v-text="'{{item}}'" /> es el elemento; <code v-text="'{{index}}'" /> y <code v-text="'{{total}}'" />, su posición y el total.
-              </span>
-            </div>
+            <fieldset class="field plain">
+              <legend class="label">Con cada elemento se ejecuta</legend>
+              <div class="choices">
+                <label v-for="opt in FOREACH_BODIES" :key="opt.value" class="choice" :class="{ active: selectedBody === opt.value }">
+                  <input type="radio" name="foreach-body" :value="opt.value" :checked="selectedBody === opt.value" @change="setForeachBody(opt.value)" />
+                  {{ opt.label }}
+                </label>
+              </div>
+            </fieldset>
+
+            <template v-if="selectedBody === 'agent'">
+              <div class="field">
+                <label for="in-agent">Agente</label>
+                <select id="in-agent" v-model="selectedData.config.agentId" class="select">
+                  <option value="" disabled>Selecciona…</option>
+                  <option v-for="a in catalog.agents" :key="a.id" :value="a.id">{{ a.name }}{{ a.role ? ` — ${a.role}` : '' }}</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="in-prompt">Tarea para cada elemento</label>
+                <textarea id="in-prompt" v-model="selectedData.config.prompt" data-tpl="prompt" class="textarea" rows="6" placeholder="Qué debe hacer el agente con cada elemento…" />
+                <span class="hint">
+                  <code v-text="'{{item}}'" /> es el elemento; <code v-text="'{{index}}'" /> y <code v-text="'{{total}}'" />, su posición y el total.
+                </span>
+              </div>
+            </template>
+
+            <template v-else-if="selectedBody === 'tool'">
+              <div class="field">
+                <label for="in-tool"><Term id="herramienta">Herramienta</Term></label>
+                <select id="in-tool" v-model="selectedData.config.tool" class="select" @change="selectedData.config.args = {}">
+                  <option value="" disabled>Selecciona…</option>
+                  <option v-for="t in catalog.tools.filter((x) => x.enabled && x.name !== 'delegate_task')" :key="t.name" :value="t.name">{{ t.title }} ({{ t.name }})</option>
+                </select>
+                <span class="hint">Se ejecuta directamente, sin pasar por un <Term id="modelo">modelo</Term>. Usa <code v-text="'{{item}}'" /> en sus argumentos.</span>
+              </div>
+            </template>
+
+            <template v-else>
+              <div class="field">
+                <label for="in-subwf"><Term id="subworkflow">Subworkflow</Term></label>
+                <select id="in-subwf" v-model="selectedData.config.workflowId" class="select">
+                  <option value="" disabled>Selecciona…</option>
+                  <option v-for="w in otherWorkflows" :key="w.id" :value="w.id">{{ w.name }}</option>
+                </select>
+                <span class="hint">Un workflow de varios nodos que se lanza una vez por elemento.</span>
+              </div>
+              <div class="field">
+                <label for="in-subinput">Entrada para cada elemento (<Term id="plantilla">plantilla</Term>)</label>
+                <textarea id="in-subinput" v-model="selectedData.config.input" data-tpl="input" class="textarea" rows="2" style="min-height: 34px" placeholder="{{item}}" />
+              </div>
+            </template>
             <div class="form-grid" style="grid-template-columns: 1fr 1fr">
               <div class="field">
                 <label for="in-conc">A la vez</label>
@@ -614,9 +707,55 @@ onBeforeRouteLeave(async (to) => {
                 <option value="json">Lista JSON con los resultados</option>
               </select>
             </div>
+            <div class="field">
+              <label for="in-itemerror">Si un elemento falla</label>
+              <select id="in-itemerror" class="select" :value="selectedData.config.onItemError ?? 'fail'" @change="selectedData.config.onItemError = ($event.target as HTMLSelectElement).value">
+                <option value="fail">Detener el nodo</option>
+                <option value="continue">Seguir con los demás y señalarlo en el resultado</option>
+              </select>
+              <span class="hint">Al reintentar la ejecución, los elementos que ya se completaron no se repiten.</span>
+            </div>
           </template>
 
-          <!-- Herramienta -->
+          <!-- Subworkflow -->
+          <template v-else-if="selectedData.kind === 'subworkflow'">
+            <div class="field">
+              <label for="in-subwf"><Term id="subworkflow">Subworkflow</Term></label>
+              <select id="in-subwf" v-model="selectedData.config.workflowId" class="select">
+                <option value="" disabled>Selecciona…</option>
+                <option v-for="w in otherWorkflows" :key="w.id" :value="w.id">{{ w.name }}</option>
+              </select>
+              <RouterLink v-if="selectedData.config.workflowId" class="hint link" :to="`/workflows/${selectedData.config.workflowId}`">Abrir ese workflow</RouterLink>
+              <span v-else-if="!otherWorkflows.length" class="hint">Todavía no hay otro workflow que se pueda usar aquí.</span>
+            </div>
+            <div class="field">
+              <label for="in-subinput">Entrada del subworkflow (<Term id="plantilla">plantilla</Term>)</label>
+              <textarea id="in-subinput" v-model="selectedData.config.input" data-tpl="input" class="textarea" rows="3" placeholder="Vacío = lo que llegue de los nodos conectados" />
+              <span class="hint">El resultado del subworkflow es el resultado de este nodo. Su ejecución aparece en el historial, enlazada con esta.</span>
+            </div>
+          </template>
+
+          <!-- Aprobación humana -->
+          <template v-else-if="selectedData.kind === 'approval'">
+            <div class="field">
+              <label for="in-message">Qué se pide aprobar (<Term id="plantilla">plantilla</Term>)</label>
+              <textarea id="in-message" v-model="selectedData.config.message" data-tpl="message" class="textarea" rows="6" placeholder="p. ej. ¿Publicamos este texto?&#10;&#10;{{upstream}}" />
+              <span class="hint">
+                La ejecución se detiene aquí hasta que alguien decide (<Term id="aprobacion">aprobación</Term>). Mientras espera no cuenta para la duración máxima.
+              </span>
+            </div>
+            <p class="small muted">
+              Conecta la salida <strong style="color: var(--success)">sí</strong> (aprobado) y la salida <strong style="color: var(--danger)">no</strong> (rechazado). El comentario de quien decide
+              se puede usar después como <code v-text="`{{${selected.id}.comment}}`" />.
+            </p>
+            <div class="field">
+              <label for="in-timeout"><Term id="timeout">Tiempo máx.</Term> de espera (s)</label>
+              <input id="in-timeout" v-model="timeoutSecText" class="input" type="number" min="0" placeholder="Sin límite" />
+              <span class="hint">Si nadie decide en ese tiempo, el nodo falla.</span>
+            </div>
+          </template>
+
+          <!-- Herramienta (nodo propio) -->
           <template v-else-if="selectedData.kind === 'tool'">
             <div class="field">
               <label for="in-tool"><Term id="herramienta">Herramienta</Term></label>
@@ -626,6 +765,10 @@ onBeforeRouteLeave(async (to) => {
               </select>
               <span v-if="selectedTool" class="hint">{{ selectedTool.description }}</span>
             </div>
+          </template>
+
+          <!-- Argumentos de la herramienta (nodo herramienta o cuerpo de un «para cada») -->
+          <template v-if="selectedData.kind === 'tool' || (selectedData.kind === 'foreach' && selectedBody === 'tool')">
             <template v-if="selectedTool">
               <div v-for="(prop, name) in selectedTool.parameters.properties" :key="name" class="field">
                 <label :for="`arg-${name}`">
@@ -658,7 +801,7 @@ onBeforeRouteLeave(async (to) => {
           </template>
 
           <!-- Condición -->
-          <template v-else-if="selectedData.kind === 'condition'">
+          <template v-if="selectedData.kind === 'condition'">
             <div class="field">
               <label for="in-left">Texto a evaluar (<Term id="plantilla">plantilla</Term>)</label>
               <textarea id="in-left" v-model="selectedData.config.left" data-tpl="left" class="textarea" rows="2" style="min-height: 34px" />
@@ -677,7 +820,7 @@ onBeforeRouteLeave(async (to) => {
           </template>
 
           <!-- Transformación / Salida -->
-          <template v-else>
+          <template v-if="selectedData.kind === 'transform' || selectedData.kind === 'output'">
             <div class="field">
               <label for="in-tpl"><Term id="plantilla">Plantilla</Term></label>
               <textarea
@@ -698,7 +841,7 @@ onBeforeRouteLeave(async (to) => {
             </div>
           </div>
 
-          <template v-if="selectedData.kind === 'agent' || selectedData.kind === 'tool' || selectedData.kind === 'foreach'">
+          <template v-if="selectedData.kind === 'agent' || selectedData.kind === 'tool' || selectedData.kind === 'foreach' || selectedData.kind === 'subworkflow'">
             <div class="form-grid" style="grid-template-columns: 1fr 1fr">
               <div class="field">
                 <label for="in-retries"><Term id="reintento">Reintentos</Term></label>
@@ -791,6 +934,38 @@ onBeforeRouteLeave(async (to) => {
 </template>
 
 <style scoped>
+.field.plain {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13.5px;
+}
+.choice.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.choice input {
+  accent-color: var(--accent);
+}
+.hint.link {
+  color: var(--accent);
+  text-decoration: underline;
+}
 .builder {
   display: flex;
   flex-direction: column;

@@ -69,6 +69,7 @@ export const STATUS_LABEL: Record<RunStatus | StepStatus, string> = {
   queued: 'En cola',
   pending: 'Pendiente',
   running: 'En curso',
+  waiting: 'En espera',
   completed: 'Completado',
   failed: 'Fallido',
   cancelled: 'Cancelado',
@@ -79,6 +80,7 @@ export const STATUS_TONE: Record<RunStatus | StepStatus, Tone> = {
   queued: 'neutral',
   pending: 'neutral',
   running: 'info',
+  waiting: 'warning',
   completed: 'success',
   failed: 'danger',
   cancelled: 'warning',
@@ -92,10 +94,13 @@ export const NODE_LABEL: Record<NodeType, string> = {
   condition: 'Condición',
   transform: 'Transformación',
   foreach: 'Para cada',
+  subworkflow: 'Subworkflow',
+  approval: 'Aprobación',
   output: 'Salida',
 };
 
-export const isActiveStatus = (s: RunStatus): boolean => s === 'queued' || s === 'running';
+/** ¿La ejecución sigue viva? (en cola, en curso o detenida a la espera de una aprobación). */
+export const isActiveStatus = (s: RunStatus): boolean => s === 'queued' || s === 'running' || s === 'waiting';
 
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);

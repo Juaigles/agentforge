@@ -63,7 +63,9 @@ test.describe('Ajustes · copias de seguridad', () => {
 
     // Añadir una copia desde un archivo (la que se descargó antes).
     await page.goto('/settings');
-    const total = await copies.count();
+    // Las copias no forman parte de lo que se restaura: la lista sigue teniendo las de antes.
+    const total = existing + 1;
+    await expect(copies).toHaveCount(total);
     await section.getByLabel('Archivo de copia de seguridad').setInputFiles({ name: 'mi-copia.afbackup', mimeType: 'application/octet-stream', buffer: fs.readFileSync(file) });
     await expect(toast(page, 'Copia de seguridad añadida. Ya puedes restaurarla.')).toBeVisible();
     await expect(copies).toHaveCount(total + 1);

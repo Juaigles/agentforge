@@ -105,10 +105,20 @@ export function applyEvent(state: RunLive, ev: RunEvent): void {
       step.streamText = '';
       step.thinkingText = '';
       break;
+    case 'approval.requested':
+      // El nodo se detiene a la espera de una persona; la ejecución entera queda «en espera».
+      if (step) step.status = 'waiting';
+      state.status = 'waiting';
+      break;
+    case 'approval.decided':
+      if (step) step.status = 'running';
+      if (!Object.values(state.steps).some((s) => s.status === 'waiting')) state.status = 'running';
+      break;
     case 'step.finished':
       if (!step) break;
       step.status = d.status;
       if (d.output !== undefined) step.output = d.output;
+      if (d.partialOutput !== undefined) step.partialOutput = d.partialOutput;
       step.error = d.error ?? null;
       if (d.usage) step.usage = d.usage;
       step.finishedAt = ev.ts;
@@ -177,7 +187,7 @@ export function totalUsage(state: RunLive): Usage {
 
 // ---------- Registro de actividad ----------
 export type ActivityItem =
-  | { kind: 'marker'; key: string; ts: string; nodeId: string | null; tone: 'info' | 'success' | 'danger' | 'warning' | 'neutral'; text: string; detail?: string }
+  | { kind: 'marker'; key: string; ts: string; nodeId: string | null; tone: 'info' | 'success' | 'danger' | 'warning' | 'neutral'; text: string; detail?: string; link?: { to: string; label: string } }
   | { kind: 'message'; key: string; ts: string; nodeId: string | null; agent: string; depth: number; content: string; thinking?: string; tokens: number; toolCount: number }
   | { kind: 'tool'; key: string; ts: string; nodeId: string | null; agent?: string; depth: number; name: string; args: unknown; pending: boolean; ok: boolean; result: string; durationMs: number | null };
 
@@ -230,10 +240,20 @@ export function buildActivity(events: RunEvent[], nodeId?: string | null): Activ
       case 'step.reused':
         items.push({ ...base, kind: 'marker', tone: 'neutral', text: 'Resultado reutilizado de la ejecución anterior' });
         break;
+      case 'subrun.started':
+        items.push({ ...base, kind: 'marker', tone: 'info', text: `Subworkflow «${d.name}» lanzado`, link: { to: `/runs/${d.runId}`, label: 'Ver su ejecución' } });
+        break;
+      case 'approval.requested':
+        items.push({ ...base, kind: 'marker', tone: 'warning', text: 'A la espera de una aprobación', detail: d.message });
+        break;
+      case 'approval.decided':
+        items.push({ ...base, kind: 'marker', tone: d.approved ? 'success' : 'danger', text: d.approved ? 'Aprobado' : 'Rechazado', detail: d.comment || undefined });
+        break;
       case 'foreach.item': {
         const which = `Elemento ${d.index + 1} de ${d.total}`;
         if (d.status === 'started' && (d.attempt ?? 1) === 1) items.push({ ...base, kind: 'marker', tone: 'info', text: `${which} iniciado`, detail: d.item });
         else if (d.status === 'completed') items.push({ ...base, kind: 'marker', tone: 'success', text: `${which} completado` });
+        else if (d.status === 'reused') items.push({ ...base, kind: 'marker', tone: 'neutral', text: `${which}: resultado reutilizado de la ejecución anterior`, detail: d.item });
         else if (d.status === 'retry') items.push({ ...base, kind: 'marker', tone: 'warning', text: `${which}: error en el intento ${d.attempt}; se reintenta en ${d.delayMs} ms`, detail: d.error });
         else if (d.status === 'failed') items.push({ ...base, kind: 'marker', tone: 'danger', text: `${which} fallido`, detail: d.error });
         break;

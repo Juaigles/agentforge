@@ -51,6 +51,17 @@ export function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, '');
 }
 
+/** ¿Son JSON válido (un objeto) los argumentos de una llamada a herramienta? Vacío cuenta como «sin argumentos». */
+export function invalidToolArguments(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? undefined : raw;
+  } catch {
+    return raw;
+  }
+}
+
 /** Los modelos a veces devuelven JSON de argumentos mal formado; en ese caso se pasa un objeto vacío. */
 export function parseToolArguments(raw: unknown): Record<string, unknown> {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;

@@ -14,6 +14,10 @@ export const GLOSSARY = {
     term: 'API',
     definition: 'Puerta de entrada que un programa ofrece a otros programas: se le envía una petición y devuelve datos, sin pantallas de por medio.',
   },
+  aprobacion: {
+    term: 'Aprobación',
+    definition: 'Punto de un workflow en el que la ejecución se detiene hasta que una persona aprueba o rechaza. Según lo que decida, sigue por una rama u otra.',
+  },
   'api-key': {
     term: 'API key',
     definition: 'Contraseña que identifica tu cuenta ante un servicio. AgentForge la guarda cifrada y nunca la vuelve a mostrar.',
@@ -173,6 +177,10 @@ export const GLOSSARY = {
   streaming: {
     term: 'Streaming',
     definition: 'La respuesta llega palabra a palabra mientras el modelo la genera, en lugar de esperar al texto completo.',
+  },
+  subworkflow: {
+    term: 'Subworkflow',
+    definition: 'Un workflow que otro usa como si fuera un solo paso: se le pasa una entrada y devuelve su resultado. Sirve para reutilizar flujos de varios nodos.',
   },
   temperatura: {
     term: 'Temperatura',

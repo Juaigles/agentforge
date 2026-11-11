@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
-import { validateWorkflow } from '../../../shared/graph';
+import { nodeUsesAgent, validateWorkflow } from '../../../shared/graph';
 import {
   WORKFLOW_EXPORT_FORMAT,
   type Agent,
@@ -37,6 +37,7 @@ import { sandboxStatus } from '../tools/sandbox';
 import { errorMessage, stringifyResult } from '../util';
 import {
   agentSchema,
+  approvalDecisionSchema,
   customToolSchema,
   eventsQuerySchema,
   invokeToolSchema,
@@ -148,8 +149,14 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     return saved.apiKey;
   }
 
-  function workflowIssues(wf: Pick<Workflow, 'nodes' | 'edges'>) {
-    return validateWorkflow(wf, { agentIds: store.listAgents().map((a) => a.id), toolNames: tools.names() });
+  /** Valida un workflow contra los agentes, las herramientas y los demás workflows (subworkflows y ciclos). */
+  function workflowIssues(wf: Pick<Workflow, 'nodes' | 'edges'>, selfId: string | null = null) {
+    return validateWorkflow(wf, {
+      agentIds: store.listAgents().map((a) => a.id),
+      toolNames: tools.names(),
+      workflows: store.listWorkflows(),
+      selfId,
+    });
   }
 
   function assertAgentRefs(input: { providerId: string; tools: string[] }): void {
@@ -504,7 +511,9 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
 
   app.post('/api/workflows/validate', async (req) => {
     const wf = workflowSchema.parse(req.body);
-    return { issues: workflowIssues(wf) };
+    // `id` (opcional): el workflow que se está editando, para detectar que se llame a sí mismo.
+    const selfId = (req.body as { id?: unknown } | null)?.id;
+    return { issues: workflowIssues(wf, typeof selfId === 'string' ? selfId : null) };
   });
 
   app.post('/api/workflows/:id/duplicate', async (req, reply) => {
@@ -513,6 +522,10 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
   });
 
   app.delete('/api/workflows/:id', async (req, reply) => {
+    const used = store.workflowsUsingWorkflow(idOf(req));
+    if (used.length) {
+      throw new HttpError(409, `No se puede eliminar: lo usan como subworkflow ${used.map((w) => `«${w.name}»`).join(', ')}.`);
+    }
     if (!store.deleteWorkflow(idOf(req))) notFound('Workflow');
     return reply.status(204).send();
   });
@@ -521,7 +534,7 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
   /** Workflow como archivo portable: su definición más los agentes que usa (sin proveedor ni claves). */
   app.get('/api/workflows/:id/export', async (req): Promise<WorkflowExport> => {
     const { id: _id, createdAt: _c, updatedAt: _u, ...workflow } = store.getWorkflow(idOf(req)) ?? notFound('Workflow');
-    const agentIds = [...new Set(workflow.nodes.filter((n) => n.type === 'agent' || n.type === 'foreach').map((n) => String(n.config?.agentId ?? '')))];
+    const agentIds = [...new Set(workflow.nodes.filter(nodeUsesAgent).map((n) => String(n.config?.agentId ?? '')))];
     const agents = agentIds
       .map((id) => store.getAgent(id))
       .filter((a): a is Agent => Boolean(a))
@@ -570,7 +583,7 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     }
 
     const nodes = bundle.workflow.nodes.map((n) =>
-      (n.type === 'agent' || n.type === 'foreach') && mapping.has(String(n.config?.agentId))
+      nodeUsesAgent(n) && mapping.has(String(n.config?.agentId))
         ? { ...n, config: { ...n.config, agentId: mapping.get(String(n.config.agentId)) } }
         : n,
     );
@@ -578,7 +591,7 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     let name = bundle.workflow.name;
     for (let i = 2; taken.has(name); i++) name = `${bundle.workflow.name} (importado${i > 2 ? ` ${i - 1}` : ''})`;
     const workflow = store.createWorkflow({ ...bundle.workflow, name, nodes });
-    return reply.status(201).send({ workflow, createdAgents, reusedAgents, warnings, issues: workflowIssues(workflow) });
+    return reply.status(201).send({ workflow, createdAgents, reusedAgents, warnings, issues: workflowIssues(workflow, workflow.id) });
   });
 
   // ---------- Programación ----------
@@ -615,7 +628,7 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
   app.post('/api/workflows/:id/run', async (req, reply) => {
     const workflow = store.getWorkflow(idOf(req)) ?? notFound('Workflow');
     const { input } = runInputSchema.parse(req.body);
-    const issues = workflowIssues(workflow);
+    const issues = workflowIssues(workflow, workflow.id);
     const errors = issues.filter((i) => i.level === 'error');
     if (errors.length) throw new HttpError(422, `El workflow tiene errores: ${errors[0].message}`, { issues });
     return reply.status(202).send(runs.startWorkflowRun(workflow, input));
@@ -669,6 +682,39 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
   });
 
   app.delete('/api/runs', async () => ({ deleted: store.deleteFinishedRuns() }));
+
+  /** Subejecuciones que lanzó una ejecución (subworkflows), de la más antigua a la más reciente. */
+  app.get('/api/runs/:id/children', async (req) => {
+    if (!store.getRunSummary(idOf(req))) notFound('Ejecución');
+    return store.listChildRuns(idOf(req));
+  });
+
+  /** Resultado de cada elemento de un nodo «para cada». */
+  app.get('/api/runs/:id/steps/:nodeId/items', async (req) => {
+    const { id, nodeId } = req.params as { id: string; nodeId: string };
+    if (!store.getRunSummary(id)) notFound('Ejecución');
+    return store.listStepItems(id, nodeId);
+  });
+
+  // ---------- Aprobaciones humanas ----------
+  /** Aprobaciones pendientes (todas) o las de una ejecución (`?runId=`), con su decisión. */
+  app.get('/api/approvals', async (req) => {
+    const runId = (req.query as { runId?: string }).runId;
+    return store.listApprovals(runId ? { runId } : { pendingOnly: true });
+  });
+
+  app.post('/api/approvals/:id/decide', async (req) => {
+    const { approved, comment } = approvalDecisionSchema.parse(req.body);
+    return runs.decideApproval(idOf(req), approved, comment);
+  });
+
+  /** Avisa cada vez que cambia el conjunto de aprobaciones pendientes. */
+  app.get('/api/stream/approvals', async (req, reply) => {
+    const sse = openSse(req, reply);
+    const push = () => sse.send('approvals', store.listApprovals({ pendingOnly: true }));
+    push();
+    sse.onClose(runs.subscribeApprovals(push));
+  });
 
   /** Eventos de una ejecución en tiempo real. Reproduce primero el historial (desde Last-Event-ID). */
   app.get('/api/runs/:id/stream', async (req, reply) => {

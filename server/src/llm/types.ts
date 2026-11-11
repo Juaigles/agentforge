@@ -4,6 +4,8 @@ export interface ToolCall {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
+  /** El modelo envió unos argumentos que no son JSON válido (p. ej. cortados): el texto tal como llegó. */
+  invalidArguments?: string;
 }
 
 export interface ChatMessage {

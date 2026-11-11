@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import type {
   Agent,
   AgentInput,
+  Approval,
   AuthStatus,
   BackupInfo,
   BackupState,
@@ -19,6 +20,7 @@ import type {
   RunEvent,
   RunKind,
   RunStatus,
+  RunStepItem,
   RunSummary,
   SandboxStatus,
   Schedule,
@@ -113,6 +115,12 @@ export const api = {
     get: () => get<Settings>('/api/settings'),
     update: (patch: Partial<Settings>) => put<Settings>('/api/settings', patch),
   },
+  approvals: {
+    /** Aprobaciones a la espera de una decisión, de la más antigua a la más reciente. */
+    pending: () => get<Approval[]>('/api/approvals'),
+    ofRun: (runId: string) => get<Approval[]>(`/api/approvals?runId=${encodeURIComponent(runId)}`),
+    decide: (id: string, approved: boolean, comment = '') => post<Approval>(`/api/approvals/${id}/decide`, { approved, comment }),
+  },
   backups: {
     state: () => get<BackupState>('/api/backups'),
     create: () => post<BackupInfo>('/api/backups'),
@@ -201,6 +209,10 @@ export const api = {
     },
     get: (id: string) => get<Run>(`/api/runs/${id}`),
     events: (id: string, after = 0) => get<RunEvent[]>(`/api/runs/${id}/events?after=${after}`),
+    /** Subejecuciones (subworkflows) que lanzó esta ejecución. */
+    children: (id: string) => get<RunSummary[]>(`/api/runs/${id}/children`),
+    /** Resultado de cada elemento de un nodo «para cada». */
+    stepItems: (id: string, nodeId: string) => get<RunStepItem[]>(`/api/runs/${id}/steps/${encodeURIComponent(nodeId)}/items`),
     cancel: (id: string) => post<{ ok: boolean }>(`/api/runs/${id}/cancel`),
     retry: (id: string, mode: 'all' | 'failed') => post<Run>(`/api/runs/${id}/retry`, { mode }),
     remove: (id: string) => del(`/api/runs/${id}`),

@@ -17,6 +17,8 @@ async function main(): Promise<void> {
 
     await app.listen({ port: config.port, host: config.host });
     ctx.scheduler.start(config.schedulerTickMs);
+    // Las ejecuciones que esperaban una aprobación (y, si así se ha configurado, todas las interrumpidas) siguen solas.
+    ctx.runs.autoResume();
     log.info({ dataDir: config.dataDir, auth: Boolean(config.authToken) }, `AgentForge en http://${config.host}:${config.port}`);
     if (!isLoopbackHost(config.host)) log.warn('El servidor es accesible desde otros equipos: todas las peticiones a la API exigen la clave de acceso');
     // El aviso de arranque se escribe siempre, también con el registro silenciado.

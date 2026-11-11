@@ -6,12 +6,12 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 ## 1. Tests automatizados
 
 Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
-Resultados del 2026-11-11 (hito 5, tras la fase 2):
+Resultados del 2026-11-11 (hito 5, tras la fase 3):
 
 ```
-servidor     Test Files  13 passed (13)   Tests  295 passed | 1 skipped (296)
+servidor     Test Files  14 passed (14)   Tests  332 passed | 1 skipped (333)
 frontend     Test Files  7 passed (7)     Tests   40 passed (40)
-end-to-end   46 passed (2.5m)
+end-to-end   50 passed (2.7m)
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
 npm audit    found 0 vulnerabilities
 ```
@@ -35,6 +35,7 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `server/test/lifecycle.test.ts` | **Apagado ordenado** (en curso y en cola → interrumpidas y reanudables; plazo), respuestas comprimidas cortadas o canceladas, herramienta que ignora la cancelación, configuración de nodos fuera de rango, reintentos solo de errores transitorios, expresiones regulares catastróficas (con el bucle de eventos vivo), versión de esquema superior, copia previa a migrar, migración fallida, API key indescifrable, instancia única, validación de la configuración | Solo el proveedor LLM; servidores HTTP y procesos reales |
 | `server/test/security.test.ts` | Claves ligadas a su origen (se comprueba qué cabecera llega a cada servidor), `Host` con `0.0.0.0`, clave de acceso y sesión, peticiones de otra web, límite de tasa, cabeceras y CSP, bloqueo de la propia API, redirecciones a otro origen, direcciones privadas disfrazadas, plantillas del cuerpo, cuotas, consultas no válidas, sondas de salud, **`run_javascript` sin red** (proceso real con sus argumentos y su preludio intentando conectar, resolver nombres y usar `fetch`), contenedor, y **fijación de DNS contra un servidor DNS real** | El proveedor LLM (salvo donde se usan los adaptadores reales); servidores HTTP, DNS y procesos reales |
 | `server/test/data.test.ts` | Estadísticas incrementales y acumuladas (día local), paginación estable, resúmenes recortados, búsqueda de texto completo (subcadenas, tildes, caracteres especiales, ventana de 2 000), eventos sin salida duplicada, retención por tandas con el archivo encogiendo de verdad, memoria compartida tras reintentar, fragmentos agrupados y en orden, reproducción SSE de 2 300 eventos por HTTP real (también con `Last-Event-ID` y con la ejecución en marcha), HTML a texto en tiempo lineal con entradas hostiles, y copias de seguridad (crear, descargar, restaurar al reiniciar, cancelar, subir, nombres maliciosos) | Solo el proveedor LLM; base de datos en disco y HTTP reales |
+| `server/test/flow.test.ts` | Listas en texto libre (14 formas reales), **subworkflows** (resultado, enlace, instantánea estable, fallo y reintento, cancelación en cascada, anidamiento, ciclos, borrado bloqueado), **«para cada»** con herramienta y con subworkflow, política por elemento, reutilización de elementos al reintentar, **aprobación humana** (espera, aprobar, rechazar con comentario, sin ocupar hueco ni consumir la duración máxima, cancelación, tiempo máximo, **reinicio con la base en disco**), reanudación automática, texto parcial, respuestas cortadas del proveedor contra un servidor con el protocolo real, ids reservados | Solo el proveedor LLM (y en un caso ninguno: adaptador real contra un servidor local) |
 | `server/test/static.test.ts` | Servido del frontend: fallback de la SPA, caché, 404 de assets, archivos nuevos sin reiniciar | Ninguno |
 | `server/test/ollama.integration.test.ts` | **Modelo real**: chat nativo, adaptador OpenAI vía `/v1`, agente con herramienta por ambos adaptadores, workflow paralelo de 3 agentes | **Ninguno** (se omite si no hay Ollama) |
 | `web/src/lib/run-state.test.ts` | Reductor de eventos del monitor en vivo, emparejado de llamadas a herramientas, formato | Ninguno |
@@ -44,7 +45,7 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
 | `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
 | `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
-| `e2e/*.spec.ts` (46 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
+| `e2e/*.spec.ts` (50 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
 Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
 puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
@@ -75,6 +76,16 @@ puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de
 | Nodo «para cada» | `workflow-builder.spec.ts`, `foreach.test.ts` | Configurado en el lienzo; lista de 6 con tope 5 → falla sin llamar al modelo; lista de 3 → 3 peticiones, una por elemento, y avance en vivo |
 | Exportar / importar | `automation.spec.ts`, `schedule-import.test.ts` | Se descarga el archivo real, se borran workflow y agente, se sube el archivo y el workflow importado se ejecuta; archivos no válidos rechazados sin crear nada |
 | Ejecución programada | `automation.spec.ts`, `schedule-import.test.ts` | Alta, pausa y baja desde la interfaz; «Ejecutar ahora»; y una ejecución que aparece sola al cumplirse **un minuto real** |
+
+Comprobado con el servidor real y Ollama tras la fase 3 del hito 5 (2026-11-11, `qwen3.5:4b-q4_K_M`):
+
+- **Migración de los datos reales a v5** sin incidencias (`/api/health/ready` → «esquema v5»).
+- **Subworkflow + aprobación + comentario**: workflow «entrada → subworkflow (Analista: tres ideas) → aprobación →
+  Redactor», lanzado con «las ventajas de documentar el código». El subworkflow corrió como subejecución
+  **Completada** y enlazada; la ejecución quedó **En espera** con las tres ideas del modelo en el texto a aprobar
+  y el contador de la barra lateral en 1. En el navegador se escribió el comentario «Tono cercano y sin
+  tecnicismos» y se pulsó **Aprobar**: el Redactor generó el párrafo, la rama de rechazo quedó omitida y la
+  ejecución terminó **Completada** con 2 llamadas al modelo y 0 aprobaciones pendientes.
 
 ### 1.2 Prueba de carga (`npm run loadtest`)
 
@@ -250,6 +261,10 @@ de una ejecución anterior al reinicio.
 - **Redirección de https a http**: el rechazo está en el código pero no tiene test (haría falta un servidor TLS).
 - **Clave de acceso detrás de un proxy inverso** y con `HOST=0.0.0.0` en una red real: probado con peticiones
   inyectadas y con un servidor en 127.0.0.1, no desde otro equipo.
+- **Aprobación durante un reinicio con Ollama real**: el reinicio con una ejecución en espera está probado en
+  los tests y en la suite e2e (modelo simulado), no con el modelo real.
+- **«Para cada» con herramienta o subworkflow y la reanudación automática con Ollama real**: probados en tests y
+  e2e con el modelo simulado.
 - **Restauración sobre los datos reales**: la copia de los datos reales se creó y se listó, pero no se ha
   restaurado sobre `data/` (sí en la suite e2e y en los tests, con datos temporales).
 - **Historiales de más de 50 000 ejecuciones** o con salidas grandes (la siembra usa salidas de 2 KB).

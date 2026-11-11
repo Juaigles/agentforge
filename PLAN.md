@@ -38,7 +38,8 @@ web/      Vue 3 + Vite + Pinia + Vue Router + Vue Flow
 
 ### Modelo de ejecución
 
-- Workflow = nodos (`input`, `agent`, `tool`, `condition`, `transform`, `foreach`, `output`) + aristas.
+- Workflow = nodos (`input`, `agent`, `tool`, `condition`, `transform`, `foreach`, `subworkflow`, `approval`,
+  `output`) + aristas.
 - Un nodo está listo cuando todos sus padres han terminado. Se ejecuta si al menos una arista entrante está activa
   y ningún padre ha fallado; si no, se marca `skipped` (rama no tomada o dependencia fallida).
 - Los nodos listos se lanzan en paralelo hasta `maxConcurrency`.
@@ -147,11 +148,14 @@ reales y un commit local.
   *Hecho el 2026-11-11 (detalle y cifras en `PROGRESS.md`, «Hito 5 · Fase 2»). Queda para más adelante: un tope
   global de llamadas simultáneas al modelo y de la cola, un único canal SSE compartido entre pestañas, deduplicar
   las instantáneas y un grupo de procesos precalentados para `run_javascript`.*
-- [ ] **F3 · Motor.** Registro de tipos de nodo con esquemas en `shared/`; identidad de paso por ruta;
+- [x] **F3 · Motor.** Registro de tipos de nodo con esquemas en `shared/`; identidad de paso por ruta;
   subworkflows; «para cada» con cuerpo de subworkflow o de herramienta, política por elemento y reutilización de
   elementos completados al reintentar; nodo de aprobación humana (ejecución en espera que sobrevive a un
   reinicio); texto parcial de un paso cancelado persistido; reanudación automática opcional; `parseList`
   tolerante a prosa; adaptador OpenAI que detecta respuestas cortadas; fechas en hora local.
+  *Hecho el 2026-11-11 (detalle en `PROGRESS.md`, «Hito 5 · Fase 3»). No se ha hecho el registro único de
+  tipos de nodo con esquemas compartidos (la configuración se valida en el servidor y en `shared/graph.ts`), ni
+  la identidad de paso por ruta: un subworkflow es una ejecución propia enlazada con la que la lanza.*
 - [ ] **F4 · Disparadores y MCP.** Tabla de disparadores: cron, días de la semana, zona horaria, varios por
   workflow y webhooks locales con secreto; cliente MCP (stdio y HTTP) como tercera fuente de herramientas.
 - [ ] **F5 · Portabilidad.** Exportar herramientas HTTP y proveedores sin claves; importación atómica con

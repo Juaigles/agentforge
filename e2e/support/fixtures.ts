@@ -21,7 +21,7 @@ export interface AgentSpec {
 
 export interface NodeSpec {
   id: string;
-  type: 'input' | 'agent' | 'tool' | 'condition' | 'transform' | 'output' | 'foreach';
+  type: 'input' | 'agent' | 'tool' | 'condition' | 'transform' | 'output' | 'foreach' | 'subworkflow' | 'approval';
   label?: string;
   config?: Record<string, unknown>;
 }
