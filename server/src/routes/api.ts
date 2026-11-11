@@ -1,5 +1,6 @@
 // API REST + SSE de AgentForge.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -12,6 +13,11 @@ import {
   type ProviderTestResult,
   type BackupState,
   type RunEvent,
+  type Trigger,
+  type TriggerInput,
+  type TriggerPreview,
+  type TriggerWithSecret,
+  MAX_TRIGGERS_PER_WORKFLOW,
   type Workflow,
   type WorkflowExport,
   type WorkflowImportResult,
@@ -29,7 +35,8 @@ import {
 } from '../backup';
 import type { AppContext } from '../context';
 import { SCHEMA_VERSION } from '../db/database';
-import { nextOccurrence } from '../engine/scheduler';
+import { systemTimeZone } from '../engine/cron';
+import { nextOccurrence, upcomingOccurrences } from '../engine/scheduler';
 import { HttpError } from '../errors';
 import type { LlmProviderConfig } from '../llm/types';
 import { listWorkspaceFiles, resolveInWorkspace } from '../tools/builtin';
@@ -46,7 +53,8 @@ import {
   retrySchema,
   runIdsSchema,
   runsQuerySchema,
-  scheduleSchema,
+  mcpServerSchema,
+  triggerSchema,
   workflowImportSchema,
   runInputSchema,
   settingsSchema,
@@ -440,6 +448,36 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     return reply.status(204).send();
   });
 
+  // ---------- Servidores MCP ----------
+  function assertMcpName(name: string, selfId?: string): void {
+    if (store.listMcpServers().some((s) => s.name === name && s.id !== selfId)) throw new HttpError(409, `Ya existe un servidor MCP llamado «${name}».`);
+  }
+
+  app.get('/api/mcp/servers', async () => ctx.mcp.list());
+
+  // Crear o editar espera al intento de conexión (acotado), para devolver ya si funciona y qué herramientas ofrece.
+  app.post('/api/mcp/servers', async (req, reply) => {
+    const input = mcpServerSchema.parse(req.body);
+    assertMcpName(input.name);
+    const server = store.createMcpServer(input);
+    return reply.status(201).send(await ctx.mcp.sync(server.id));
+  });
+
+  app.put('/api/mcp/servers/:id', async (req) => {
+    const input = mcpServerSchema.parse(req.body);
+    assertMcpName(input.name, idOf(req));
+    if (!store.updateMcpServer(idOf(req), input)) notFound('Servidor MCP');
+    return ctx.mcp.sync(idOf(req));
+  });
+
+  app.delete('/api/mcp/servers/:id', async (req, reply) => {
+    if (!store.deleteMcpServer(idOf(req))) notFound('Servidor MCP');
+    await ctx.mcp.sync(idOf(req));
+    return reply.status(204).send();
+  });
+
+  app.post('/api/mcp/servers/:id/reconnect', async (req) => (await ctx.mcp.reconnect(idOf(req))) ?? notFound('Servidor MCP'));
+
   /** Ejecuta una herramienta manualmente (banco de pruebas de la interfaz). */
   app.post('/api/tools/:name/invoke', async (req) => {
     const name = (req.params as { name: string }).name;
@@ -594,35 +632,113 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     return reply.status(201).send({ workflow, createdAgents, reusedAgents, warnings, issues: workflowIssues(workflow, workflow.id) });
   });
 
-  // ---------- Programación ----------
-  app.get('/api/schedules', async () => store.listSchedules());
+  // ---------- Disparadores ----------
+  const newWebhookSecret = (): string => `whsec_${randomBytes(24).toString('base64url')}`;
+  /** Siguiente ocasión de un disparador recién guardado: se cuenta desde ahora; desactivado o webhook, ninguna. */
+  const firstOccurrence = (input: TriggerInput): string | null => (input.enabled ? (nextOccurrence(input, new Date())?.toISOString() ?? null) : null);
 
-  app.get('/api/workflows/:id/schedule', async (req) => {
+  app.get('/api/triggers', async () => store.listTriggers());
+
+  app.get('/api/workflows/:id/triggers', async (req) => {
     if (!store.getWorkflow(idOf(req))) notFound('Workflow');
-    return store.getSchedule(idOf(req));
+    return store.listTriggers(idOf(req));
   });
 
-  app.put('/api/workflows/:id/schedule', async (req) => {
+  /** Próximas ocasiones de un horario sin guardarlo (para enseñarlas en el formulario). */
+  app.post('/api/triggers/preview', async (req): Promise<TriggerPreview> => {
+    const input = triggerSchema.parse(req.body);
+    return { timezone: input.timezone ?? systemTimeZone(), next: upcomingOccurrences(input, new Date(), 5).map((d) => d.toISOString()) };
+  });
+
+  app.post('/api/workflows/:id/triggers', async (req, reply) => {
     const workflow = store.getWorkflow(idOf(req)) ?? notFound('Workflow');
-    const input = scheduleSchema.parse(req.body);
-    // La siguiente cita se cuenta desde ahora; una programación desactivada no tiene cita.
-    const next = input.enabled ? nextOccurrence(input, new Date()).toISOString() : null;
-    return store.saveSchedule(workflow.id, input, next);
+    const input = triggerSchema.parse(req.body);
+    if (store.listTriggers(workflow.id).length >= MAX_TRIGGERS_PER_WORKFLOW) {
+      throw new HttpError(409, `Un workflow admite como máximo ${MAX_TRIGGERS_PER_WORKFLOW} disparadores.`);
+    }
+    // El secreto de un webhook se genera aquí y solo se devuelve en esta respuesta.
+    const secret = input.kind === 'webhook' ? newWebhookSecret() : undefined;
+    const trigger: TriggerWithSecret = store.createTrigger(workflow.id, input, firstOccurrence(input), secret);
+    return reply.status(201).send(secret ? { ...trigger, secret } : trigger);
   });
 
-  app.delete('/api/workflows/:id/schedule', async (req, reply) => {
-    if (!store.deleteSchedule(idOf(req))) notFound('Programación');
+  app.put('/api/triggers/:id', async (req) => {
+    const existing = store.getTrigger(idOf(req)) ?? notFound('Disparador');
+    const input = triggerSchema.parse(req.body);
+    if ((existing.kind === 'webhook') !== (input.kind === 'webhook')) {
+      throw new HttpError(400, 'Un webhook no se puede convertir en un disparador con horario, ni al revés. Crea uno nuevo.');
+    }
+    return store.updateTrigger(existing.id, input, firstOccurrence(input));
+  });
+
+  app.delete('/api/triggers/:id', async (req, reply) => {
+    if (!store.deleteTrigger(idOf(req))) notFound('Disparador');
     return reply.status(204).send();
   });
 
-  /** Lanza ahora la programación, con su entrada guardada (para probarla sin esperar a la hora). */
-  app.post('/api/workflows/:id/schedule/run', async (req, reply) => {
-    const schedule = store.getSchedule(idOf(req)) ?? notFound('Programación');
+  /** Lanza ahora el disparador, con su entrada guardada (para probarlo sin esperar a la hora). */
+  app.post('/api/triggers/:id/run', async (req, reply) => {
+    const trigger = store.getTrigger(idOf(req)) ?? notFound('Disparador');
     try {
-      return reply.status(202).send(ctx.scheduler.runNow(schedule));
+      return reply.status(202).send(ctx.scheduler.fire(trigger));
     } catch (err) {
       throw new HttpError(422, errorMessage(err));
     }
+  });
+
+  /** Cambia el secreto de un webhook: el anterior deja de valer y el nuevo solo se devuelve aquí. */
+  app.post('/api/triggers/:id/secret', async (req): Promise<TriggerWithSecret> => {
+    const trigger = store.getTrigger(idOf(req)) ?? notFound('Disparador');
+    if (trigger.kind !== 'webhook') throw new HttpError(400, 'Solo los webhooks tienen secreto.');
+    const secret = newWebhookSecret();
+    store.setTriggerSecret(trigger.id, secret);
+    return { ...store.getTrigger(trigger.id)!, secret };
+  });
+
+  // Receptor de webhooks. No exige la clave de acceso de la interfaz (quien llama es otro programa): se
+  // autentica con el secreto del disparador, enviado tal cual o como firma HMAC del cuerpo. El cuerpo se lee
+  // en bruto, sea del tipo que sea, porque la firma se calcula sobre los bytes exactos.
+  void app.register(async (hooks) => {
+    hooks.removeAllContentTypeParsers();
+    hooks.addContentTypeParser('*', { parseAs: 'buffer', bodyLimit: 1024 * 1024 }, (_req, body, done) => done(null, body));
+    const digest = (value: string | Buffer): Buffer => createHash('sha256').update(value).digest();
+    const same = (a: string, b: string): boolean => timingSafeEqual(digest(a), digest(b));
+
+    hooks.post('/api/hooks/:id', async (req, reply) => {
+      const trigger: Trigger | null = store.getTrigger(idOf(req));
+      const secret = trigger?.kind === 'webhook' ? store.getTriggerSecret(trigger.id) : null;
+      const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+      const header = (name: string): string => {
+        const value = req.headers[name];
+        return typeof value === 'string' ? value.trim() : '';
+      };
+      const signature = header('x-agentforge-signature').replace(/^sha256=/i, '').toLowerCase();
+      const plain = header('x-agentforge-secret') || header('authorization').replace(/^Bearer\s+/i, '');
+      // Se comprueba siempre contra algo (aunque el webhook no exista) para no revelar cuáles existen por el tiempo de respuesta.
+      const expected = secret ?? newWebhookSecret();
+      const authorized = signature ? same(signature, createHmac('sha256', expected).update(body).digest('hex')) : same(plain, expected);
+      if (!trigger || !secret || !authorized) {
+        app.log.warn({ ip: req.ip, triggerId: idOf(req) }, 'Llamada a un webhook rechazada');
+        throw new HttpError(401, 'Webhook desconocido o secreto incorrecto.');
+      }
+      if (!trigger.enabled) throw new HttpError(409, 'Este webhook está desactivado.');
+      // Entrada: el campo «input» de un cuerpo JSON si lo hay; si no, el cuerpo como texto.
+      let text = body.toString('utf8');
+      try {
+        const parsed = JSON.parse(text) as { input?: unknown } | null;
+        if (parsed && typeof parsed === 'object' && typeof parsed.input === 'string') text = parsed.input;
+      } catch {
+        /* no es JSON: se usa el texto tal cual */
+      }
+      if (text.length > 100_000) throw new HttpError(413, 'El cuerpo es demasiado grande (máximo 100 000 caracteres).');
+      const input = trigger.input.trim() ? trigger.input.replace(/\{\{\s*body\s*\}\}/g, () => text) : text;
+      try {
+        const run = ctx.scheduler.fire(trigger, input);
+        return reply.status(202).send({ runId: run.id, status: run.status });
+      } catch (err) {
+        throw new HttpError(422, errorMessage(err));
+      }
+    });
   });
 
   app.post('/api/workflows/:id/run', async (req, reply) => {

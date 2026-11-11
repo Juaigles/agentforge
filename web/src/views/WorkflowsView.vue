@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { nodeUsesAgent } from '@shared/graph';
 import { validateWorkflow } from '@shared/graph';
-import type { Schedule, Workflow } from '@shared/types';
+import type { Trigger, Workflow } from '@shared/types';
 import { Bot, CalendarClock, CircleAlert, Copy, Download, Pencil, Play, Plus, Trash2, Upload, Workflow as WorkflowIcon } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import AgentAvatar from '@/components/AgentAvatar.vue';
 import AppModal from '@/components/AppModal.vue';
-import ScheduleModal from '@/components/ScheduleModal.vue';
+import TriggersModal from '@/components/TriggersModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
 import { plural, relativeTime } from '@/lib/format';
-import { describeSchedule, downloadJson, exportFileName, readJsonFile } from '@/lib/transfer';
+import { downloadJson, exportFileName, readJsonFile, summarizeTriggers } from '@/lib/transfer';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 
@@ -20,19 +20,22 @@ const ui = useUi();
 const router = useRouter();
 const error = ref<string | null>(null);
 
-const schedules = ref(new Map<string, Schedule>());
-async function loadSchedules(): Promise<void> {
+const triggers = ref(new Map<string, Trigger[]>());
+async function loadTriggers(): Promise<void> {
   try {
-    schedules.value = new Map((await api.schedules.list()).map((s) => [s.workflowId, s]));
+    const byWorkflow = new Map<string, Trigger[]>();
+    for (const t of await api.triggers.list()) byWorkflow.set(t.workflowId, [...(byWorkflow.get(t.workflowId) ?? []), t]);
+    triggers.value = byWorkflow;
   } catch {
-    /* las programaciones son un dato secundario de la lista */
+    /* los disparadores son un dato secundario de la lista */
   }
 }
+const triggerSummary = (wf: Workflow) => summarizeTriggers(triggers.value.get(wf.id) ?? []);
 
 onMounted(async () => {
   try {
     await catalog.reload();
-    await loadSchedules();
+    await loadTriggers();
   } catch (err) {
     error.value = errorText(err);
   }
@@ -170,8 +173,8 @@ async function remove(wf: Workflow): Promise<void> {
           <div class="row wrap" style="gap: 6px">
             <span class="badge">{{ plural(wf.nodes.length, 'nodo', 'nodos') }}</span>
             <span class="badge"><Bot /> {{ plural(wf.nodes.filter(nodeUsesAgent).length, 'paso de agente', 'pasos de agente') }}</span>
-            <span v-if="schedules.get(wf.id)" class="badge" :class="schedules.get(wf.id)!.enabled ? 'info' : ''" :title="schedules.get(wf.id)!.enabled ? 'Ejecución programada' : 'Programación en pausa'">
-              <CalendarClock /> {{ schedules.get(wf.id)!.enabled ? describeSchedule(schedules.get(wf.id)!) : 'programación en pausa' }}
+            <span v-if="triggerSummary(wf)" class="badge" :class="triggerSummary(wf)!.active ? 'info' : ''" :title="triggerSummary(wf)!.active ? 'Se ejecuta solo' : 'Sus disparadores están desactivados'">
+              <CalendarClock /> {{ triggerSummary(wf)!.text }}
             </span>
             <span class="avatars">
               <AgentAvatar v-for="a in agents.slice(0, 5)" :key="a.id" :name="a.name" :color="a.color" :size="22" :title="a.name" />
@@ -183,7 +186,7 @@ async function remove(wf: Workflow): Promise<void> {
             </button>
             <RouterLink class="btn btn-sm" :to="`/workflows/${wf.id}`"><Pencil /> Editar</RouterLink>
             <span class="grow" />
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Programar ${wf.name}`" title="Programar" @click="scheduling = wf"><CalendarClock /></button>
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Disparadores de ${wf.name}`" title="Disparadores: programar o lanzar con un webhook" @click="scheduling = wf"><CalendarClock /></button>
             <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Exportar ${wf.name}`" title="Exportar a un archivo" @click="exportWorkflow(wf)"><Download /></button>
             <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Duplicar ${wf.name}`" title="Duplicar" @click="duplicate(wf)"><Copy /></button>
             <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Eliminar ${wf.name}`" title="Eliminar" @click="remove(wf)"><Trash2 /></button>
@@ -200,13 +203,13 @@ async function remove(wf: Workflow): Promise<void> {
 
     <div v-else class="grid" aria-busy="true"><div v-for="i in 2" :key="i" class="card skeleton" style="height: 200px" /></div>
 
-    <ScheduleModal
+    <TriggersModal
       v-if="scheduling"
       :workflow-id="scheduling.id"
       :workflow-name="scheduling.name"
       :default-input="String(scheduling.nodes.find((n) => n.type === 'input')?.config?.defaultValue ?? '')"
       @close="scheduling = null"
-      @changed="loadSchedules"
+      @changed="loadTriggers"
     />
 
     <AppModal v-if="target" :title="`Ejecutar «${target.name}»`" @close="target = null">

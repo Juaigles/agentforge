@@ -1,10 +1,11 @@
-// Registro de herramientas: integradas (código) + personalizadas HTTP (definidas por el usuario en la BD).
+// Registro de herramientas: integradas (código), de servidores MCP y personalizadas HTTP (definidas en la BD).
 import { renderTemplate } from '../../../shared/template';
 import type { CustomTool, ToolInfo } from '../../../shared/types';
 import type { Store } from '../db/store';
 import { ToolError } from '../errors';
 import { truncate } from '../util';
 import { BUILTIN_TOOLS } from './builtin';
+import type { McpManager } from './mcp';
 import { safeFetch } from './net';
 import type { ToolContext, ToolDefinition } from './types';
 import { validateArgs } from './validate';
@@ -82,7 +83,10 @@ export function customToolDefinition(tool: CustomTool): ToolDefinition {
 export class ToolRegistry {
   private readonly builtin = new Map<string, ToolDefinition>();
 
-  constructor(private readonly store?: Store) {
+  constructor(
+    private readonly store?: Store,
+    private readonly mcp?: McpManager,
+  ) {
     for (const tool of BUILTIN_TOOLS) this.register(tool);
   }
 
@@ -99,6 +103,8 @@ export class ToolRegistry {
   get(name: string): ToolDefinition | undefined {
     const builtin = this.builtin.get(name);
     if (builtin) return builtin;
+    const external = this.mcp?.getTool(name);
+    if (external) return external;
     const custom = this.store?.getCustomToolByName(name);
     return custom && custom.enabled ? customToolDefinition(custom) : undefined;
   }
@@ -114,6 +120,20 @@ export class ToolRegistry {
       dangerous: Boolean(t.dangerous),
       enabled: true,
     }));
+    for (const { tool, serverId, serverName } of this.mcp?.tools() ?? []) {
+      tools.push({
+        name: tool.name,
+        title: tool.title,
+        description: tool.description,
+        category: tool.category,
+        parameters: tool.parameters,
+        source: 'mcp',
+        dangerous: false,
+        enabled: true,
+        mcpServerId: serverId,
+        mcpServerName: serverName,
+      });
+    }
     for (const c of this.store?.listCustomTools() ?? []) {
       tools.push({
         name: c.name,
@@ -140,7 +160,11 @@ export class ToolRegistry {
   async invoke(name: string, rawArgs: unknown, ctx: ToolContext): Promise<unknown> {
     const tool = this.get(name);
     if (!tool) throw new ToolError(`Herramienta desconocida o desactivada: ${name}`);
-    const args = validateArgs(tool.parameters, rawArgs);
+    let args: Record<string, any>;
+    if (tool.passthroughArgs) {
+      if (rawArgs !== null && rawArgs !== undefined && (typeof rawArgs !== 'object' || Array.isArray(rawArgs))) throw new ToolError('Los argumentos deben ser un objeto JSON.');
+      args = (rawArgs ?? {}) as Record<string, any>;
+    } else args = validateArgs(tool.parameters, rawArgs);
     if (ctx.signal.aborted) throw ctx.signal.reason;
     return tool.execute(args, ctx);
   }

@@ -505,7 +505,7 @@ describe('copias de seguridad', () => {
     expect(created.statusCode).toBe(201);
     const backup = created.json();
     expect(backup.name).toMatch(/^agentforge-\d{8}-\d{6}\.afbackup$/);
-    expect(backup.manifest).toMatchObject({ format: 'agentforge.backup', schemaVersion: 5, counts: { agents: 1, workflows: 0, runs: 1, workspaceFiles: 1 } });
+    expect(backup.manifest).toMatchObject({ format: 'agentforge.backup', schemaVersion: 6, counts: { agents: 1, workflows: 0, runs: 1, workspaceFiles: 1 } });
 
     let state = (await get('/api/backups')).json() as BackupState;
     expect(state).toMatchObject({ backups: [{ name: backup.name, sizeBytes: backup.sizeBytes }], pending: null, lastRestore: null });

@@ -152,7 +152,8 @@ async function copy(text: string): Promise<void> {
             </div>
             <p class="subtitle small">
               {{ formatDateTime(run.createdAt) }}
-              <template v-if="run.scheduled"> · ejecución programada</template>
+              <template v-if="run.triggerKind === 'webhook'"> · lanzada por un webhook</template>
+              <template v-else-if="run.scheduled"> · ejecución programada</template>
               <template v-if="run.retryOf"> · <RouterLink :to="`/runs/${run.retryOf}`">reintento de una ejecución anterior</RouterLink></template>
               <template v-if="run.parentRunId"> · <RouterLink :to="`/runs/${run.parentRunId}`">subejecución lanzada por otro workflow</RouterLink></template>
               <template v-if="isActive && steps.length > 1"> · {{ progress.done }} de {{ progress.total }} pasos</template>

@@ -23,8 +23,12 @@ import type {
   RunStepItem,
   RunSummary,
   SandboxStatus,
-  Schedule,
-  ScheduleInput,
+  McpServer,
+  McpServerInput,
+  Trigger,
+  TriggerInput,
+  TriggerPreview,
+  TriggerWithSecret,
   Settings,
   ToolInfo,
   ValidationIssue,
@@ -191,15 +195,25 @@ export const api = {
     /** Archivo portable: la definición y los agentes que usa. */
     export: (id: string) => get<WorkflowExport>(`/api/workflows/${id}/export`),
     import: (bundle: unknown) => post<WorkflowImportResult>('/api/workflows/import', bundle),
-    schedule: {
-      get: (id: string) => get<Schedule | null>(`/api/workflows/${id}/schedule`),
-      save: (id: string, input: ScheduleInput) => put<Schedule>(`/api/workflows/${id}/schedule`, input),
-      remove: (id: string) => del(`/api/workflows/${id}/schedule`),
-      runNow: (id: string) => post<Run>(`/api/workflows/${id}/schedule/run`),
-    },
   },
-  schedules: {
-    list: () => get<Schedule[]>('/api/schedules'),
+  triggers: {
+    list: () => get<Trigger[]>('/api/triggers'),
+    forWorkflow: (workflowId: string) => get<Trigger[]>(`/api/workflows/${workflowId}/triggers`),
+    /** Al crear un webhook la respuesta trae su secreto, que no se vuelve a mostrar. */
+    create: (workflowId: string, input: TriggerInput) => post<TriggerWithSecret>(`/api/workflows/${workflowId}/triggers`, input),
+    update: (id: string, input: TriggerInput) => put<Trigger>(`/api/triggers/${id}`, input),
+    remove: (id: string) => del(`/api/triggers/${id}`),
+    runNow: (id: string) => post<Run>(`/api/triggers/${id}/run`),
+    renewSecret: (id: string) => post<TriggerWithSecret>(`/api/triggers/${id}/secret`),
+    preview: (input: TriggerInput) => post<TriggerPreview>('/api/triggers/preview', input),
+  },
+  mcp: {
+    list: () => get<McpServer[]>('/api/mcp/servers'),
+    create: (input: McpServerInput) => post<McpServer>('/api/mcp/servers', input),
+    update: (id: string, input: McpServerInput) => put<McpServer>(`/api/mcp/servers/${id}`, input),
+    remove: (id: string) => del(`/api/mcp/servers/${id}`),
+    /** Vuelve a conectar y a leer la lista de herramientas. */
+    reconnect: (id: string) => post<McpServer>(`/api/mcp/servers/${id}/reconnect`),
   },
   runs: {
     list: (q: RunQuery = {}) => {

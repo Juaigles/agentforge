@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { describeSchedule, exportFileName, splitInterval, toMinutes } from './transfer';
+import type { Trigger } from '@shared/types';
+import { describeTrigger, describeWeekdays, exportFileName, splitInterval, summarizeTriggers, toMinutes } from './transfer';
+
+const trigger = (patch: Partial<Trigger>): Trigger => ({
+  id: 'trg_1',
+  workflowId: 'wf_1',
+  kind: 'interval',
+  name: '',
+  intervalMinutes: null,
+  time: null,
+  weekdays: [],
+  cron: null,
+  timezone: null,
+  input: '',
+  enabled: true,
+  nextRunAt: null,
+  lastRunAt: null,
+  lastRunId: null,
+  lastError: null,
+  createdAt: '',
+  updatedAt: '',
+  ...patch,
+});
 
 describe('exportación', () => {
   it('genera nombres de archivo seguros a partir del nombre del workflow', () => {
@@ -10,9 +32,9 @@ describe('exportación', () => {
   });
 });
 
-describe('programación en lenguaje natural', () => {
+describe('disparadores en lenguaje natural', () => {
   it('describe intervalos con la unidad más cómoda', () => {
-    const every = (intervalMinutes: number) => describeSchedule({ kind: 'interval', intervalMinutes, time: null });
+    const every = (intervalMinutes: number) => describeTrigger(trigger({ kind: 'interval', intervalMinutes }));
     expect(every(1)).toBe('cada minuto');
     expect(every(15)).toBe('cada 15 min');
     expect(every(60)).toBe('cada hora');
@@ -22,8 +44,27 @@ describe('programación en lenguaje natural', () => {
     expect(every(4320)).toBe('cada 3 días');
   });
 
-  it('describe la programación diaria con su hora', () => {
-    expect(describeSchedule({ kind: 'daily', intervalMinutes: null, time: '07:45' })).toBe('cada día a las 07:45');
+  it('describe los días y la hora, con la zona si la tiene', () => {
+    expect(describeTrigger(trigger({ kind: 'daily', time: '07:45' }))).toBe('cada día a las 07:45');
+    expect(describeTrigger(trigger({ kind: 'daily', time: '07:45', weekdays: [1, 2, 3, 4, 5] }))).toBe('de lunes a viernes a las 07:45');
+    expect(describeTrigger(trigger({ kind: 'daily', time: '10:00', weekdays: [0, 6], timezone: 'Europe/Madrid' }))).toBe('los fines de semana a las 10:00 (Europe/Madrid)');
+    expect(describeWeekdays([5, 1, 3])).toBe('lun, mié y vie');
+    expect(describeWeekdays([0])).toBe('los domingo');
+    expect(describeWeekdays([0, 1, 2, 3, 4, 5, 6])).toBe('cada día');
+  });
+
+  it('describe el cron y el webhook', () => {
+    expect(describeTrigger(trigger({ kind: 'cron', cron: '0 */6 * * *', timezone: 'UTC' }))).toBe('según el cron «0 */6 * * *» (UTC)');
+    expect(describeTrigger(trigger({ kind: 'webhook' }))).toBe('al recibir un webhook');
+  });
+
+  it('resume los disparadores de un workflow en una etiqueta', () => {
+    expect(summarizeTriggers([])).toBeNull();
+    expect(summarizeTriggers([trigger({ intervalMinutes: 120 })])).toEqual({ text: 'cada 2 h', active: true });
+    expect(summarizeTriggers([trigger({ intervalMinutes: 120 }), trigger({ kind: 'webhook' }), trigger({ kind: 'webhook', enabled: false })])).toEqual({ text: '2 disparadores', active: true });
+    expect(summarizeTriggers([trigger({ intervalMinutes: 120 }), trigger({ kind: 'webhook', enabled: false })])).toEqual({ text: 'cada 2 h', active: true });
+    expect(summarizeTriggers([trigger({ enabled: false })])).toEqual({ text: 'disparador en pausa', active: false });
+    expect(summarizeTriggers([trigger({ enabled: false }), trigger({ enabled: false })])).toEqual({ text: 'disparadores en pausa', active: false });
   });
 
   it('convierte entre minutos y valor + unidad sin perder información', () => {

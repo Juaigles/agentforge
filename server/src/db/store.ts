@@ -21,8 +21,11 @@ import {
   type RunStep,
   type RunStepItem,
   type RunSummary,
-  type Schedule,
-  type ScheduleInput,
+  type McpServerInput,
+  type McpTransport,
+  type Trigger,
+  type TriggerInput,
+  type TriggerKind,
   type Settings,
   type StepStatus,
   type Usage,
@@ -98,7 +101,7 @@ export const SUMMARY_PREVIEW_CHARS = 300;
 // Los resúmenes llevan solo el principio de la entrada, el resultado y el error: una lista de 200 ejecuciones
 // con salidas grandes no debe transportar megabytes que nadie va a leer. El texto completo está en getRun().
 const RUN_SUMMARY_COLS = `id, kind, workflow_id, agent_id, name, status, substr(input, 1, ${SUMMARY_PREVIEW_CHARS}) AS input,
-  substr(output, 1, ${SUMMARY_PREVIEW_CHARS}) AS output, substr(error, 1, 1000) AS error, usage, retry_of, interrupted, scheduled,
+  substr(output, 1, ${SUMMARY_PREVIEW_CHARS}) AS output, substr(error, 1, 1000) AS error, usage, retry_of, interrupted, scheduled, trigger_kind,
   parent_run_id, parent_node_id, created_at, started_at, finished_at`;
 
 /** Valores de `runs.interrupted`: pendiente de que el usuario decida, o que se reanuda sola al arrancar. */
@@ -128,6 +131,21 @@ function parseJson<T>(text: unknown, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+/** Servidor MCP tal como se guarda: con los valores secretos (variables y cabeceras) descifrados. */
+export interface StoredMcpServer {
+  id: string;
+  name: string;
+  transport: McpTransport;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  url: string;
+  headers: Record<string, string>;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export class Store {
@@ -474,59 +492,199 @@ export class Store {
     return this.listWorkflows().filter((w) => w.id !== workflowId && w.nodes.some((n) => nodeSubworkflowId(n) === workflowId));
   }
 
-  // ---------- Programaciones ----------
-  private mapSchedule(r: Row): Schedule {
+  // ---------- Disparadores ----------
+  private mapTrigger(r: Row): Trigger {
     return {
+      id: r.id,
       workflowId: r.workflow_id,
       kind: r.kind,
+      name: r.name ?? '',
       intervalMinutes: r.interval_minutes ?? null,
       time: r.time ?? null,
+      weekdays: parseJson<number[]>(r.weekdays, []),
+      cron: r.cron ?? null,
+      timezone: r.timezone ?? null,
       input: r.input,
       enabled: Boolean(r.enabled),
       nextRunAt: r.next_run_at ?? null,
       lastRunAt: r.last_run_at ?? null,
       lastRunId: r.last_run_id ?? null,
       lastError: r.last_error ?? null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
     };
   }
 
-  listSchedules(): Schedule[] {
-    return this.all('SELECT * FROM schedules ORDER BY workflow_id').map((r) => this.mapSchedule(r));
+  /** Todos los disparadores, o los de un workflow, del más antiguo al más reciente. */
+  listTriggers(workflowId?: string): Trigger[] {
+    const rows = workflowId
+      ? this.all('SELECT * FROM triggers WHERE workflow_id = ? ORDER BY created_at, id', workflowId)
+      : this.all('SELECT * FROM triggers ORDER BY workflow_id, created_at, id');
+    return rows.map((r) => this.mapTrigger(r));
   }
 
-  getSchedule(workflowId: string): Schedule | null {
-    const r = this.get('SELECT * FROM schedules WHERE workflow_id = ?', workflowId);
-    return r ? this.mapSchedule(r) : null;
+  getTrigger(id: string): Trigger | null {
+    const r = this.get('SELECT * FROM triggers WHERE id = ?', id);
+    return r ? this.mapTrigger(r) : null;
   }
 
-  /** Crea o sustituye la programación de un workflow. */
-  saveSchedule(workflowId: string, input: ScheduleInput, nextRunAt: string | null): Schedule {
-    this.exec(
-      `INSERT INTO schedules (workflow_id, kind, interval_minutes, time, input, enabled, next_run_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?)
-       ON CONFLICT(workflow_id) DO UPDATE SET kind=excluded.kind, interval_minutes=excluded.interval_minutes, time=excluded.time,
-         input=excluded.input, enabled=excluded.enabled, next_run_at=excluded.next_run_at, last_error=NULL, updated_at=excluded.updated_at`,
-      workflowId,
+  private triggerColumns(input: TriggerInput): unknown[] {
+    const timed = input.kind === 'daily' || input.kind === 'cron';
+    return [
       input.kind,
+      input.name,
       input.kind === 'interval' ? input.intervalMinutes : null,
       input.kind === 'daily' ? input.time : null,
+      input.kind === 'daily' ? [...new Set(input.weekdays)].sort((a, b) => a - b) : [],
+      input.kind === 'cron' ? input.cron : null,
+      timed ? input.timezone : null,
       input.input,
       input.enabled,
-      nextRunAt,
-      nowIso(),
-    );
-    return this.getSchedule(workflowId)!;
+    ];
   }
 
-  updateScheduleState(workflowId: string, patch: Partial<Pick<Schedule, 'nextRunAt' | 'lastRunAt' | 'lastRunId' | 'lastError'>>): void {
+  /** `secret` solo tiene sentido en un webhook; se guarda cifrado. */
+  createTrigger(workflowId: string, input: TriggerInput, nextRunAt: string | null, secret?: string): Trigger {
+    const id = newId('trg');
+    const now = nowIso();
+    this.exec(
+      `INSERT INTO triggers (id, workflow_id, kind, name, interval_minutes, time, weekdays, cron, timezone, input, enabled, next_run_at, secret_enc, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      id,
+      workflowId,
+      ...this.triggerColumns(input),
+      nextRunAt,
+      secret ? this.secrets.encrypt(secret) : null,
+      now,
+      now,
+    );
+    return this.getTrigger(id)!;
+  }
+
+  updateTrigger(id: string, input: TriggerInput, nextRunAt: string | null): Trigger | null {
+    const changes = this.exec(
+      `UPDATE triggers SET kind=?, name=?, interval_minutes=?, time=?, weekdays=?, cron=?, timezone=?, input=?, enabled=?, next_run_at=?, last_error=NULL, updated_at=?
+       WHERE id=?`,
+      ...this.triggerColumns(input),
+      nextRunAt,
+      nowIso(),
+      id,
+    );
+    return changes ? this.getTrigger(id) : null;
+  }
+
+  updateTriggerState(id: string, patch: Partial<Pick<Trigger, 'nextRunAt' | 'lastRunAt' | 'lastRunId' | 'lastError'>>): void {
     const columns = { nextRunAt: 'next_run_at', lastRunAt: 'last_run_at', lastRunId: 'last_run_id', lastError: 'last_error' } as const;
     const keys = Object.keys(patch) as Array<keyof typeof columns>;
     if (!keys.length) return;
-    this.exec(`UPDATE schedules SET ${keys.map((k) => `${columns[k]} = ?`).join(', ')} WHERE workflow_id = ?`, ...keys.map((k) => patch[k]), workflowId);
+    this.exec(`UPDATE triggers SET ${keys.map((k) => `${columns[k]} = ?`).join(', ')} WHERE id = ?`, ...keys.map((k) => patch[k]), id);
   }
 
-  deleteSchedule(workflowId: string): boolean {
-    return this.exec('DELETE FROM schedules WHERE workflow_id = ?', workflowId) > 0;
+  /** Secreto de un webhook (null si no tiene o no se puede descifrar con la clave actual). */
+  getTriggerSecret(id: string): string | null {
+    const r = this.get('SELECT secret_enc FROM triggers WHERE id = ?', id);
+    if (!r?.secret_enc) return null;
+    try {
+      return this.secrets.decrypt(r.secret_enc);
+    } catch {
+      return null;
+    }
+  }
+
+  setTriggerSecret(id: string, secret: string): void {
+    this.exec('UPDATE triggers SET secret_enc = ?, updated_at = ? WHERE id = ?', this.secrets.encrypt(secret), nowIso(), id);
+  }
+
+  deleteTrigger(id: string): boolean {
+    return this.exec('DELETE FROM triggers WHERE id = ?', id) > 0;
+  }
+
+  // ---------- Servidores MCP ----------
+  private decryptMap(payload: string | null | undefined): Record<string, string> {
+    if (!payload) return {};
+    try {
+      return parseJson<Record<string, string>>(this.secrets.decrypt(payload), {});
+    } catch {
+      return {};
+    }
+  }
+
+  private mapMcpServer(r: Row): StoredMcpServer {
+    return {
+      id: r.id,
+      name: r.name,
+      transport: r.transport as McpTransport,
+      command: r.command,
+      args: parseJson<string[]>(r.args, []),
+      env: this.decryptMap(r.env_enc),
+      url: r.url,
+      headers: this.decryptMap(r.headers_enc),
+      enabled: Boolean(r.enabled),
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  }
+
+  listMcpServers(): StoredMcpServer[] {
+    return this.all('SELECT * FROM mcp_servers ORDER BY name').map((r) => this.mapMcpServer(r));
+  }
+
+  getMcpServer(id: string): StoredMcpServer | null {
+    const r = this.get('SELECT * FROM mcp_servers WHERE id = ?', id);
+    return r ? this.mapMcpServer(r) : null;
+  }
+
+  createMcpServer(input: McpServerInput): StoredMcpServer {
+    const id = newId('mcp');
+    const now = nowIso();
+    this.exec(
+      'INSERT INTO mcp_servers (id, name, transport, command, args, env_enc, url, headers_enc, enabled, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      id,
+      input.name,
+      input.transport,
+      input.command,
+      input.args,
+      this.secrets.encrypt(JSON.stringify(input.env ?? {})),
+      input.url,
+      this.secrets.encrypt(JSON.stringify(input.headers ?? {})),
+      input.enabled,
+      now,
+      now,
+    );
+    return this.getMcpServer(id)!;
+  }
+
+  /** `env` y `headers` omitidos conservan los valores guardados. */
+  updateMcpServer(id: string, input: McpServerInput): StoredMcpServer | null {
+    const existing = this.getMcpServer(id);
+    if (!existing) return null;
+    this.exec(
+      'UPDATE mcp_servers SET name=?, transport=?, command=?, args=?, env_enc=?, url=?, headers_enc=?, enabled=?, updated_at=? WHERE id=?',
+      input.name,
+      input.transport,
+      input.command,
+      input.args,
+      this.secrets.encrypt(JSON.stringify(input.env ?? existing.env)),
+      input.url,
+      this.secrets.encrypt(JSON.stringify(input.headers ?? existing.headers)),
+      input.enabled,
+      nowIso(),
+      id,
+    );
+    return this.getMcpServer(id);
+  }
+
+  /** Última lista de herramientas conocida de un servidor MCP. */
+  getMcpTools<T>(id: string): T[] {
+    return parseJson<T[]>(this.get('SELECT tools_cache FROM mcp_servers WHERE id = ?', id)?.tools_cache, []);
+  }
+
+  setMcpTools(id: string, tools: unknown[]): void {
+    this.exec('UPDATE mcp_servers SET tools_cache = ? WHERE id = ?', tools, id);
+  }
+
+  deleteMcpServer(id: string): boolean {
+    return this.exec('DELETE FROM mcp_servers WHERE id = ?', id) > 0;
   }
 
   // ---------- Ejecuciones ----------
@@ -545,6 +703,7 @@ export class Store {
       retryOf: r.retry_of ?? null,
       interrupted: Boolean(r.interrupted),
       scheduled: Boolean(r.scheduled),
+      triggerKind: r.trigger_kind ?? null,
       parentRunId: r.parent_run_id ?? null,
       parentNodeId: r.parent_node_id ?? null,
       createdAt: r.created_at,
@@ -581,6 +740,7 @@ export class Store {
     snapshot: RunSnapshot;
     retryOf?: string | null;
     scheduled?: boolean;
+    triggerKind?: TriggerKind | null;
     /** Ejecución y nodo que la lanzan, si es un subworkflow. */
     parentRunId?: string | null;
     parentNodeId?: string | null;
@@ -590,8 +750,8 @@ export class Store {
     const now = nowIso();
     this.transaction(() => {
       this.exec(
-        `INSERT INTO runs (id, kind, workflow_id, agent_id, name, status, input, snapshot, usage, retry_of, scheduled, parent_run_id, parent_node_id, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO runs (id, kind, workflow_id, agent_id, name, status, input, snapshot, usage, retry_of, scheduled, trigger_kind, parent_run_id, parent_node_id, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         id,
         input.kind,
         input.workflowId,
@@ -603,6 +763,7 @@ export class Store {
         ZERO_USAGE,
         input.retryOf ?? null,
         Boolean(input.scheduled),
+        input.triggerKind ?? null,
         input.parentRunId ?? null,
         input.parentNodeId ?? null,
         now,

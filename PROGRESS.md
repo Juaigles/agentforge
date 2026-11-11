@@ -1,6 +1,6 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-11 (hito 5, fases 1 a 3; ver «Hito 5» más abajo)._
+_Última actualización: 2026-11-11 (hito 5, fases 1 a 4; ver «Hito 5» más abajo)._
 
 ## Estado real
 
@@ -126,7 +126,7 @@ Se trabaja punto por punto, sin pasar al siguiente hasta implementar, verificar 
   los agentes que usa (sin proveedor ni claves). Al importar, cada agente se enlaza con uno existente (por id o por
   nombre) o se crea con el proveedor por defecto; se avisa de las herramientas que no existen y el workflow queda
   como borrador con los errores señalados. 5 tests de API y 3 e2e (descarga real del archivo y subida).
-- **Ejecución programada sencilla**: cada workflow puede lanzarse cada N minutos/horas/días o a una hora fija cada
+- **Ejecución programada sencilla** (sustituida por los disparadores en la fase 4 del hito 5): cada workflow puede lanzarse cada N minutos/horas/días o a una hora fija cada
   día (esquema v3, `server/src/engine/scheduler.ts`). Sin solapes, con «Ejecutar ahora», pausa y registro del motivo
   cuando una cita no se lanza. Las ejecuciones llevan la marca «programada». 10 tests del servidor y 2 e2e, uno de
   ellos esperando **al temporizador real** un minuto.
@@ -289,6 +289,39 @@ sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
 - **Verificado con Ollama**: un workflow real con subworkflow (Analista) → aprobación → Redactor; la decisión se
   tomó en el navegador con un comentario, que el modelo recibió.
 
+### Fase 4 · Disparadores y MCP — HECHA (2026-11-11)
+
+- **Disparadores en lugar de «una programación por workflow»** (esquema v6; las programaciones que había se
+  convierten solas). Un workflow puede tener hasta 20, de cuatro tipos:
+  - **Cada cierto tiempo.** La siguiente ocasión se cuenta desde la prevista, no desde el momento en que se
+    comprobó: antes el horario se retrasaba unos segundos en cada vuelta.
+  - **Días y hora**: una hora y, si se quiere, solo algunos días de la semana.
+  - **Cron** de cinco campos (listas, rangos, pasos, nombres de mes y de día, alias `@daily`…), con analizador
+    propio y mensajes que dicen qué campo falla. Una expresión que no se cumple nunca se rechaza al guardar.
+  - **Webhook**: `POST /api/hooks/<id>` con un secreto (en claro o como firma HMAC-SHA256 del cuerpo). El secreto
+    se genera en el servidor, se guarda cifrado, se enseña una sola vez y se puede regenerar. El cuerpo de la
+    petición es la entrada del workflow, opcionalmente dentro de una plantilla (`{{body}}`).
+- **Zona horaria** por disparador (la del servidor si no se indica), resuelta con la base de datos de zonas de
+  Node. **Cambio de hora**: una tarea a una hora fija se ejecuta exactamente una vez al día; si la hora no existe
+  (primavera) se ejecuta al terminar el salto, y si se repite (otoño) solo la primera vez.
+- **Una hora fija que llega tarde no se ejecuta a deshora**: si el servidor estaba apagado y la ocasión llega con
+  más de una hora de retraso, se omite y queda anotado. Los intervalos sí se ejecutan una vez al volver.
+- **Interfaz**: diálogo de disparadores con la lista (activar o pausar cada uno, ejecutar ahora, editar, borrar),
+  formulario con las **próximas cinco ocasiones calculadas por el servidor** mientras se escribe, dirección del
+  webhook y ejemplo de `curl` para copiar. En el historial, las ejecuciones lanzadas por un webhook llevan su
+  propia marca.
+- **Cliente MCP** (`server/src/tools/mcp.ts`, SDK oficial `@modelcontextprotocol/client` 2.4): servidores por
+  **stdio** (AgentForge arranca el programa) y por **HTTP** (Streamable HTTP con cabeceras). Sus herramientas son
+  la tercera fuente del registro, con el nombre `servidor__herramienta`; el modelo recibe su esquema JSON completo
+  (también anidado) y la validación de argumentos la hace el propio servidor MCP. Variables de entorno y cabeceras
+  cifradas; la lista de herramientas se guarda para que los agentes que las usan sigan siendo válidos mientras el
+  servidor arranca o si se cae; reconexión automática al usarlas; aviso de cambios en la lista; cancelación y
+  tiempo máximo por llamada; el motivo por el que un programa no arranca (su salida de errores) se enseña.
+- **Interfaz de MCP**: pestaña *Servidores MCP* en Herramientas (estado, herramientas, reconectar, editar sin
+  reescribir los secretos, eliminar). Sus herramientas se prueban en el banco de pruebas como las demás.
+- **Glosario**: disparador, cron, webhook, zona horaria y MCP.
+- **Verificado con Ollama**: ver `TEST_RESULTS.md`, sección 1.1.
+
 ## Pendiente y limitaciones
 
 - **Sin multiusuario.** Una única clave de acceso opcional (obligatoria fuera de este equipo); no hay cuentas ni permisos.
@@ -310,9 +343,21 @@ sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
   texto; si la lista cambia entre intentos, se repite.
 - **Sin registro único de tipos de nodo**: añadir uno sigue obligando a tocar el motor, la validación compartida,
   el esquema de la API y el inspector.
-- **Programación sencilla, no cron**: intervalos o una hora diaria; sin días de la semana ni zonas horarias (usa la
-  hora local del servidor). Solo corre con el servidor en marcha; tras un apagado se lanza **una** vez la cita
-  vencida, no las perdidas. Una programación por workflow. Sin disparadores externos (webhooks).
+- **Los disparadores con horario solo corren con el servidor en marcha.** Tras un apagado, un intervalo se lanza
+  **una** vez (no las ocasiones perdidas) y una hora fija con más de una hora de retraso se omite; no hay opción
+  de «recuperar lo perdido».
+- **Cron**: cinco campos, sin segundos ni extensiones (`L`, `W`, `#`). En la hora que se repite al cambiar al
+  horario de invierno, las expresiones que se cumplen varias veces por hora se saltan la repetición (una hora sin
+  ejecuciones); para «cada N minutos» conviene el disparador de intervalo, que no depende del reloj de pared.
+- **Webhooks**: sin protección frente a repeticiones (una petición firmada capturada se puede reenviar), sin lista
+  de direcciones permitidas y sin respuesta síncrona con el resultado: devuelven el id de la ejecución. No aplican
+  la regla de «sin solapes»: cada llamada es una ejecución, limitada por la cola y por el límite de peticiones.
+- **Los disparadores no viajan con el workflow exportado.**
+- **MCP**: solo herramientas (ni recursos, ni plantillas de prompt, ni muestreo); sin OAuth; el transporte SSE
+  antiguo no está soportado. Un servidor local se ejecuta con los permisos del servidor de AgentForge, sin
+  aislamiento. El resultado no textual (imágenes, audio) se sustituye por una nota. Renombrar un servidor cambia
+  el nombre de sus herramientas y los agentes que las usaban hay que volver a asignarlos. Si el servidor está
+  caído, sus herramientas se siguen ofreciendo al modelo y la llamada falla con un mensaje.
 - **La importación no trae herramientas HTTP personalizadas ni proveedores**: solo avisa de las que faltan. Los
   agentes se enlazan por nombre, así que dos agentes distintos con el mismo nombre se confunden.
 - **Sin MCP**: las herramientas son las integradas y las HTTP personalizadas.
@@ -353,6 +398,4 @@ sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
 ## Próximos pasos sugeridos
 
 1. Subworkflows y cuerpo de varios nodos en «para cada».
-2. Cliente MCP como tercera fuente de herramientas.
-3. Programación con expresiones cron y disparadores externos (webhooks).
 4. Ejecutar la suite e2e en CI y en Firefox/WebKit.

@@ -96,6 +96,45 @@ test.describe('Vista móvil (375 × 812)', () => {
     }
   });
 
+  test('el diálogo de disparadores y la lista de servidores MCP caben en el móvil', async ({ page, app }) => {
+    const name = unique('Disparado en el móvil');
+    const wf = await app.createWorkflow(name, [{ id: 'entrada', type: 'input' }], []);
+    await app.api('POST', `/api/workflows/${wf.id}/triggers`, { kind: 'webhook', name: 'Un webhook con un nombre bastante largo para forzar el ajuste de línea' });
+    await app.api('POST', `/api/workflows/${wf.id}/triggers`, { kind: 'cron', cron: '0 9,12,15,18 1-7,15-21 * 1-5', timezone: 'America/Argentina/Buenos_Aires' });
+    const server = await app.api('POST', '/api/mcp/servers', {
+      name: 'movil',
+      transport: 'stdio',
+      command: 'programa-inexistente-con-un-nombre-muy-largo-para-el-movil',
+      args: [`--una-opcion-larguisima=${'x'.repeat(80)}`],
+    });
+    expect(server.status).toBe('error');
+    /** Ningún elemento del diálogo abierto sobresale del ancho de la pantalla. */
+    const dialogFits = () =>
+      page.evaluate(() => [...document.querySelectorAll('.modal, .modal *')].filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1).map((el) => el.className || el.tagName));
+
+    await page.goto('/workflows');
+    await page.getByRole('button', { name: `Disparadores de ${name}` }).click();
+    const modal = page.getByRole('dialog');
+    await expect(modal.getByRole('list', { name: 'Disparadores del workflow' }).getByRole('listitem')).toHaveCount(2);
+    expect(await dialogFits()).toEqual([]);
+    for (const kind of ['Cada cierto tiempo', 'Días y hora', 'Cron', 'Webhook']) {
+      if (kind === 'Cada cierto tiempo') await modal.getByRole('button', { name: 'Añadir disparador' }).click();
+      await modal.getByRole('radio', { name: kind }).click();
+      expect(await dialogFits(), kind).toEqual([]);
+    }
+    await modal.getByRole('button', { name: 'Cerrar' }).click();
+    await expectNoHorizontalOverflow(page);
+
+    await page.goto('/tools');
+    await page.getByRole('tab', { name: 'Servidores MCP' }).click();
+    await expect(page.getByRole('tabpanel', { name: 'Servidores MCP' }).getByRole('listitem')).toHaveCount(1);
+    await expectNoHorizontalOverflow(page);
+    await page.getByRole('button', { name: 'Editar' }).click();
+    await expect(page.getByRole('dialog', { name: 'Editar el servidor «movil»' })).toBeVisible();
+    expect(await dialogFits()).toEqual([]);
+    await app.api('DELETE', `/api/mcp/servers/${server.id}`);
+  });
+
   test('la navegación principal funciona en móvil y el monitor de una ejecución es utilizable', async ({ page, app }) => {
     const agent = await app.createAgent({ name: unique('Móvil nav') });
     const run = await app.runToEnd('agents', agent.id, '[[decir:respuesta en el móvil]]');

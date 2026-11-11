@@ -119,7 +119,7 @@ export class RateLimiter {
 /** Rutas que lanzan trabajo caro (modelo, herramientas, peticiones salientes): llevan un límite más estricto. */
 export function isCostlyRoute(method: string, urlPath: string): boolean {
   if (method !== 'POST') return false;
-  return /\/(run|invoke|retry|resume|test|models)$/.test(urlPath);
+  return /\/(run|invoke|retry|resume|test|models|reconnect)$/.test(urlPath) || urlPath.startsWith('/api/hooks/');
 }
 
 // ---------- Cabeceras de seguridad ----------

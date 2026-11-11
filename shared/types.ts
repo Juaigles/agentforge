@@ -86,10 +86,13 @@ export interface ToolInfo {
   description: string;
   category: string;
   parameters: JsonSchema;
-  source: 'builtin' | 'custom';
+  source: 'builtin' | 'custom' | 'mcp';
   dangerous: boolean;
   enabled: boolean;
   customId?: string;
+  /** Si viene de un servidor MCP: su id y su nombre. */
+  mcpServerId?: string;
+  mcpServerName?: string;
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -302,8 +305,10 @@ export interface RunSummary {
   retryOf: string | null;
   /** Quedó a medias por un apagado del servidor y aún no se ha reanudado ni descartado. */
   interrupted?: boolean;
-  /** La lanzó la programación del workflow, no una persona. */
+  /** La lanzó un disparador con horario, no una persona. */
   scheduled?: boolean;
+  /** Tipo de disparador que la lanzó (también 'webhook'), si lo hubo. */
+  triggerKind?: TriggerKind | null;
   /** Si es la ejecución de un subworkflow: la ejecución y el nodo que la lanzaron. */
   parentRunId?: string | null;
   parentNodeId?: string | null;
@@ -417,28 +422,105 @@ export const DEFAULT_SETTINGS: Settings = {
   retentionMaxRuns: 0,
 };
 
-// ---------- Programación ----------
-export type ScheduleKind = 'interval' | 'daily';
+// ---------- Disparadores ----------
+/**
+ * Qué lanza un workflow sin que nadie pulse «Ejecutar»:
+ * - `interval`: cada N minutos.
+ * - `daily`: a una hora, todos los días o solo algunos días de la semana.
+ * - `cron`: una expresión cron de cinco campos.
+ * - `webhook`: una petición HTTP de otro programa, autenticada con un secreto.
+ */
+export type TriggerKind = 'interval' | 'daily' | 'cron' | 'webhook';
+export const TRIGGER_KINDS: TriggerKind[] = ['interval', 'daily', 'cron', 'webhook'];
+export const MAX_TRIGGERS_PER_WORKFLOW = 20;
 
-/** Programación de un workflow: cada N minutos o todos los días a una hora (hora local del servidor). */
-export interface Schedule {
+export interface Trigger {
+  id: string;
   workflowId: string;
-  kind: ScheduleKind;
+  kind: TriggerKind;
+  /** Nombre para distinguirlo cuando un workflow tiene varios. */
+  name: string;
   /** Solo en 'interval'. */
   intervalMinutes: number | null;
   /** Solo en 'daily': "HH:MM". */
   time: string | null;
-  /** Texto de entrada con el que se lanza cada ejecución. */
+  /** Solo en 'daily': días de la semana (0 = domingo … 6 = sábado). Vacío = todos los días. */
+  weekdays: number[];
+  /** Solo en 'cron': expresión de cinco campos. */
+  cron: string | null;
+  /** Zona horaria IANA de 'daily' y 'cron' («Europe/Madrid»). Null = la del equipo donde corre el servidor. */
+  timezone: string | null;
+  /**
+   * Texto de entrada de cada ejecución. En un webhook es una plantilla: `{{body}}` se sustituye por el cuerpo
+   * de la petición; si se deja vacía, la entrada es el cuerpo tal cual.
+   */
   input: string;
   enabled: boolean;
   nextRunAt: string | null;
   lastRunAt: string | null;
   lastRunId: string | null;
-  /** Motivo por el que la última cita no llegó a lanzarse (workflow con errores, solape…). */
+  /** Motivo por el que la última ocasión no llegó a lanzarse (workflow con errores, solape…). */
   lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export type ScheduleInput = Pick<Schedule, 'kind' | 'intervalMinutes' | 'time' | 'input' | 'enabled'>;
+export type TriggerInput = Pick<Trigger, 'kind' | 'name' | 'intervalMinutes' | 'time' | 'weekdays' | 'cron' | 'timezone' | 'input' | 'enabled'>;
+
+/** Respuesta al crear un webhook o regenerar su secreto: el secreto solo se muestra esta vez. */
+export interface TriggerWithSecret extends Trigger {
+  secret?: string;
+}
+
+/** Vista previa de una programación antes de guardarla. */
+export interface TriggerPreview {
+  /** Zona horaria que se aplicará. */
+  timezone: string;
+  /** Próximas ocasiones (ISO), en orden. */
+  next: string[];
+}
+
+// ---------- Servidores MCP ----------
+export type McpTransport = 'stdio' | 'http';
+export type McpStatus = 'disabled' | 'connecting' | 'connected' | 'error';
+
+/** Servidor MCP (Model Context Protocol): un programa externo que ofrece herramientas a los agentes. */
+export interface McpServer {
+  id: string;
+  /** Prefijo de sus herramientas (`nombre__herramienta`). */
+  name: string;
+  transport: McpTransport;
+  /** stdio: programa que se arranca y sus argumentos. */
+  command: string;
+  args: string[];
+  /** stdio: nombres de las variables de entorno definidas (los valores no salen del servidor). */
+  envKeys: string[];
+  /** http: dirección del servidor. */
+  url: string;
+  /** http: nombres de las cabeceras definidas (los valores no salen del servidor). */
+  headerKeys: string[];
+  enabled: boolean;
+  status: McpStatus;
+  /** Motivo del último fallo de conexión. */
+  error: string | null;
+  /** Herramientas que ofrece (nombre con el que las ven los agentes). */
+  tools: Array<{ name: string; description: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface McpServerInput {
+  name: string;
+  transport: McpTransport;
+  command: string;
+  args: string[];
+  /** Si se omite al editar, se conservan las variables guardadas. */
+  env?: Record<string, string>;
+  url: string;
+  /** Si se omite al editar, se conservan las cabeceras guardadas. */
+  headers?: Record<string, string>;
+  enabled: boolean;
+}
 
 // ---------- Exportación / importación ----------
 export const WORKFLOW_EXPORT_FORMAT = 'agentforge.workflow';

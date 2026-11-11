@@ -66,6 +66,10 @@ export const GLOSSARY = {
     term: 'Concurrencia',
     definition: 'Cuántas cosas se hacen a la vez. Con concurrencia 2, dos agentes trabajan en paralelo y el resto espera turno.',
   },
+  cron: {
+    term: 'Cron',
+    definition: 'Forma compacta de escribir un horario con cinco campos: minuto, hora, día del mes, mes y día de la semana. «0 9 * * 1-5» significa de lunes a viernes a las 9:00.',
+  },
   dag: {
     term: 'DAG',
     definition: 'Grafo dirigido sin ciclos: las flechas nunca vuelven a un nodo anterior, así que siempre hay un orden posible de ejecución.',
@@ -73,6 +77,10 @@ export const GLOSSARY = {
   delegacion: {
     term: 'Delegación',
     definition: 'Un agente encarga una subtarea a otro agente y espera su respuesta, como un jefe que reparte trabajo.',
+  },
+  disparador: {
+    term: 'Disparador',
+    definition: 'Lo que lanza un workflow sin que nadie pulse «Ejecutar»: un horario (cada cierto tiempo, ciertos días a una hora, un cron) o la llamada de otro programa (webhook).',
   },
   ejecucion: {
     term: 'Ejecución',
@@ -105,6 +113,10 @@ export const GLOSSARY = {
   llm: {
     term: 'LLM',
     definition: 'Modelo de lenguaje grande: el programa de IA que lee texto y genera la respuesta. Es el «cerebro» de cada agente.',
+  },
+  mcp: {
+    term: 'MCP',
+    definition: 'Model Context Protocol: un estándar para que un programa externo ofrezca herramientas a los agentes. Conectas un servidor MCP y sus herramientas aparecen junto a las demás.',
   },
   'memoria-compartida': {
     term: 'Memoria compartida',
@@ -198,9 +210,17 @@ export const GLOSSARY = {
     term: 'URL',
     definition: 'Dirección web completa de un recurso, por ejemplo https://api.ejemplo.com/clima?ciudad=Madrid.',
   },
+  webhook: {
+    term: 'Webhook',
+    definition: 'Dirección web a la que otro programa envía una petición para avisar de algo. Aquí, cada llamada con el secreto correcto lanza el workflow con el cuerpo de la petición como entrada.',
+  },
   workflow: {
     term: 'Workflow',
     definition: 'Flujo de trabajo: un diagrama de pasos conectados que coordina varios agentes y herramientas para resolver una tarea.',
+  },
+  'zona-horaria': {
+    term: 'Zona horaria',
+    definition: 'Región con la misma hora oficial, escrita como «Europe/Madrid». Sirve para que «a las 9:00» signifique las 9:00 de ese lugar, también cuando cambia la hora en verano.',
   },
   workspace: {
     term: 'Espacio de trabajo',

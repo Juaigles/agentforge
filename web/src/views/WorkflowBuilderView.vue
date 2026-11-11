@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Constructor visual de workflows: paleta → lienzo (Vue Flow) → inspector.
 import { ancestorsOf, foreachBody, isBranchingNode, slugifyNodeId, topologicalOrder, validateWorkflow } from '@shared/graph';
-import { DEFAULT_WORKFLOW_SETTINGS, type NodeType, type Schedule, type ValidationIssue, type WorkflowInput, type WorkflowSettings } from '@shared/types';
+import { DEFAULT_WORKFLOW_SETTINGS, type NodeType, type Trigger, type ValidationIssue, type WorkflowInput, type WorkflowSettings } from '@shared/types';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import { useVueFlow, VueFlow, type Connection, type Edge } from '@vue-flow/core';
@@ -33,12 +33,12 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import AgentAvatar from '@/components/AgentAvatar.vue';
 import AppModal from '@/components/AppModal.vue';
 import FlowNode from '@/components/FlowNode.vue';
-import ScheduleModal from '@/components/ScheduleModal.vue';
+import TriggersModal from '@/components/TriggersModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
 import { fromFlow, NODE_HINT, OPERATOR_LABEL, toFlowEdge, toFlowNode, type FlowNode as FlowNodeT, type FlowNodeData } from '@/lib/flow';
 import { NODE_LABEL } from '@/lib/format';
-import { describeSchedule, downloadJson, exportFileName } from '@/lib/transfer';
+import { downloadJson, exportFileName, summarizeTriggers } from '@/lib/transfer';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 
@@ -416,16 +416,17 @@ async function save(): Promise<boolean> {
 
 // ---------- Exportar y programar ----------
 const scheduleModal = ref(false);
-const schedule = ref<Schedule | null>(null);
-async function loadSchedule(): Promise<void> {
+const triggers = ref<Trigger[]>([]);
+const triggerSummary = computed(() => summarizeTriggers(triggers.value));
+async function loadTriggers(): Promise<void> {
   if (!workflowId.value) return;
   try {
-    schedule.value = await api.workflows.schedule.get(workflowId.value);
+    triggers.value = await api.triggers.forWorkflow(workflowId.value);
   } catch {
     /* dato secundario */
   }
 }
-onMounted(loadSchedule);
+onMounted(loadTriggers);
 
 async function exportWorkflow(): Promise<void> {
   if (!workflowId.value) return;
@@ -498,13 +499,13 @@ onBeforeRouteLeave(async (to) => {
       <template v-if="workflowId && !loading && !loadError">
         <button
           class="btn"
-          :class="{ 'btn-icon': !schedule?.enabled }"
+          :class="{ 'btn-icon': !triggerSummary?.active }"
           type="button"
-          aria-label="Programar"
-          :title="schedule?.enabled ? `Programado ${describeSchedule(schedule)}` : 'Programar ejecuciones automáticas'"
+          aria-label="Disparadores"
+          :title="triggerSummary?.active ? `Se ejecuta solo: ${triggerSummary.text}` : 'Disparadores: programar ejecuciones o lanzarlas con un webhook'"
           @click="scheduleModal = true"
         >
-          <CalendarClock /><span v-if="schedule?.enabled" class="sched-text">{{ describeSchedule(schedule) }}</span>
+          <CalendarClock /><span v-if="triggerSummary?.active" class="sched-text">{{ triggerSummary.text }}</span>
         </button>
         <button class="btn btn-icon" type="button" aria-label="Exportar" title="Exportar a un archivo" @click="exportWorkflow"><Download /></button>
       </template>
@@ -909,13 +910,13 @@ onBeforeRouteLeave(async (to) => {
       </aside>
     </div>
 
-    <ScheduleModal
+    <TriggersModal
       v-if="scheduleModal && workflowId"
       :workflow-id="workflowId"
       :workflow-name="meta.name"
       :default-input="String(inputNode?.data?.config.defaultValue ?? '')"
       @close="scheduleModal = false"
-      @changed="schedule = $event"
+      @changed="triggers = $event"
     />
 
     <AppModal v-if="runModal" title="Ejecutar workflow" @close="runModal = false">

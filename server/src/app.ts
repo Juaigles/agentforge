@@ -75,7 +75,9 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     }
 
     // 4) Clave de acceso, si está configurada (obligatoria cuando el servidor escucha fuera de este equipo).
-    if (config.authToken && !PUBLIC_API.has(urlPath) && !isAuthenticated(config.authToken, req.headers)) {
+    // Los webhooks los llama otro programa: se autentican con el secreto de su disparador, no con la clave de la interfaz.
+    const isWebhook = req.method === 'POST' && urlPath.startsWith('/api/hooks/');
+    if (config.authToken && !PUBLIC_API.has(urlPath) && !isWebhook && !isAuthenticated(config.authToken, req.headers)) {
       return reply.status(401).send({ error: 'Hace falta la clave de acceso.', code: 'auth_required' });
     }
   });

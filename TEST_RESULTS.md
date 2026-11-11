@@ -1,17 +1,17 @@
 # AgentForge — Resultados de pruebas
 
 Todos los resultados proceden de ejecuciones reales en esta máquina
-(Windows 11, Node v24.19.0, Ollama 0.40.6, modelo `qwen3.5:4b-q4_K_M`), entre el 2026-11-09 y el 2026-11-10.
+(Windows 11, Node v24.19.0, Ollama 0.40.6 —0.40.16 desde la fase 4 del hito 5—, modelo `qwen3.5:4b-q4_K_M`), entre el 2026-11-09 y el 2026-11-11.
 
 ## 1. Tests automatizados
 
 Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
-Resultados del 2026-11-11 (hito 5, tras la fase 3):
+Resultados del 2026-11-11 (hito 5, tras la fase 4):
 
 ```
-servidor     Test Files  14 passed (14)   Tests  332 passed | 1 skipped (333)
-frontend     Test Files  7 passed (7)     Tests   40 passed (40)
-end-to-end   50 passed (2.7m)
+servidor     Test Files  16 passed (16)   Tests  366 passed | 1 skipped (367)
+frontend     Test Files  7 passed (7)     Tests   42 passed (42)
+end-to-end   54 passed (2.9m)
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
 npm audit    found 0 vulnerabilities
 ```
@@ -31,7 +31,9 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `server/test/api.test.ts` | API HTTP, SSE (historial + directo + `Last-Event-ID`), cifrado de claves, **persistencia tras reinicio** en disco, ejecuciones interrumpidas, datos de ejemplo | Solo el proveedor LLM |
 | `server/test/hardening.test.ts` | **SSRF**: direcciones privadas en todas sus notaciones, rechazo sin conectar, **rebinding** (dos servidores reales en 127.0.0.1/127.0.0.2 y un DNS que cambia), redirecciones, compresión, límites y cancelación. **Sandbox**: sin `require`/`process`/`eval`, bucles y memoria acotados, promesas, y segunda capa (el proceso no puede leer, escribir, lanzar programas ni crear workers). **Retención**: por antigüedad y por número, con pasos y eventos | La resolución DNS se inyecta como función (seam); los sockets y procesos son reales |
 | `server/test/foreach.test.ts` | Nodo «para cada»: interpretación de listas, concurrencia y orden, lista vacía, tope, fallo y reintento por elemento, cancelación, presupuesto de llamadas, herramientas en paralelo, validación | Solo el proveedor LLM |
-| `server/test/schedule-import.test.ts` | Programación (cálculo de citas, alta/validación, disparo, apagado largo, sin solapes, workflow roto, «ejecutar ahora», reinicio, temporizador real) y exportar/importar (contenido, alta de agentes, reutilización, avisos, archivos no válidos) | Solo el proveedor LLM; el reloj se pasa como argumento a `tick()` |
+| `server/test/import.test.ts` | Exportar/importar workflows (contenido, alta de agentes, reutilización, avisos, archivos no válidos) | Solo el proveedor LLM |
+| `server/test/triggers.test.ts` | **Cron** (listas, rangos, pasos, nombres, alias, 12 expresiones no válidas con su mensaje; siguiente ocasión en UTC y en cinco zonas horarias; **cambio de hora** de primavera y de otoño; día del mes o de la semana; expresión que nunca se cumple), intervalos sin deriva, **varios disparadores por workflow** (alta, validación campo a campo, edición, tope de 20, vista previa), planificador (vencimiento, entrada y marca, sin solapes, workflow roto, apagado largo, hora fija omitida por llegar tarde, «ejecutar ahora», reinicio, temporizador real), **migración** de la programación antigua y **webhooks** (secreto mostrado una vez y cifrado, cuerpo en texto/JSON/formulario/vacío, plantilla `{{body}}`, firma HMAC válida y manipulada, sin secreto, webhook inexistente o desactivado, secreto regenerado, cuerpo enorme, y con clave de acceso configurada) | Solo el proveedor LLM; el reloj se pasa como argumento a `tick()` |
+| `server/test/mcp.test.ts` | **Cliente MCP** contra servidores MCP reales hechos con el SDK oficial: uno arrancado como **proceso hijo (stdio)** y otro por **HTTP** con cabecera de autorización. Lectura de herramientas, nombres locales, esquemas anidados, variables de entorno secretas (cifradas, no devueltas), error de la herramienta, argumentos no válidos, un agente y un nodo de workflow usando una herramienta MCP, caída del programa y **reconexión automática**, programa que no existe o termina con error (se enseña su motivo), cancelación, aviso de lista cambiada, desactivar/renombrar/borrar, validación y **reinicio** (herramientas conocidas desde el primer momento) | Solo el proveedor LLM (los servidores MCP son reales y locales) |
 | `server/test/lifecycle.test.ts` | **Apagado ordenado** (en curso y en cola → interrumpidas y reanudables; plazo), respuestas comprimidas cortadas o canceladas, herramienta que ignora la cancelación, configuración de nodos fuera de rango, reintentos solo de errores transitorios, expresiones regulares catastróficas (con el bucle de eventos vivo), versión de esquema superior, copia previa a migrar, migración fallida, API key indescifrable, instancia única, validación de la configuración | Solo el proveedor LLM; servidores HTTP y procesos reales |
 | `server/test/security.test.ts` | Claves ligadas a su origen (se comprueba qué cabecera llega a cada servidor), `Host` con `0.0.0.0`, clave de acceso y sesión, peticiones de otra web, límite de tasa, cabeceras y CSP, bloqueo de la propia API, redirecciones a otro origen, direcciones privadas disfrazadas, plantillas del cuerpo, cuotas, consultas no válidas, sondas de salud, **`run_javascript` sin red** (proceso real con sus argumentos y su preludio intentando conectar, resolver nombres y usar `fetch`), contenedor, y **fijación de DNS contra un servidor DNS real** | El proveedor LLM (salvo donde se usan los adaptadores reales); servidores HTTP, DNS y procesos reales |
 | `server/test/data.test.ts` | Estadísticas incrementales y acumuladas (día local), paginación estable, resúmenes recortados, búsqueda de texto completo (subcadenas, tildes, caracteres especiales, ventana de 2 000), eventos sin salida duplicada, retención por tandas con el archivo encogiendo de verdad, memoria compartida tras reintentar, fragmentos agrupados y en orden, reproducción SSE de 2 300 eventos por HTTP real (también con `Last-Event-ID` y con la ejecución en marcha), HTML a texto en tiempo lineal con entradas hostiles, y copias de seguridad (crear, descargar, restaurar al reiniciar, cancelar, subir, nombres maliciosos) | Solo el proveedor LLM; base de datos en disco y HTTP reales |
@@ -45,7 +47,7 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
 | `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
 | `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
-| `e2e/*.spec.ts` (50 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
+| `e2e/*.spec.ts` (54 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
 Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
 puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
@@ -74,8 +76,10 @@ puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de
 | Reanudar tras un apagado | `persistence.spec.ts`, `api.test.ts` | Tras matar el servidor aparece el aviso; «Reanudar» crea una ejecución que solo llama al modelo para el paso inacabado; «Descartar» lo retira; aparece sin recargar; migración v1→v2 |
 
 | Nodo «para cada» | `workflow-builder.spec.ts`, `foreach.test.ts` | Configurado en el lienzo; lista de 6 con tope 5 → falla sin llamar al modelo; lista de 3 → 3 peticiones, una por elemento, y avance en vivo |
-| Exportar / importar | `automation.spec.ts`, `schedule-import.test.ts` | Se descarga el archivo real, se borran workflow y agente, se sube el archivo y el workflow importado se ejecuta; archivos no válidos rechazados sin crear nada |
-| Ejecución programada | `automation.spec.ts`, `schedule-import.test.ts` | Alta, pausa y baja desde la interfaz; «Ejecutar ahora»; y una ejecución que aparece sola al cumplirse **un minuto real** |
+| Exportar / importar | `automation.spec.ts`, `import.test.ts` | Se descarga el archivo real, se borran workflow y agente, se sube el archivo y el workflow importado se ejecuta; archivos no válidos rechazados sin crear nada |
+| Disparadores | `automation.spec.ts`, `triggers.test.ts` | Tres disparadores con horario en un workflow creados desde la interfaz (intervalo, días y hora con zona horaria, cron con vista previa y con una expresión no válida señalada); «Ejecutar ahora»; pausar, editar y borrar; y una ejecución que aparece sola al cumplirse **un minuto real**, con la siguiente ocasión exactamente un minuto después de la prevista |
+| Webhooks | `automation.spec.ts`, `triggers.test.ts` | Se crea desde la interfaz; el secreto se ve una sola vez; **una petición HTTP real** desde fuera del navegador sin secreto y con uno incorrecto da 401, y con el bueno lanza el workflow con el cuerpo como entrada; regenerar el secreto invalida el anterior; las ejecuciones llevan la marca «webhook» |
+| Servidores MCP | `mcp.spec.ts`, `mcp.test.ts` | Se añade desde la interfaz un servidor MCP real (proceso hijo); sus 7 herramientas aparecen en el catálogo; una se prueba en el banco de pruebas (19 + 23 = 42) y la usa un agente en una ejecución; un servidor que no arranca queda señalado con el motivo que escribió el programa; desactivar y eliminar |
 
 Comprobado con el servidor real y Ollama tras la fase 3 del hito 5 (2026-11-11, `qwen3.5:4b-q4_K_M`):
 
@@ -86,6 +90,29 @@ Comprobado con el servidor real y Ollama tras la fase 3 del hito 5 (2026-11-11, 
   y el contador de la barra lateral en 1. En el navegador se escribió el comentario «Tono cercano y sin
   tecnicismos» y se pulsó **Aprobar**: el Redactor generó el párrafo, la rama de rechazo quedó omitida y la
   ejecución terminó **Completada** con 2 llamadas al modelo y 0 aprobaciones pendientes.
+
+Comprobado con el servidor real y Ollama tras la fase 4 del hito 5 (2026-11-11, Ollama 0.40.16, `qwen3.5:4b-q4_K_M`;
+guion `verify-f4.mjs` contra el servidor en `127.0.0.1:4310` con los datos reales):
+
+- **Migración de los datos reales a v6** sin incidencias (`/api/health/ready` → «esquema v6»; no había
+  programaciones que convertir).
+- **Webhook con firma HMAC**: workflow «entrada → Analista (resume en una frase) → salida» con un webhook cuya
+  plantilla es «Aviso de monitorización: {{body}}». Con un secreto incorrecto → **401**. Con la firma
+  `X-AgentForge-Signature` del cuerpo «El disco del servidor de copias está al 93 % y sigue creciendo desde ayer.»
+  → **202**; la ejecución quedó **Completada**, marcada como lanzada por un webhook, con la entrada compuesta por
+  la plantilla y con una frase del modelo sobre el disco al 93 %.
+- **Cron con el temporizador real**: disparador `* * * * *` en `Europe/Madrid` creado a las 22:47:01 UTC; el
+  servidor fijó la siguiente ocasión a las 22:48:00.000 y la lanzó solo a las **22:48:00.246** (246 ms de
+  retraso). Ejecución **Completada**, marcada como «cron», con la respuesta del modelo.
+- **Agente con una herramienta MCP**: servidor MCP por stdio (el de los tests, hecho con el SDK oficial) añadido
+  por la API → **conectado**, 7 herramientas. Un agente con solo `verif__sumar` y la tarea «¿Cuánto es 48213 +
+  9577?»: el modelo pidió `verif__sumar` con `{"a":48213,"b":9577}`, el servidor MCP devolvió `57790` en 4 ms y
+  el modelo respondió **57790** (2 llamadas al modelo, 1 a la herramienta).
+- **En el navegador**: el diálogo de disparadores (cron «0 9 * * 1-5» con sus cinco próximas ocasiones a las 9:00
+  de días laborables) y la pestaña *Servidores MCP* con el servidor conectado y sus herramientas. Ahí apareció un
+  defecto que los tests no cubrían —el panel de archivos se pintaba debajo del de servidores MCP—, corregido y
+  cubierto ahora por la suite e2e. Sin desbordes a 375 px (también en la suite e2e).
+- Al terminar se borraron el workflow, el agente, el servidor MCP y las ejecuciones de la verificación.
 
 ### 1.2 Prueba de carga (`npm run loadtest`)
 
@@ -270,8 +297,15 @@ de una ejecución anterior al reinicio.
 - **Historiales de más de 50 000 ejecuciones** o con salidas grandes (la siembra usa salidas de 2 KB).
 - **Navegador con respuestas muy largas**: el límite de pintado de Markdown no se ha medido con una respuesta de
   cientos de KB en un navegador real.
-- **Programación diaria a una hora**: probado el cálculo de la cita y su disparo adelantando el reloj; no se ha
-  esperado a una hora real ni se ha probado un cambio de hora (horario de verano).
+- **Disparadores a una hora fija y cambio de hora**: el cálculo está probado con fechas reales de cambio de hora
+  (29-03-2026 y 25-10-2026 en Madrid) y el disparo adelantando el reloj del planificador; con el reloj real solo
+  se ha esperado a un cron de cada minuto, no a un cambio de hora ni a una hora concreta del día.
+- **Webhook llamado desde otro equipo** (con `HOST=0.0.0.0`, clave de acceso y `AGENTFORGE_ALLOWED_HOSTS`): probado
+  solo en 127.0.0.1 y con peticiones inyectadas.
+- **Servidores MCP de terceros**: el cliente se ha probado contra servidores hechos con el SDK oficial (stdio y
+  HTTP sin estado), no contra servidores publicados (sistema de archivos, GitHub…), ni con servidores HTTP con
+  sesión, ni lanzados con `npx` en Windows. La herramienta MCP con Ollama real se probó con una suma, no con
+  esquemas anidados.
 - **Importación entre dos instalaciones físicas distintas**: probada entre dos bases de datos distintas en los
   tests, no entre dos equipos.
 - Navegadores distintos de Chromium (la suite e2e solo define el proyecto Chromium).

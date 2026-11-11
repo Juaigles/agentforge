@@ -645,6 +645,9 @@ describe('persistencia entre reinicios', () => {
     // Se devuelve el archivo al esquema v1: se deshace, de la más reciente a la más antigua, cada migración.
     const raw = new DatabaseSync(path.join(dataDir, 'agentforge.db'));
     raw.exec(`
+      -- v6
+      DROP TABLE mcp_servers; DROP TABLE triggers; ALTER TABLE runs DROP COLUMN trigger_kind;
+      CREATE TABLE schedules (workflow_id TEXT PRIMARY KEY);
       -- v5
       DROP TABLE approvals; DROP TABLE run_step_items; DROP INDEX idx_runs_parent;
       ALTER TABLE runs DROP COLUMN parent_run_id; ALTER TABLE runs DROP COLUMN parent_node_id;
@@ -666,7 +669,7 @@ describe('persistencia entre reinicios', () => {
     raw.close();
 
     await boot(undefined, dataDir);
-    expect((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(5);
+    expect((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(6);
     expect((await get(`/api/runs/${run.id}`)).json()).toMatchObject({ status: 'completed', output: 'eco(antes de migrar)', interrupted: false });
     expect((await get('/api/runs/interrupted')).json()).toEqual([]);
     // Antes de migrar se guardó una copia de la versión anterior.

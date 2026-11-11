@@ -182,7 +182,8 @@ async function clearFinished(): Promise<void> {
                     <strong>{{ run.name }}</strong>
                     <span v-if="run.retryOf" class="badge" style="margin-left: 6px; height: 18px">reintento</span>
                     <span v-if="run.parentRunId" class="badge" style="margin-left: 6px; height: 18px" title="La lanzó otro workflow como uno de sus pasos">subejecución</span>
-                    <span v-if="run.scheduled" class="badge info" style="margin-left: 6px; height: 18px" title="La lanzó la programación del workflow">programada</span>
+                    <span v-if="run.triggerKind === 'webhook'" class="badge info" style="margin-left: 6px; height: 18px" title="La lanzó una llamada a un webhook del workflow">webhook</span>
+                    <span v-else-if="run.scheduled" class="badge info" style="margin-left: 6px; height: 18px" title="La lanzó un disparador con horario del workflow">programada</span>
                   </span>
                 </RouterLink>
               </td>

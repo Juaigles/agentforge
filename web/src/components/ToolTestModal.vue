@@ -130,7 +130,7 @@ const TYPE_LABEL: Record<JsonSchemaProp['type'], string> = {
       <div v-for="f in fields" :key="f.name" class="field">
         <label v-if="f.kind !== 'boolean'" :for="`tt-${f.name}`">
           <code>{{ f.name }}</code>
-          <span class="faint tiny">{{ TYPE_LABEL[f.prop.type] }}{{ f.required ? ' · obligatorio' : '' }}</span>
+          <span class="faint tiny">{{ TYPE_LABEL[f.prop.type] ?? 'valor' }}{{ f.required ? ' · obligatorio' : '' }}</span>
         </label>
 
         <label v-if="f.kind === 'boolean'" class="check">

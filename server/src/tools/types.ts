@@ -26,5 +26,7 @@ export interface ToolDefinition {
   category: string;
   parameters: JsonSchema;
   dangerous?: boolean;
+  /** Los argumentos se pasan sin validar contra `parameters` (herramientas MCP: su esquema lo valida el servidor). */
+  passthroughArgs?: boolean;
   execute(args: Record<string, any>, ctx: ToolContext): Promise<unknown>;
 }

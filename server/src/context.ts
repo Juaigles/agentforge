@@ -11,6 +11,7 @@ import { validateWorkflow } from '../../shared/graph';
 import { RunManager } from './engine/run-manager';
 import { Scheduler } from './engine/scheduler';
 import { defaultLlmFactory, type LlmFactory } from './llm';
+import { McpManager } from './tools/mcp';
 import { ToolRegistry } from './tools/registry';
 import { silentLogger, type Logger } from './util';
 
@@ -19,6 +20,8 @@ export interface AppContext {
   db: DatabaseSync;
   store: Store;
   tools: ToolRegistry;
+  /** Conexiones con los servidores MCP configurados. */
+  mcp: McpManager;
   llm: LlmFactory;
   runs: RunManager;
   /** Programación de workflows. El temporizador solo se arranca en el servidor real (index.ts). */
@@ -91,7 +94,8 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
   const secrets = overrides.inMemory ? SecretBox.ephemeral() : SecretBox.fromKeyFile(path.join(config.dataDir, 'secret.key'));
   const store = new Store(db, secrets);
   const interruptedRuns = store.markInterruptedRuns();
-  const tools = new ToolRegistry(store);
+  const mcp = new McpManager(store, { log: () => ctx.log });
+  const tools = new ToolRegistry(store, mcp);
   const llm = overrides.llm ?? defaultLlmFactory;
   // Retención por lotes: la primera tanda se borra en el momento (así el ajuste tiene efecto inmediato) y, si
   // queda más, se sigue en segundo plano cediendo el control entre tandas, para que borrar un historial grande
@@ -171,6 +175,7 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
     db,
     store,
     tools,
+    mcp,
     llm,
     runs,
     scheduler,
@@ -187,9 +192,12 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
     },
     async close() {
       await ctx.stopRuns();
+      await mcp.close();
       if (db.isOpen) db.close();
       releaseLock();
     },
   };
+  // Los servidores MCP se conectan en segundo plano: el arranque no espera a programas externos.
+  void mcp.start();
   return ctx;
 }

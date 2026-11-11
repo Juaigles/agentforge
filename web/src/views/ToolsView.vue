@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Herramientas: catálogo (integradas + HTTP personalizadas), banco de pruebas y archivos del espacio de trabajo.
+// Herramientas: catálogo (integradas, de servidores MCP y HTTP personalizadas), banco de pruebas, servidores MCP y archivos.
 import type { JsonSchemaProp, Settings, ToolInfo, WorkspaceFile } from '@shared/types';
 import {
   CircleAlert,
@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   Pencil,
   Play,
+  Plug,
   Plus,
   RefreshCw,
   Search,
@@ -20,6 +21,7 @@ import {
 import { computed, onMounted, ref, watch } from 'vue';
 import AppModal from '@/components/AppModal.vue';
 import MarkdownView from '@/components/MarkdownView.vue';
+import McpServersPanel from '@/components/McpServersPanel.vue';
 import Term from '@/components/Term.vue';
 import ToolEditorModal from '@/components/ToolEditorModal.vue';
 import ToolTestModal from '@/components/ToolTestModal.vue';
@@ -31,7 +33,7 @@ import { useUi } from '@/stores/ui';
 const catalog = useCatalog();
 const ui = useUi();
 
-type Tab = 'catalog' | 'files';
+type Tab = 'catalog' | 'mcp' | 'files';
 const tab = ref<Tab>('catalog');
 const loading = ref(!catalog.loaded);
 const loadError = ref<string | null>(null);
@@ -86,6 +88,17 @@ const groups = computed(() => {
 });
 
 const customCount = computed(() => catalog.tools.filter((t) => t.source === 'custom').length);
+const mcpCount = computed(() => catalog.tools.filter((t) => t.source === 'mcp').length);
+const SOURCE_LABEL: Record<ToolInfo['source'], string> = { builtin: 'Integrada', custom: 'Personalizada', mcp: 'MCP' };
+
+/** Un servidor MCP ha cambiado: sus herramientas se vuelven a leer. */
+async function onMcpChanged(): Promise<void> {
+  try {
+    await catalog.reloadTools();
+  } catch (err) {
+    ui.error(errorText(err));
+  }
+}
 
 function paramsOf(tool: ToolInfo): Array<{ name: string; prop: JsonSchemaProp; required: boolean }> {
   const required = new Set(tool.parameters.required ?? []);
@@ -220,10 +233,18 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
         <Wrench style="width: 15px; height: 15px" /> Catálogo
         <span v-if="catalog.tools.length" class="badge">{{ catalog.tools.length }}</span>
       </button>
+      <button class="tab" :class="{ active: tab === 'mcp' }" type="button" role="tab" :aria-selected="tab === 'mcp'" @click="tab = 'mcp'">
+        <Plug style="width: 15px; height: 15px" /> Servidores MCP
+      </button>
       <button class="tab" :class="{ active: tab === 'files' }" type="button" role="tab" :aria-selected="tab === 'files'" @click="tab = 'files'">
         <FolderOpen style="width: 15px; height: 15px" /> Archivos
         <span v-if="filesLoaded && files.length" class="badge">{{ files.length }}</span>
       </button>
+    </div>
+
+    <!-- ================= Servidores MCP ================= -->
+    <div v-if="tab === 'mcp'" role="tabpanel" aria-label="Servidores MCP">
+      <McpServersPanel @changed="onMcpChanged" />
     </div>
 
     <!-- ================= Catálogo ================= -->
@@ -262,7 +283,8 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
             <input v-model="query" class="input" type="search" placeholder="Buscar por nombre o descripción…" aria-label="Buscar herramientas" />
           </div>
           <span class="muted small">
-            {{ plural(catalog.tools.length - customCount, 'integrada', 'integradas') }} · {{ plural(customCount, 'personalizada', 'personalizadas') }}
+            {{ plural(catalog.tools.length - customCount - mcpCount, 'integrada', 'integradas') }} · {{ plural(customCount, 'personalizada', 'personalizadas') }}
+            <template v-if="mcpCount"> · {{ mcpCount }} de servidores MCP</template>
           </span>
         </div>
 
@@ -298,7 +320,7 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
               </header>
 
               <div class="row wrap" style="gap: 6px">
-                <span class="badge" :class="{ accent: t.source === 'custom' }">{{ t.source === 'custom' ? 'Personalizada' : 'Integrada' }}</span>
+                <span class="badge" :class="{ accent: t.source !== 'builtin' }">{{ SOURCE_LABEL[t.source] }}</span>
                 <span v-if="t.dangerous" class="badge warning" title="Puede ejecutar acciones delicadas; revisa los ajustes de seguridad"><TriangleAlert /> Sensible</span>
                 <span v-if="!t.enabled" class="badge danger">Desactivada</span>
                 <span v-else-if="blockedReason(t)" class="badge danger">{{ blockedReason(t) }}</span>
@@ -315,7 +337,7 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
                   <li v-for="p in paramsOf(t)" :key="p.name">
                     <span class="pname">
                       <code>{{ p.name }}</code>
-                      <span class="tiny faint">{{ TYPE_LABEL[p.prop.type] }}</span>
+                      <span class="tiny faint">{{ TYPE_LABEL[p.prop.type] ?? 'valor' }}</span>
                       <span v-if="p.required" class="tiny req">obligatorio</span>
                     </span>
                     <span class="small muted">
@@ -334,7 +356,7 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
     </section>
 
     <!-- ================= Archivos ================= -->
-    <section v-else role="tabpanel" aria-label="Archivos" class="col" style="gap: 14px">
+    <section v-else-if="tab === 'files'" role="tabpanel" aria-label="Archivos" class="col" style="gap: 14px">
       <div class="toolbar">
         <p class="muted small grow">
           Archivos del <Term id="workspace">espacio de trabajo</Term>: lo que los agentes escriben con <code>file_write</code> y pueden leer con

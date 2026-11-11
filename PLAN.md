@@ -156,8 +156,11 @@ reales y un commit local.
   *Hecho el 2026-11-11 (detalle en `PROGRESS.md`, «Hito 5 · Fase 3»). No se ha hecho el registro único de
   tipos de nodo con esquemas compartidos (la configuración se valida en el servidor y en `shared/graph.ts`), ni
   la identidad de paso por ruta: un subworkflow es una ejecución propia enlazada con la que la lanza.*
-- [ ] **F4 · Disparadores y MCP.** Tabla de disparadores: cron, días de la semana, zona horaria, varios por
+- [x] **F4 · Disparadores y MCP.** Tabla de disparadores: cron, días de la semana, zona horaria, varios por
   workflow y webhooks locales con secreto; cliente MCP (stdio y HTTP) como tercera fuente de herramientas.
+  *Hecho el 2026-11-11 (detalle en `PROGRESS.md`, «Hito 5 · Fase 4»). Del cliente MCP quedan fuera los recursos,
+  las plantillas de prompt y el inicio de sesión OAuth; los disparadores no viajan en la exportación de un
+  workflow (pasa a F5).*
 - [ ] **F5 · Portabilidad.** Exportar herramientas HTTP y proveedores sin claves; importación atómica con
   pantalla de resolución de conflictos; exportar e importar agentes sueltos.
 - [ ] **F6 · Interfaz.** Accesibilidad AA completa (constructor operable con teclado, trampa de foco, contraste,

@@ -12,6 +12,7 @@ import {
   type RunEventType,
   type RunSnapshot,
   type RunSummary,
+  type TriggerKind,
   type Workflow,
   type WorkflowDefinition,
 } from '../../../shared/types';
@@ -177,7 +178,7 @@ export class RunManager {
     return snapshot;
   }
 
-  startWorkflowRun(workflow: Workflow, input: string, opts: { scheduled?: boolean } = {}): Run {
+  startWorkflowRun(workflow: Workflow, input: string, opts: { scheduled?: boolean; triggerKind?: TriggerKind } = {}): Run {
     const snapshot = this.snapshotOf(workflow);
     const definition = snapshot.workflow;
     const run = this.deps.store.createRun({
@@ -187,6 +188,7 @@ export class RunManager {
       name: workflow.name,
       input,
       scheduled: opts.scheduled,
+      triggerKind: opts.triggerKind ?? null,
       snapshot,
       steps: this.stepsFor(definition),
     });

@@ -250,6 +250,50 @@ const MIGRATIONS: Migration[] = [
   CREATE INDEX idx_approvals_pending ON approvals(created_at) WHERE status = 'pending';
   CREATE INDEX idx_approvals_run ON approvals(run_id);
   `,
+  // v6: disparadores (varios por workflow: intervalo, diario, cron y webhook) en lugar de una programación por
+  // workflow; las programaciones existentes se convierten. Servidores MCP.
+  `
+  CREATE TABLE triggers (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    interval_minutes INTEGER,
+    time TEXT,
+    weekdays TEXT NOT NULL DEFAULT '[]',
+    cron TEXT,
+    timezone TEXT,
+    input TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    next_run_at TEXT,
+    last_run_at TEXT,
+    last_run_id TEXT,
+    last_error TEXT,
+    secret_enc TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_triggers_workflow ON triggers(workflow_id);
+  INSERT INTO triggers (id, workflow_id, kind, interval_minutes, time, input, enabled, next_run_at, last_run_at, last_run_id, last_error, created_at, updated_at)
+    SELECT 'trg_' || lower(hex(randomblob(8))), workflow_id, kind, interval_minutes, time, input, enabled, next_run_at, last_run_at, last_run_id, last_error, updated_at, updated_at
+    FROM schedules;
+  DROP TABLE schedules;
+  ALTER TABLE runs ADD COLUMN trigger_kind TEXT;
+  CREATE TABLE mcp_servers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    transport TEXT NOT NULL,
+    command TEXT NOT NULL DEFAULT '',
+    args TEXT NOT NULL DEFAULT '[]',
+    env_enc TEXT,
+    url TEXT NOT NULL DEFAULT '',
+    headers_enc TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    tools_cache TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  `,
 ];
 
 /** Versión de esquema que conoce este código. */

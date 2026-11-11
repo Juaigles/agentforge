@@ -1,6 +1,8 @@
 // Esquemas de validación (zod) de los cuerpos de la API.
 import { z } from 'zod';
 import { DEFAULT_WORKFLOW_SETTINGS } from '../../../shared/types';
+import { CronError, isValidTimeZone, parseCron } from '../engine/cron';
+import { nextOccurrence } from '../engine/scheduler';
 import { TOOL_NAME_RE } from '../tools/registry';
 
 const httpUrl = z
@@ -152,21 +154,70 @@ export const workflowSchema = z.object({
   settings: workflowSettingsSchema.default(DEFAULT_WORKFLOW_SETTINGS),
 });
 
-export const scheduleSchema = z
+export const triggerSchema = z
   .object({
-    kind: z.enum(['interval', 'daily']),
+    kind: z.enum(['interval', 'daily', 'cron', 'webhook']),
+    name: z.string().trim().max(80).default(''),
     intervalMinutes: z.number().int().min(1, 'El intervalo mínimo es 1 minuto').max(43_200, 'El intervalo máximo son 30 días').nullable().default(null),
     time: z
       .string()
       .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'La hora debe tener el formato HH:MM')
       .nullable()
       .default(null),
+    weekdays: z.array(z.number().int().min(0).max(6)).max(7).default([]),
+    cron: z.string().trim().max(200).nullable().default(null),
+    timezone: z
+      .string()
+      .trim()
+      .max(64)
+      .nullable()
+      .default(null)
+      .transform((v) => v || null),
     input: z.string().max(100_000).default(''),
     enabled: z.boolean().default(true),
   })
   .superRefine((value, ctx) => {
     if (value.kind === 'interval' && value.intervalMinutes === null) ctx.addIssue({ code: 'custom', path: ['intervalMinutes'], message: 'Indica cada cuántos minutos' });
     if (value.kind === 'daily' && value.time === null) ctx.addIssue({ code: 'custom', path: ['time'], message: 'Indica la hora' });
+    if (value.timezone && !isValidTimeZone(value.timezone)) {
+      ctx.addIssue({ code: 'custom', path: ['timezone'], message: `«${value.timezone}» no es una zona horaria conocida (ejemplo: Europe/Madrid)` });
+      return;
+    }
+    if (value.kind !== 'cron') return;
+    if (!value.cron) return void ctx.addIssue({ code: 'custom', path: ['cron'], message: 'Indica la expresión cron' });
+    try {
+      parseCron(value.cron);
+      if (!nextOccurrence(value, new Date())) ctx.addIssue({ code: 'custom', path: ['cron'], message: 'Esa expresión no se cumple nunca (por ejemplo, un 30 de febrero).' });
+    } catch (err) {
+      ctx.addIssue({ code: 'custom', path: ['cron'], message: err instanceof CronError ? err.message : 'La expresión cron no es válida.' });
+    }
+  });
+
+const secretMap = z.record(z.string().trim().min(1).max(100), z.string().max(4000)).refine((v) => Object.keys(v).length <= 30, 'Demasiados valores (máximo 30)');
+
+export const mcpServerSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .regex(/^[a-z][a-z0-9_]{1,19}$/, 'Usa de 2 a 20 letras minúsculas, números o «_», empezando por una letra'),
+    transport: z.enum(['stdio', 'http']),
+    command: z.string().trim().max(500).default(''),
+    args: z.array(z.string().max(2000)).max(50).default([]),
+    env: secretMap.optional(),
+    url: z.string().trim().max(2000).default(''),
+    headers: secretMap.optional(),
+    enabled: z.boolean().default(true),
+  })
+  .superRefine((value, ctx) => {
+    if (value.transport === 'stdio' && !value.command) ctx.addIssue({ code: 'custom', path: ['command'], message: 'Indica el programa que arranca el servidor' });
+    if (value.transport === 'http' && !httpUrl.safeParse(value.url).success) ctx.addIssue({ code: 'custom', path: ['url'], message: 'Debe ser una URL http(s) válida' });
+    for (const key of Object.keys(value.env ?? {})) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) ctx.addIssue({ code: 'custom', path: ['env'], message: `«${key}» no es un nombre de variable de entorno válido` });
+    }
+    for (const [key, v] of Object.entries(value.headers ?? {})) {
+      if (!/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(key) || /[\r\n]/.test(v)) ctx.addIssue({ code: 'custom', path: ['headers'], message: `La cabecera «${key}» no es válida` });
+    }
   });
 
 const exportedAgentSchema = z.object({

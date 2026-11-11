@@ -53,7 +53,7 @@ así que no toca `data/` ni necesita Ollama. Detalles en [e2e/README.md](e2e/REA
 | `AGENTFORGE_LOG_LEVEL` | `info` | `silent`, `error`, `warn`, `info` o `debug` (este añade una línea por petición) |
 | `AGENTFORGE_RATE_LIMIT` | `1200` | Peticiones por minuto y cliente a la API (0 = sin límite) |
 | `AGENTFORGE_SHUTDOWN_GRACE_MS` | `10000` | Tiempo máximo que el apagado espera a las ejecuciones en curso |
-| `AGENTFORGE_SCHEDULER_TICK_MS` | `5000` | Cada cuánto se comprueban las programaciones vencidas (mínimo 250) |
+| `AGENTFORGE_SCHEDULER_TICK_MS` | `5000` | Cada cuánto se comprueban los disparadores con horario vencidos (mínimo 250) |
 | `AGENTFORGE_TEST_MODEL` | (autodetectado) | Modelo de los tests de integración |
 
 La configuración se valida al arrancar: un valor incorrecto detiene el servidor con un mensaje que nombra la
@@ -97,8 +97,10 @@ proceso muere de golpe. Un segundo Ctrl+C fuerza la salida. Sondas para un orque
   Nodos: entrada, agente, herramienta, condición (ramas sí/no), **para cada** (repite con cada elemento de una
   lista un agente, una herramienta o un subworkflow, varios a la vez), **subworkflow** (otro workflow como un
   paso), **aprobación** (la ejecución espera a que una persona apruebe o rechace), transformación y salida.
-- **Exportar e importar** workflows como archivos JSON (con los agentes que usan) y **ejecución programada**
-  (cada cierto tiempo o a una hora fija cada día).
+- **Exportar e importar** workflows como archivos JSON (con los agentes que usan).
+- **Disparadores**: un workflow puede lanzarse solo, y tener varios disparadores a la vez: cada cierto tiempo, a
+  una hora ciertos días de la semana, con una expresión **cron** (con zona horaria y cambio de hora de verano) o
+  al recibir un **webhook** autenticado con un secreto. Ver «Disparadores y webhooks».
 - **Motor**: ejecución del grafo con paralelismo y límite de concurrencia, dependencias, ramas
   condicionales, reintentos con backoff, timeout por nodo, duración máxima, límite de llamadas al modelo,
   política de error (detener/continuar), cancelación, cola global, delegación entre agentes y memoria
@@ -110,10 +112,46 @@ proceso muere de golpe. Un segundo Ctrl+C fuerza la salida. Sondas para un orque
   lo hace sola si se activa en *Ajustes*. Las **aprobaciones pendientes** se deciden desde un aviso visible en
   toda la aplicación.
 - **Herramientas**: 11 integradas (calculadora, fecha, leer web, HTTP, archivos, memoria compartida,
-  delegación, JavaScript aislado), herramientas HTTP personalizadas creadas desde la interfaz, banco de
-  pruebas y visor del espacio de trabajo.
+  delegación, JavaScript aislado), herramientas HTTP personalizadas creadas desde la interfaz, herramientas de
+  **servidores MCP** (programas locales o direcciones HTTP), banco de pruebas y visor del espacio de trabajo.
 - **Ajustes**: proveedores (Ollama y compatibles con OpenAI) con prueba de conexión, límites y permisos.
 - **Glosario** integrado: los términos técnicos muestran su definición al pasar el ratón, enfocar o tocar.
+
+### Disparadores y webhooks
+
+En la lista de workflows o en el constructor, el botón del calendario abre los disparadores del workflow.
+
+- **Cada cierto tiempo**: el intervalo se cuenta desde la ocasión prevista, no desde que se lanzó, así que el
+  horario no se va retrasando.
+- **Días y hora** y **cron** (cinco campos: minuto, hora, día del mes, mes, día de la semana; admite listas,
+  rangos, pasos, nombres como `mon-fri` y alias como `@daily`). Sin zona horaria se usa la del equipo del servidor;
+  con una zona (`Europe/Madrid`) el cambio de hora se aplica solo: una tarea a una hora fija se ejecuta una vez al
+  día también el día del cambio. El formulario enseña las próximas cinco ocasiones antes de guardar.
+- Los disparadores con horario **solo funcionan con el servidor en marcha**. Una ocasión con hora fija que llega
+  con más de una hora de retraso (el servidor estaba apagado) no se ejecuta a deshora: se omite y queda anotado.
+  Si la ejecución anterior del mismo disparador sigue en curso, la ocasión también se omite.
+- **Webhook**: al crearlo se muestra **una sola vez** su secreto. Otro programa lanza el workflow con
+
+  ```bash
+  curl -X POST "http://127.0.0.1:4310/api/hooks/<id>" -H "Authorization: Bearer <secreto>" --data "texto de entrada"
+  ```
+
+  El cuerpo es la entrada del workflow (si es JSON con un campo `input`, ese campo). La entrada guardada en el
+  disparador es una plantilla: `{{body}}` se sustituye por el cuerpo. En lugar del secreto en claro se puede enviar
+  la firma `X-AgentForge-Signature: sha256=<HMAC-SHA256 del cuerpo con el secreto, en hexadecimal>`. La respuesta
+  es `202` con el id de la ejecución. El webhook no usa la clave de acceso de la interfaz, pero sí pasa por la
+  comprobación de `Host` y por el límite de peticiones: para llamarlo desde otro equipo, el servidor tiene que
+  escuchar fuera de `127.0.0.1` y el nombre con el que se le llama debe estar en `AGENTFORGE_ALLOWED_HOSTS`.
+
+### Servidores MCP
+
+En *Herramientas → Servidores MCP* se conecta un servidor [MCP](https://modelcontextprotocol.io): un **programa
+local** (AgentForge lo arranca y habla con él por su entrada y salida estándar) o una **dirección HTTP**
+(Streamable HTTP). Sus herramientas aparecen en el catálogo como `servidor__herramienta` y se asignan a los
+agentes o se usan en nodos de herramienta como cualquier otra. Las variables de entorno y las cabeceras se guardan
+cifradas y no se vuelven a mostrar. Si el servidor se cae, sus herramientas siguen existiendo y la siguiente
+llamada intenta reconectar. Solo se usan sus herramientas (no sus recursos ni sus plantillas de prompt), y no hay
+inicio de sesión OAuth: la autenticación HTTP es por cabeceras.
 
 ## Arquitectura
 
@@ -153,6 +191,11 @@ el catálogo, en el editor de agentes y en el constructor sin tocar el frontend.
 - Las API keys de los proveedores se cifran en reposo (AES-256-GCM), la API nunca las devuelve y **no se envían a
   una dirección distinta de aquella para la que se guardaron**: si cambias la URL de un proveedor hay que volver a
   escribir la clave. Las cabeceras de las herramientas HTTP personalizadas, en cambio, se guardan en claro.
+- Los **webhooks** se autentican con un secreto propio de cada uno (se guarda cifrado, se compara en tiempo
+  constante y se puede regenerar); no dan acceso al resto de la API.
+- Un **servidor MCP local es un programa que se ejecuta en el equipo del servidor con sus mismos permisos**, y
+  cualquier servidor MCP decide qué hacen sus herramientas: añade solo los que conozcas. Sus variables de entorno
+  y cabeceras se cifran en reposo. Solo hereda las variables de entorno básicas del sistema, no las de AgentForge.
 - Hay un límite de peticiones por cliente, más estricto para lo que lanza ejecuciones y para el inicio de sesión.
 - Las herramientas de red bloquean por defecto localhost y redes privadas (SSRF), también en redirecciones y
   en cualquier notación de la dirección (IPv4 mapeada en IPv6, decimal, NAT64…). La conexión se hace siempre a la
