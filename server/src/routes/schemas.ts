@@ -221,7 +221,7 @@ export const mcpServerSchema = z
   });
 
 const exportedAgentSchema = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(64),
   name: z.string().trim().min(1).max(80),
   role: z.string().max(160).default(''),
   description: z.string().max(1000).default(''),
@@ -233,14 +233,47 @@ const exportedAgentSchema = z.object({
   maxIterations: z.number().int().min(1).max(30).default(8),
   tools: z.array(z.string()).max(50).default([]),
   thinking: z.boolean().default(false),
+  provider: z.string().max(80).optional(),
 });
 
+const exportedProviderSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  kind: z.enum(['ollama', 'openai']),
+  baseUrl: httpUrl,
+  defaultModel: z.string().max(200).default(''),
+});
+
+const exportedToolSchema = customToolSchema.extend({ secretHeaders: z.array(z.string().max(200)).max(50).default([]) });
+
+const bundleVersion = z.union([z.literal(1), z.literal(2)], { message: 'Versión de archivo no admitida: actualiza AgentForge para importarlo' });
+
+/** Archivo de workflow exportado (versiones 1 y 2). */
 export const workflowImportSchema = z.object({
   format: z.literal('agentforge.workflow', { message: 'El archivo no es un workflow exportado de AgentForge' }),
-  version: z.literal(1, { message: 'Versión de archivo no admitida' }),
+  version: bundleVersion,
   workflow: workflowSchema,
   agents: z.array(exportedAgentSchema).max(100).default([]),
+  providers: z.array(exportedProviderSchema).max(20).default([]),
+  tools: z.array(exportedToolSchema).max(100).default([]),
+  subworkflows: z
+    .array(z.object({ id: z.string().min(1).max(64), workflow: workflowSchema }))
+    .max(20)
+    .default([]),
+  triggers: z.array(triggerSchema).max(20).default([]),
 });
+
+/** Archivo de agentes sueltos. */
+export const agentImportSchema = z.object({
+  format: z.literal('agentforge.agent'),
+  version: bundleVersion,
+  agents: z.array(exportedAgentSchema).min(1, 'El archivo no trae ningún agente').max(100),
+  providers: z.array(exportedProviderSchema).max(20).default([]),
+  tools: z.array(exportedToolSchema).max(100).default([]),
+});
+
+export const importDecisionsSchema = z
+  .record(z.string().max(200), z.object({ action: z.enum(['create', 'reuse', 'replace', 'skip']), targetId: z.string().max(64).optional() }))
+  .default({});
 
 export const runInputSchema = z.object({
   input: z.string().max(100_000).default(''),

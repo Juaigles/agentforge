@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import type { Agent } from '@shared/types';
-import { Bot, CircleAlert, Copy, Pencil, Plus, Search, Trash2, Wrench } from 'lucide-vue-next';
+import type { Agent, ImportResult } from '@shared/types';
+import { Bot, CircleAlert, Copy, Download, Pencil, Plus, Search, Trash2, Upload, Wrench } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import AgentAvatar from '@/components/AgentAvatar.vue';
+import ImportModal from '@/components/ImportModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
 import { plural } from '@/lib/format';
+import { downloadJson, exportFileName, importSummary, readJsonFile } from '@/lib/transfer';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 
@@ -33,6 +35,45 @@ const filtered = computed(() => {
 const usedIn = (agent: Agent) => catalog.workflows.filter((w) => w.nodes.some((n) => (n.type === 'agent' || n.type === 'foreach') && n.config?.agentId === agent.id)).length;
 const providerName = (agent: Agent) => catalog.providerById.get(agent.providerId)?.name ?? 'Proveedor eliminado';
 const providerMissing = (agent: Agent) => !catalog.providerById.has(agent.providerId);
+
+// ---------- Exportar e importar ----------
+const fileInput = ref<HTMLInputElement | null>(null);
+const importing = ref<{ bundle: unknown; fileName: string } | null>(null);
+
+async function exportAgent(agent: Agent): Promise<void> {
+  try {
+    downloadJson(exportFileName(agent.name, 'agente'), await api.transfer.exportAgent(agent.id));
+    ui.success(`«${agent.name}» exportado.`);
+  } catch (err) {
+    ui.error(errorText(err));
+  }
+}
+
+async function onImportFile(ev: Event): Promise<void> {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = ''; // permite volver a elegir el mismo archivo
+  if (!file) return;
+  try {
+    importing.value = { bundle: await readJsonFile(file), fileName: file.name };
+  } catch (err) {
+    ui.error(errorText(err));
+  }
+}
+
+async function onImported(result: ImportResult): Promise<void> {
+  importing.value = null;
+  try {
+    await catalog.reload();
+  } catch (err) {
+    ui.error(errorText(err));
+  }
+  const summary = importSummary(result);
+  if (result.workflow) ui.success(`«${result.workflow.name}» importado${summary ? ` con ${summary}` : ''}.`);
+  else ui.success(summary ? `Importación terminada: ${summary}.` : 'Importación terminada: todo lo que traía el archivo ya existía.');
+  for (const warning of result.warnings) ui.info(warning);
+  if (result.workflow) await router.push(`/workflows/${result.workflow.id}`);
+}
 
 async function duplicate(agent: Agent): Promise<void> {
   try {
@@ -73,7 +114,11 @@ async function remove(agent: Agent): Promise<void> {
           <Term id="herramienta">herramientas</Term>. Créalos aquí y coordínalos después en un <Term id="workflow">workflow</Term>.
         </p>
       </div>
-      <RouterLink class="btn btn-primary" to="/agents/new"><Plus /> Nuevo agente</RouterLink>
+      <div class="row wrap" style="gap: 8px">
+        <input ref="fileInput" class="sr-only" type="file" accept=".json,application/json" aria-label="Archivo de agente a importar" tabindex="-1" @change="onImportFile" />
+        <button class="btn" type="button" title="Importar un agente exportado (archivo .json)" @click="fileInput?.click()"><Upload /> Importar</button>
+        <RouterLink class="btn btn-primary" to="/agents/new"><Plus /> Nuevo agente</RouterLink>
+      </div>
     </header>
 
     <div v-if="error" class="callout danger" role="alert"><CircleAlert /> {{ error }}</div>
@@ -102,6 +147,7 @@ async function remove(agent: Agent): Promise<void> {
           <footer class="row" @click.stop>
             <RouterLink class="btn btn-sm" :to="`/agents/${agent.id}`"><Pencil /> Editar y probar</RouterLink>
             <span class="grow" />
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Exportar ${agent.name}`" title="Exportar a un archivo" @click="exportAgent(agent)"><Download /></button>
             <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Duplicar ${agent.name}`" title="Duplicar" @click="duplicate(agent)"><Copy /></button>
             <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Eliminar ${agent.name}`" title="Eliminar" @click="remove(agent)"><Trash2 /></button>
           </footer>
@@ -123,6 +169,8 @@ async function remove(agent: Agent): Promise<void> {
     </template>
 
     <div v-else class="grid" aria-busy="true"><div v-for="i in 3" :key="i" class="card skeleton" style="height: 190px" /></div>
+
+    <ImportModal v-if="importing" :bundle="importing.bundle" :file-name="importing.fileName" @close="importing = null" @done="onImported" />
   </div>
 </template>
 

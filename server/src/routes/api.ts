@@ -4,10 +4,14 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
-import { nodeUsesAgent, validateWorkflow } from '../../../shared/graph';
+import { validateWorkflow } from '../../../shared/graph';
 import {
+  AGENT_EXPORT_FORMAT,
   WORKFLOW_EXPORT_FORMAT,
-  type Agent,
+  type AgentExport,
+  type ExportBundle,
+  type ImportPlan,
+  type ImportResult,
   type DashboardStats,
   type ProviderHealth,
   type ProviderTestResult,
@@ -39,12 +43,15 @@ import { systemTimeZone } from '../engine/cron';
 import { nextOccurrence, upcomingOccurrences } from '../engine/scheduler';
 import { HttpError } from '../errors';
 import type { LlmProviderConfig } from '../llm/types';
+import { applyImport, exportAgent, exportWorkflow, planImport } from '../portability';
 import { listWorkspaceFiles, resolveInWorkspace } from '../tools/builtin';
 import { sandboxStatus } from '../tools/sandbox';
 import { errorMessage, stringifyResult } from '../util';
 import {
+  agentImportSchema,
   agentSchema,
   approvalDecisionSchema,
+  importDecisionsSchema,
   customToolSchema,
   eventsQuerySchema,
   invokeToolSchema,
@@ -570,66 +577,33 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
 
   // ---------- Exportación e importación ----------
   /** Workflow como archivo portable: su definición más los agentes que usa (sin proveedor ni claves). */
-  app.get('/api/workflows/:id/export', async (req): Promise<WorkflowExport> => {
-    const { id: _id, createdAt: _c, updatedAt: _u, ...workflow } = store.getWorkflow(idOf(req)) ?? notFound('Workflow');
-    const agentIds = [...new Set(workflow.nodes.filter(nodeUsesAgent).map((n) => String(n.config?.agentId ?? '')))];
-    const agents = agentIds
-      .map((id) => store.getAgent(id))
-      .filter((a): a is Agent => Boolean(a))
-      .map(({ providerId: _p, createdAt: _ca, updatedAt: _ua, ...agent }) => agent);
-    return { format: WORKFLOW_EXPORT_FORMAT, version: 1, exportedAt: new Date().toISOString(), workflow, agents };
+  // ---------- Exportar e importar ----------
+  app.get('/api/workflows/:id/export', async (req): Promise<WorkflowExport> => exportWorkflow(store, store.getWorkflow(idOf(req)) ?? notFound('Workflow')));
+  app.get('/api/agents/:id/export', async (req): Promise<AgentExport> => exportAgent(store, store.getAgent(idOf(req)) ?? notFound('Agente')));
+
+  /** Valida un archivo exportado, sea de workflow o de agentes. */
+  function parseBundle(raw: unknown): ExportBundle {
+    const format = (raw as { format?: unknown } | null)?.format;
+    if (format === WORKFLOW_EXPORT_FORMAT) return workflowImportSchema.parse(raw) as ExportBundle;
+    if (format === AGENT_EXPORT_FORMAT) return agentImportSchema.parse(raw) as ExportBundle;
+    throw new HttpError(400, 'El archivo no es un workflow ni un agente exportado de AgentForge.');
+  }
+  const importDeps = { store, tools };
+
+  /** Primer paso de una importación: qué trae el archivo y cómo encaja con lo que ya hay. No cambia nada. */
+  app.post('/api/import/plan', async (req): Promise<ImportPlan> => planImport(importDeps, parseBundle((req.body as { bundle?: unknown } | null)?.bundle)));
+
+  /** Segundo paso: aplica la importación con las decisiones tomadas (las que falten, las recomendadas). Es atómica. */
+  app.post('/api/import', async (req, reply): Promise<ImportResult> => {
+    const body = (req.body ?? {}) as { bundle?: unknown; decisions?: unknown };
+    const result = applyImport(importDeps, parseBundle(body.bundle), importDecisionsSchema.parse(body.decisions));
+    return reply.status(201).send(result);
   });
 
-  /**
-   * Importa un workflow exportado. Cada agente del archivo se enlaza con uno existente (mismo id o mismo nombre)
-   * o se crea con el proveedor por defecto; los nodos pasan a apuntar al agente local.
-   */
+  /** Importa un workflow exportado con las acciones recomendadas, sin revisión previa (compatibilidad y automatización). */
   app.post('/api/workflows/import', async (req, reply): Promise<WorkflowImportResult> => {
-    const bundle = workflowImportSchema.parse(req.body);
-    const warnings: string[] = [];
-    const createdAgents: Agent[] = [];
-    const reusedAgents: Agent[] = [];
-    const provider = store.listProviders().find((p) => p.enabled) ?? store.listProviders()[0];
-    const knownTools = new Set(tools.list().map((t) => t.name));
-    const existing = store.listAgents();
-    const mapping = new Map<string, string>();
-
-    for (const incoming of bundle.agents) {
-      const match = existing.find((a) => a.id === incoming.id) ?? existing.find((a) => a.name === incoming.name);
-      if (match) {
-        mapping.set(incoming.id, match.id);
-        if (!reusedAgents.includes(match)) reusedAgents.push(match);
-        continue;
-      }
-      if (!provider) {
-        warnings.push(`No se pudo crear el agente «${incoming.name}»: no hay ningún proveedor configurado.`);
-        continue;
-      }
-      const missingTools = incoming.tools.filter((t) => !knownTools.has(t));
-      if (missingTools.length) warnings.push(`El agente «${incoming.name}» usaba herramientas que no existen aquí: ${missingTools.join(', ')}.`);
-      const { id: _id, ...fields } = incoming;
-      const created = store.createAgent({
-        ...fields,
-        providerId: provider.id,
-        model: incoming.model || provider.defaultModel,
-        tools: incoming.tools.filter((t) => knownTools.has(t)),
-      });
-      if (!created.model) warnings.push(`El agente «${created.name}» no tiene modelo: asígnale uno antes de ejecutarlo.`);
-      mapping.set(incoming.id, created.id);
-      createdAgents.push(created);
-      existing.push(created);
-    }
-
-    const nodes = bundle.workflow.nodes.map((n) =>
-      nodeUsesAgent(n) && mapping.has(String(n.config?.agentId))
-        ? { ...n, config: { ...n.config, agentId: mapping.get(String(n.config.agentId)) } }
-        : n,
-    );
-    const taken = new Set(store.listWorkflows().map((w) => w.name));
-    let name = bundle.workflow.name;
-    for (let i = 2; taken.has(name); i++) name = `${bundle.workflow.name} (importado${i > 2 ? ` ${i - 1}` : ''})`;
-    const workflow = store.createWorkflow({ ...bundle.workflow, name, nodes });
-    return reply.status(201).send({ workflow, createdAgents, reusedAgents, warnings, issues: workflowIssues(workflow, workflow.id) });
+    const result = applyImport(importDeps, workflowImportSchema.parse(req.body) as ExportBundle);
+    return reply.status(201).send(result as WorkflowImportResult);
   });
 
   // ---------- Disparadores ----------

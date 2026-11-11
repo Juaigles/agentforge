@@ -60,12 +60,12 @@ describe('exportar e importar workflows', () => {
     const res = await get(`/api/workflows/${wf.id}/export`);
     expect(res.statusCode).toBe(200);
     const bundle = res.json() as WorkflowExport;
-    expect(bundle).toMatchObject({ format: 'agentforge.workflow', version: 1 });
+    expect(bundle).toMatchObject({ format: 'agentforge.workflow', version: 2 });
     expect(Date.parse(bundle.exportedAt)).not.toBeNaN();
     expect(bundle.workflow).toEqual({ name: wf.name, description: wf.description, nodes: wf.nodes, edges: wf.edges, settings: wf.settings });
     // Un solo agente aunque lo usen dos nodos; el que no participa no viaja.
     expect(bundle.agents).toEqual([
-      { id: agent.id, name: 'Redactor', role: 'escribe', description: '', color: agent.color, model: 'test-model', systemPrompt: 'Sé breve.', temperature: 0.3, maxTokens: null, maxIterations: agent.maxIterations, tools: ['calculator'], thinking: false },
+      { id: agent.id, name: 'Redactor', role: 'escribe', description: '', color: agent.color, model: 'test-model', systemPrompt: 'Sé breve.', temperature: 0.3, maxTokens: null, maxIterations: agent.maxIterations, tools: ['calculator'], thinking: false, provider: 'Local' },
     ]);
     expect(res.body).not.toContain(provider.id);
     expect((await get('/api/workflows/wf_no_existe/export')).statusCode).toBe(404);
@@ -171,7 +171,7 @@ describe('exportar e importar workflows', () => {
     };
     expect(await rejected({ hola: 'mundo' })).toMatch(/no es un workflow exportado de AgentForge/);
     expect(await rejected({ ...bundle, format: 'otra.cosa' })).toMatch(/no es un workflow exportado de AgentForge/);
-    expect(await rejected({ ...bundle, version: 2 })).toMatch(/Versión de archivo no admitida/);
+    expect(await rejected({ ...bundle, version: 3 })).toMatch(/Versión de archivo no admitida/);
     expect(await rejected({ ...bundle, workflow: { ...bundle.workflow, name: '' } })).toMatch(/nombre/i);
     expect(await rejected({ ...bundle, workflow: { ...bundle.workflow, nodes: [{ id: 'x', type: 'inventado', position: { x: 0, y: 0 } }] } })).toMatch(/Datos no válidos/);
     expect((await get('/api/workflows')).json()).toHaveLength(before);

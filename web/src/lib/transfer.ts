@@ -1,8 +1,8 @@
 // Exportación e importación de workflows como archivos JSON, y textos de la programación.
-import type { Trigger } from '@shared/types';
+import type { ImportResult, Trigger } from '@shared/types';
 
-/** Nombre de archivo seguro a partir del nombre del workflow. */
-export function exportFileName(name: string): string {
+/** Nombre de archivo seguro a partir del nombre del workflow (o del agente). */
+export function exportFileName(name: string, fallback = 'workflow'): string {
   const slug = name
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -10,7 +10,7 @@ export function exportFileName(name: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60);
-  return `${slug || 'workflow'}.agentforge.json`;
+  return `${slug || fallback}.agentforge.json`;
 }
 
 /** Descarga un objeto como archivo JSON legible. */
@@ -23,6 +23,21 @@ export function downloadJson(fileName: string, data: unknown): void {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Resumen de una importación terminada, para el aviso: «con 2 agentes nuevos, 1 herramienta nueva y 1 proveedor nuevo». */
+export function importSummary(result: Pick<ImportResult, 'createdAgents' | 'replacedAgents' | 'createdTools' | 'replacedTools' | 'createdProviders' | 'createdWorkflows' | 'triggers'>): string {
+  const count = (n: number, one: string, many: string): string => (n ? `${n} ${n === 1 ? one : many}` : '');
+  const parts = [
+    count(result.createdAgents.length, 'agente nuevo', 'agentes nuevos'),
+    count(result.replacedAgents.length, 'agente sustituido', 'agentes sustituidos'),
+    count(result.createdWorkflows.length, 'subworkflow nuevo', 'subworkflows nuevos'),
+    count(result.createdTools.length, 'herramienta nueva', 'herramientas nuevas'),
+    count(result.replacedTools.length, 'herramienta sustituida', 'herramientas sustituidas'),
+    count(result.createdProviders.length, 'proveedor nuevo', 'proveedores nuevos'),
+    count(result.triggers, 'disparador en pausa', 'disparadores en pausa'),
+  ].filter(Boolean);
+  return parts.length <= 1 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}`;
 }
 
 /** Lee un archivo elegido por el usuario como JSON; lanza un error legible si no lo es. */

@@ -132,7 +132,22 @@ test.describe('Vista móvil (375 × 812)', () => {
     await page.getByRole('button', { name: 'Editar' }).click();
     await expect(page.getByRole('dialog', { name: 'Editar el servidor «movil»' })).toBeVisible();
     expect(await dialogFits()).toEqual([]);
+    await page.getByRole('button', { name: 'Cancelar' }).click();
     await app.api('DELETE', `/api/mcp/servers/${server.id}`);
+
+    // Revisión de una importación con nombres largos, avisos y un selector por elemento.
+    const bundle = await app.api('GET', `/api/workflows/${wf.id}/export`);
+    bundle.agents = [{ id: 'agt_movil', name: 'Un agente con un nombre bastante largo para el móvil', tools: ['http_request', 'file_write'], provider: 'Un proveedor que no existe aquí' }];
+    bundle.providers = [{ name: 'Un proveedor que no existe aquí', kind: 'openai', baseUrl: 'https://un-servidor-con-un-nombre-muy-largo.ejemplo.test/v1', defaultModel: '' }];
+    bundle.tools = [
+      { name: 'herramienta_con_un_nombre_larguisimo_para_movil', description: 'Hace algo en otro sitio', parameters: { type: 'object', properties: {} }, method: 'POST', urlTemplate: 'https://un-servidor-con-un-nombre-muy-largo.ejemplo.test/api/v1/accion', headers: { 'X-Api-Key': '' }, secretHeaders: ['X-Api-Key'], bodyTemplate: '' },
+    ];
+    await page.goto('/agents');
+    await page.getByLabel('Archivo de agente a importar').setInputFiles({ name: 'movil.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
+    const review = page.getByRole('dialog', { name: `Importar «${name}»` });
+    await expect(review.getByRole('listitem')).toHaveCount(3);
+    expect(await dialogFits()).toEqual([]);
+    await review.getByRole('button', { name: 'Cancelar' }).click();
   });
 
   test('la navegación principal funciona en móvil y el monitor de una ejecución es utilizable', async ({ page, app }) => {

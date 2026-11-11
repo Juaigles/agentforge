@@ -27,7 +27,7 @@ test.describe('Exportar e importar workflows', () => {
     expect(download.suggestedFilename()).toMatch(/^exportable-.*\.agentforge\.json$/);
     const file = await download.path();
     const bundle = JSON.parse(fs.readFileSync(file, 'utf8'));
-    expect(bundle).toMatchObject({ format: 'agentforge.workflow', version: 1, workflow: { name } });
+    expect(bundle).toMatchObject({ format: 'agentforge.workflow', version: 2, workflow: { name } });
     expect(bundle.workflow.nodes.map((n: any) => n.id)).toEqual(['entrada', 'paso', 'cada', 'salida']);
     expect(bundle.agents).toHaveLength(1);
     expect(bundle.agents[0]).toMatchObject({ id: agent.id, name: agent.name, role: 'viajero', systemPrompt: 'Responde breve.', tools: ['calculator'] });
@@ -40,7 +40,16 @@ test.describe('Exportar e importar workflows', () => {
     await page.reload();
     await expect(page.getByRole('link', { name, exact: true })).toHaveCount(0);
 
+    // Antes de crear nada se revisa qué trae el archivo: aquí, un agente que no existe y un proveedor que sí.
     await page.getByLabel('Archivo de workflow a importar').setInputFiles(file);
+    const review = page.getByRole('dialog', { name: `Importar «${name}»` });
+    const incoming = review.getByRole('list', { name: 'Agentes' }).getByRole('listitem');
+    await expect(incoming).toHaveCount(1);
+    await expect(incoming).toContainText(agent.name);
+    await expect(incoming.getByText('Nuevo', { exact: true })).toBeVisible();
+    await expect(review.getByRole('list', { name: 'Proveedores' }).getByRole('listitem').getByText('Ya existe')).toBeVisible();
+    expect((await app.api<any[]>('GET', '/api/workflows')).some((w) => w.name === name)).toBe(false); // todavía no se ha creado nada
+    await review.getByRole('button', { name: 'Importar' }).click();
     await expect(toast(page, `«${name}» importado con 1 agente nuevo.`)).toBeVisible();
     await expect(page).toHaveURL(/\/workflows\/wf_/);
     const importedId = page.url().split('/').pop()!;
@@ -60,6 +69,8 @@ test.describe('Exportar e importar workflows', () => {
     // Importarlo otra vez no duplica el agente ni pisa el nombre.
     await page.goto('/workflows');
     await page.getByLabel('Archivo de workflow a importar').setInputFiles(file);
+    await expect(review.getByRole('list', { name: 'Agentes' }).getByText('Ya existe')).toBeVisible();
+    await review.getByRole('button', { name: 'Importar' }).click();
     await expect(toast(page, `«${name} (importado)» importado.`)).toBeVisible();
     expect((await app.api<any[]>('GET', '/api/agents')).filter((a) => a.name === agent.name)).toHaveLength(1);
 
@@ -79,7 +90,10 @@ test.describe('Exportar e importar workflows', () => {
     await expect(toast(page, '«roto.json» no es un archivo JSON válido.')).toBeVisible();
 
     await input.setInputFiles({ name: 'otro.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ nombre: 'cualquier cosa' })) });
-    await expect(toast(page, 'no es un workflow exportado de AgentForge')).toBeVisible();
+    const review = page.getByRole('dialog', { name: 'Importar' });
+    await expect(review.getByRole('alert')).toContainText('No se puede importar «otro.json». El archivo no es un workflow ni un agente exportado de AgentForge.');
+    await expect(review.getByRole('button', { name: 'Importar' })).toBeDisabled();
+    await review.getByRole('button', { name: 'Cancelar' }).click();
 
     await expect(page).toHaveURL(/\/workflows$/);
     expect((await app.api<any[]>('GET', '/api/workflows')).length).toBe(before);
@@ -109,12 +123,115 @@ test.describe('Exportar e importar workflows', () => {
     };
     await page.goto('/workflows');
     await page.getByLabel('Archivo de workflow a importar').setInputFiles({ name: 'ajeno.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
+    await page.getByRole('dialog', { name: `Importar «${name}»` }).getByRole('button', { name: 'Importar' }).click();
     await expect(toast(page, `«${name}» importado con 1 agente nuevo.`)).toBeVisible();
     await expect(toast(page, 'usaba herramientas que no existen aquí: buscador_interno.')).toBeVisible();
     // El agente se enlazó; el nodo de herramienta desconocida queda como error de validación.
     await expect(page.locator('.check-badge')).toContainText('1 error');
     await page.locator('.check-badge').click();
     await expect(page.getByLabel('Propiedades').locator('.validation')).toContainText('herramienta desconocida: buscador_interno');
+  });
+});
+
+test.describe('Importar con conflictos y agentes sueltos', () => {
+  test('lo que coincide pero es distinto se señala y se decide elemento a elemento', async ({ page, app }) => {
+    const toolName = `consulta_${Date.now().toString(36)}`;
+    await app.api('POST', '/api/tools/custom', {
+      name: toolName,
+      description: 'Consulta un dato en una API externa',
+      parameters: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] },
+      method: 'GET',
+      urlTemplate: 'https://api.ejemplo.test/buscar?q={{q}}',
+      headers: { Authorization: 'Bearer credencial-e2e', 'X-Origen': 'e2e' },
+    });
+    const agent = await app.createAgent({ name: unique('Consultor'), systemPrompt: 'Versión del archivo.', tools: [toolName, 'http_request'] });
+    const name = unique('Con conflictos');
+    const wf = await app.createWorkflow(name, [{ id: 'entrada', type: 'input' }, { id: 'paso', type: 'agent', config: { agentId: agent.id, prompt: '{{input}}' } }], ['entrada>paso']);
+    await app.api('POST', `/api/workflows/${wf.id}/triggers`, { kind: 'interval', intervalMinutes: 60 });
+    const bundle = await app.api('GET', `/api/workflows/${wf.id}/export`);
+    // El archivo no lleva la credencial de la herramienta.
+    expect(JSON.stringify(bundle)).not.toContain('credencial-e2e');
+    expect(bundle.tools[0]).toMatchObject({ name: toolName, secretHeaders: ['Authorization'] });
+    // Después de exportar, el agente de aquí cambia.
+    const current = await app.api('GET', `/api/agents/${agent.id}`);
+    await app.api('PUT', `/api/agents/${agent.id}`, { ...current, systemPrompt: 'Versión de aquí, retocada.' });
+
+    await page.goto('/workflows');
+    await page.getByLabel('Archivo de workflow a importar').setInputFiles({ name: 'conflictos.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
+    const review = page.getByRole('dialog', { name: `Importar «${name}»` });
+    await expect(review.getByText('herramientas que actúan fuera de la conversación (http_request)')).toBeVisible();
+    await expect(review.getByText('Trae un disparador, que se creará en pausa.')).toBeVisible();
+    const incoming = review.getByRole('list', { name: 'Agentes' }).getByRole('listitem');
+    await expect(incoming.getByText('Existe, pero es distinto')).toBeVisible();
+    const choice = incoming.getByLabel(`Qué hacer con ${agent.name}`);
+    await expect(choice).toHaveValue('reuse'); // por defecto se respeta lo de aquí
+    await expect(choice.locator('option')).toHaveText(['Usar el de aquí', 'Sustituir el de aquí', 'Crear una copia']);
+    await expect(review.getByRole('list', { name: 'Herramientas HTTP' }).getByText('Ya existe')).toBeVisible();
+    await choice.selectOption('replace');
+    await review.getByRole('button', { name: 'Importar' }).click();
+    await expect(toast(page, `«${name} (importado)» importado con 1 agente sustituido y 1 disparador en pausa.`)).toBeVisible();
+    await expect(page).toHaveURL(/\/workflows\/wf_/);
+    expect((await app.api('GET', `/api/agents/${agent.id}`)).systemPrompt).toBe('Versión del archivo.');
+    const importedId = page.url().split('/').pop()!;
+    expect(await app.api<any[]>('GET', `/api/workflows/${importedId}/triggers`)).toMatchObject([{ kind: 'interval', enabled: false, nextRunAt: null }]);
+
+    // La cabecera con la credencial no se enseña al editar la herramienta, pero se conserva.
+    await page.goto('/tools');
+    await page.getByLabel('Buscar herramientas').fill(toolName);
+    await page.getByRole('button', { name: `Editar ${toolName}` }).click();
+    const editor = page.getByRole('dialog');
+    await expect(editor.getByLabel('Nombre de la cabecera 2')).toHaveValue('Authorization');
+    await expect(editor.getByLabel('Valor de la cabecera 2')).toHaveValue('');
+    await expect(editor.getByLabel('Valor de la cabecera 2')).toHaveAttribute('placeholder', 'Guardado. Escribe para cambiarlo');
+    await expect(editor.getByText('se guardan cifradas')).toBeVisible();
+    await expect(page.getByText('credencial-e2e')).toHaveCount(0);
+    await editor.getByRole('button', { name: 'Cancelar' }).click();
+    // El catálogo queda como estaba para los demás tests.
+    for (const t of (await app.api<any[]>('GET', '/api/tools/custom')).filter((t) => t.name === toolName)) await app.api('DELETE', `/api/tools/custom/${t.id}`);
+  });
+
+  test('exportar un agente suelto e importarlo de nuevo, con su herramienta HTTP', async ({ page, app }) => {
+    const toolName = `avisar_${Date.now().toString(36)}`;
+    const tool = await app.api('POST', '/api/tools/custom', {
+      name: toolName,
+      description: 'Envía un aviso a un servicio externo',
+      parameters: { type: 'object', properties: { texto: { type: 'string' } }, required: ['texto'] },
+      method: 'POST',
+      urlTemplate: 'https://avisos.ejemplo.test/enviar',
+      headers: { 'X-Api-Key': 'clave-e2e' },
+    });
+    const name = unique('Mensajero');
+    const agent = await app.createAgent({ name, role: 'avisa', systemPrompt: 'Avisa con pocas palabras.', tools: [toolName, 'calculator'] });
+    await page.goto('/agents');
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: `Exportar ${name}` }).click()]);
+    expect(download.suggestedFilename()).toMatch(/^mensajero-.*\.agentforge\.json$/);
+    await expect(toast(page, `«${name}» exportado.`)).toBeVisible();
+    const file = await download.path();
+    const bundle = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(bundle).toMatchObject({ format: 'agentforge.agent', version: 2 });
+    expect(bundle.agents[0]).toMatchObject({ name, tools: [toolName, 'calculator'] });
+    expect(bundle.tools[0]).toMatchObject({ name: toolName, headers: { 'X-Api-Key': '' }, secretHeaders: ['X-Api-Key'] });
+    expect(JSON.stringify(bundle)).not.toContain('clave-e2e');
+
+    // Se borran el agente y su herramienta, y el archivo los devuelve.
+    await app.api('DELETE', `/api/agents/${agent.id}`);
+    await app.api('DELETE', `/api/tools/custom/${tool.id}`);
+    await page.reload();
+    await expect(page.getByRole('link', { name, exact: true })).toHaveCount(0);
+    await page.getByLabel('Archivo de agente a importar').setInputFiles(file);
+    const review = page.getByRole('dialog', { name: `Importar «${name}»` });
+    const incomingTool = review.getByRole('list', { name: 'Herramientas HTTP' }).getByRole('listitem');
+    await expect(incomingTool).toContainText('Hace peticiones POST a avisos.ejemplo.test.');
+    await expect(incomingTool).toContainText('habrá que escribir X-Api-Key al editarla');
+    await review.getByRole('button', { name: 'Importar' }).click();
+    await expect(toast(page, 'Importación terminada: 1 agente nuevo y 1 herramienta nueva.')).toBeVisible();
+    await expect(toast(page, `La herramienta «${toolName}» lleva credenciales que no viajan en el archivo: escribe X-Api-Key al editarla.`)).toBeVisible();
+    await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
+    const restored = (await app.api<any[]>('GET', '/api/agents')).find((a) => a.name === name);
+    expect(restored).toMatchObject({ role: 'avisa', systemPrompt: 'Avisa con pocas palabras.', tools: [toolName, 'calculator'] });
+    const restoredTool = (await app.api<any[]>('GET', '/api/tools/custom')).find((t) => t.name === toolName);
+    expect(restoredTool).toMatchObject({ method: 'POST', secretHeaders: [] });
+    await app.api('DELETE', `/api/tools/custom/${restoredTool.id}`);
   });
 });
 

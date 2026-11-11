@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Trigger } from '@shared/types';
-import { describeTrigger, describeWeekdays, exportFileName, splitInterval, summarizeTriggers, toMinutes } from './transfer';
+import { describeTrigger, describeWeekdays, exportFileName, importSummary, splitInterval, summarizeTriggers, toMinutes } from './transfer';
 
 const trigger = (patch: Partial<Trigger>): Trigger => ({
   id: 'trg_1',
@@ -29,6 +29,19 @@ describe('exportación', () => {
     expect(exportFileName('  ¿Qué/tal?: <ñandú> ')).toBe('que-tal-nandu.agentforge.json');
     expect(exportFileName('***')).toBe('workflow.agentforge.json');
     expect(exportFileName('x'.repeat(200))).toBe(`${'x'.repeat(60)}.agentforge.json`);
+  });
+});
+
+describe('resumen de una importación', () => {
+  const result = (patch: Record<string, unknown> = {}) => ({ createdAgents: [], replacedAgents: [], createdTools: [], replacedTools: [], createdProviders: [], createdWorkflows: [], triggers: 0, ...patch }) as never;
+
+  it('enumera solo lo que ha cambiado, en singular o plural', () => {
+    expect(importSummary(result())).toBe('');
+    expect(importSummary(result({ createdAgents: [{}] }))).toBe('1 agente nuevo');
+    expect(importSummary(result({ createdAgents: [{}, {}], createdTools: ['a'] }))).toBe('2 agentes nuevos y 1 herramienta nueva');
+    expect(importSummary(result({ createdAgents: [{}], replacedAgents: [{}], createdWorkflows: [{}, {}], replacedTools: ['a', 'b'], createdProviders: [{}], triggers: 3 }))).toBe(
+      '1 agente nuevo, 1 agente sustituido, 2 subworkflows nuevos, 2 herramientas sustituidas, 1 proveedor nuevo y 3 disparadores en pausa',
+    );
   });
 });
 

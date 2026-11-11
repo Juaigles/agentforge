@@ -33,6 +33,7 @@ import {
   type WorkflowInput,
 } from '../../../shared/types';
 import { nodeSubworkflowId, nodeUsesAgent } from '../../../shared/graph';
+import { isSecretHeaderName } from '../../../shared/types';
 import type { SecretBox } from '../crypto/secrets';
 import { ConfigError } from '../errors';
 import { localDate, newId, nowIso } from '../util';
@@ -131,6 +132,15 @@ function parseJson<T>(text: unknown, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+/** Configuración de una herramienta HTTP tal como se guarda: las cabeceras secretas, cifradas y aparte. */
+interface StoredToolConfig {
+  method: CustomTool['method'];
+  urlTemplate: string;
+  headers: Record<string, string>;
+  secretHeaders?: Record<string, string>;
+  bodyTemplate: string;
 }
 
 /** Servidor MCP tal como se guarda: con los valores secretos (variables y cabeceras) descifrados. */
@@ -357,23 +367,80 @@ export class Store {
   }
 
   // ---------- Herramientas personalizadas ----------
-  private mapCustomTool(r: Row): CustomTool {
-    const config = parseJson<Pick<CustomTool, 'method' | 'urlTemplate' | 'headers' | 'bodyTemplate'>>(r.config, {
-      method: 'GET',
-      urlTemplate: '',
-      headers: {},
-      bodyTemplate: '',
-    });
+  /**
+   * `reveal` devuelve también el valor de las cabeceras secretas (solo para ejecutar la herramienta); sin él
+   * llegan vacías. Una fila antigua con credenciales en claro se trata igual: sus valores tampoco se devuelven.
+   */
+  private mapCustomTool(r: Row, reveal = false): CustomTool {
+    const config = parseJson<StoredToolConfig>(r.config, { method: 'GET', urlTemplate: '', headers: {}, bodyTemplate: '' });
+    const headers: Record<string, string> = {};
+    const secretHeaders: string[] = [];
+    for (const [name, value] of Object.entries(config.headers ?? {})) {
+      if (isSecretHeaderName(name) && value) {
+        secretHeaders.push(name);
+        headers[name] = reveal ? value : '';
+      } else headers[name] = value;
+    }
+    for (const [name, encrypted] of Object.entries(config.secretHeaders ?? {})) {
+      secretHeaders.push(name);
+      let value = '';
+      if (reveal) {
+        try {
+          value = this.secrets.decrypt(encrypted);
+        } catch {
+          // Clave maestra distinta de la que cifró el valor: la herramienta se ejecuta sin esa cabecera.
+          value = '';
+        }
+      }
+      headers[name] = value;
+    }
     return {
       id: r.id,
       name: r.name,
       description: r.description,
       parameters: parseJson(r.parameters, { type: 'object', properties: {} }),
-      ...config,
+      method: config.method,
+      urlTemplate: config.urlTemplate,
+      headers,
+      secretHeaders,
+      bodyTemplate: config.bodyTemplate,
       enabled: Boolean(r.enabled),
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };
+  }
+
+  /** Separa las cabeceras en claras y secretas (cifradas). Una secreta vacía conserva la que ya había guardada. */
+  private toolConfig(input: CustomToolInput, previous?: StoredToolConfig): StoredToolConfig {
+    const headers: Record<string, string> = {};
+    const secretHeaders: Record<string, string> = {};
+    for (const [name, value] of Object.entries(input.headers ?? {})) {
+      if (!isSecretHeaderName(name)) headers[name] = value;
+      else if (value) secretHeaders[name] = this.secrets.encrypt(value);
+      else if (previous?.secretHeaders?.[name]) secretHeaders[name] = previous.secretHeaders[name];
+      else if (previous?.headers?.[name]) secretHeaders[name] = this.secrets.encrypt(previous.headers[name]);
+      else headers[name] = '';
+    }
+    return { method: input.method, urlTemplate: input.urlTemplate, headers, secretHeaders, bodyTemplate: input.bodyTemplate };
+  }
+
+  /** Cifra las credenciales que una versión anterior guardó en claro en las cabeceras. Devuelve cuántas herramientas toca. */
+  encryptLegacyToolHeaders(): number {
+    let changed = 0;
+    for (const r of this.all('SELECT id, config FROM custom_tools')) {
+      const config = parseJson<StoredToolConfig>(r.config, { method: 'GET', urlTemplate: '', headers: {}, bodyTemplate: '' });
+      const legacy = Object.entries(config.headers ?? {}).filter(([name, value]) => isSecretHeaderName(name) && value);
+      if (!legacy.length) continue;
+      const secretHeaders = { ...(config.secretHeaders ?? {}) };
+      const headers = { ...config.headers };
+      for (const [name, value] of legacy) {
+        secretHeaders[name] = this.secrets.encrypt(value);
+        delete headers[name];
+      }
+      this.exec('UPDATE custom_tools SET config = ? WHERE id = ?', { ...config, headers, secretHeaders }, r.id);
+      changed++;
+    }
+    return changed;
   }
 
   listCustomTools(): CustomTool[] {
@@ -385,22 +452,22 @@ export class Store {
     return r ? this.mapCustomTool(r) : null;
   }
 
-  getCustomToolByName(name: string): CustomTool | null {
+  /** `reveal`: con el valor de las cabeceras secretas (para ejecutarla). */
+  getCustomToolByName(name: string, reveal = false): CustomTool | null {
     const r = this.get('SELECT * FROM custom_tools WHERE name = ?', name);
-    return r ? this.mapCustomTool(r) : null;
+    return r ? this.mapCustomTool(r, reveal) : null;
   }
 
   createCustomTool(input: CustomToolInput): CustomTool {
     const id = newId('tool');
     const now = nowIso();
-    const { method, urlTemplate, headers, bodyTemplate } = input;
     this.exec(
       'INSERT INTO custom_tools (id, name, description, parameters, config, enabled, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
       id,
       input.name,
       input.description,
       input.parameters,
-      { method, urlTemplate, headers, bodyTemplate },
+      this.toolConfig(input),
       input.enabled,
       now,
       now,
@@ -409,13 +476,13 @@ export class Store {
   }
 
   updateCustomTool(id: string, input: CustomToolInput): CustomTool | null {
-    const { method, urlTemplate, headers, bodyTemplate } = input;
+    const previous = parseJson<StoredToolConfig | undefined>(this.get('SELECT config FROM custom_tools WHERE id = ?', id)?.config, undefined);
     const changes = this.exec(
       'UPDATE custom_tools SET name=?, description=?, parameters=?, config=?, enabled=?, updated_at=? WHERE id=?',
       input.name,
       input.description,
       input.parameters,
-      { method, urlTemplate, headers, bodyTemplate },
+      this.toolConfig(input, previous),
       input.enabled,
       nowIso(),
       id,

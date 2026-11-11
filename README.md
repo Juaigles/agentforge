@@ -97,7 +97,9 @@ proceso muere de golpe. Un segundo Ctrl+C fuerza la salida. Sondas para un orque
   Nodos: entrada, agente, herramienta, condición (ramas sí/no), **para cada** (repite con cada elemento de una
   lista un agente, una herramienta o un subworkflow, varios a la vez), **subworkflow** (otro workflow como un
   paso), **aprobación** (la ejecución espera a que una persona apruebe o rechace), transformación y salida.
-- **Exportar e importar** workflows como archivos JSON (con los agentes que usan).
+- **Exportar e importar** workflows y agentes sueltos como archivos JSON que llevan todo lo que necesitan
+  (agentes, subworkflows, herramientas HTTP, proveedores y disparadores) y **ningún secreto**. Antes de importar
+  se revisa qué trae el archivo y qué hacer con lo que ya existe. Ver «Exportar e importar».
 - **Disparadores**: un workflow puede lanzarse solo, y tener varios disparadores a la vez: cada cierto tiempo, a
   una hora ciertos días de la semana, con una expresión **cron** (con zona horaria y cambio de hora de verano) o
   al recibir un **webhook** autenticado con un secreto. Ver «Disparadores y webhooks».
@@ -116,6 +118,27 @@ proceso muere de golpe. Un segundo Ctrl+C fuerza la salida. Sondas para un orque
   **servidores MCP** (programas locales o direcciones HTTP), banco de pruebas y visor del espacio de trabajo.
 - **Ajustes**: proveedores (Ollama y compatibles con OpenAI) con prueba de conexión, límites y permisos.
 - **Glosario** integrado: los términos técnicos muestran su definición al pasar el ratón, enfocar o tocar.
+
+### Exportar e importar
+
+El botón de descarga de un workflow (o de un agente) genera un archivo `.agentforge.json` con:
+
+- el workflow y los **subworkflows** que usa (también los que usan ellos);
+- los **agentes** de sus nodos y los **proveedores** de esos agentes, sin claves de API;
+- las **herramientas HTTP personalizadas** que usan los agentes y los nodos, sin el valor de las cabeceras con
+  credenciales (solo su nombre, para saber qué hay que volver a escribir);
+- los **disparadores** del workflow; los webhooks, sin secreto.
+
+Al **importar** (botón *Importar* en Workflows o en Agentes) se muestra primero qué trae el archivo y cómo encaja
+con lo que ya hay: cada elemento es *nuevo*, *ya existe* o *existe, pero es distinto*, y para cada uno se elige
+crearlo, usar el de aquí, sustituir el de aquí o no importarlo. Por defecto se respeta lo que ya existe; un
+subworkflow distinto del de aquí se importa como copia para no cambiar lo que hace el workflow. Un proveedor que
+no existe se puede crear (sin clave) o sustituir por uno local. Se avisa si el archivo reparte herramientas que
+actúan fuera de la conversación (`http_request`, `file_write`, `run_javascript`). Nada se crea hasta pulsar
+*Importar*, y entonces **entra todo o nada**. Los disparadores importados quedan en pausa y los webhooks reciben
+un secreto nuevo. Los archivos de la versión anterior del formato se siguen pudiendo importar.
+
+Para automatizarlo: `POST /api/import/plan` y `POST /api/import` con `{ bundle, decisions }`.
 
 ### Disparadores y webhooks
 
@@ -190,7 +213,9 @@ el catálogo, en el editor de agentes y en el constructor sin tocar el frontend.
   `AGENTFORGE_ALLOWED_HOSTS`. No hay cuentas ni permisos: quien tiene la clave puede hacerlo todo.
 - Las API keys de los proveedores se cifran en reposo (AES-256-GCM), la API nunca las devuelve y **no se envían a
   una dirección distinta de aquella para la que se guardaron**: si cambias la URL de un proveedor hay que volver a
-  escribir la clave. Las cabeceras de las herramientas HTTP personalizadas, en cambio, se guardan en claro.
+  escribir la clave. Las cabeceras de las herramientas HTTP personalizadas cuyo nombre indica una credencial
+  (`Authorization`, `Cookie`, `X-API-Key`, `…-Token`, `…-Secret`…) también se cifran, la API devuelve solo su
+  nombre y no viajan en los archivos exportados; el resto de cabeceras se guarda en claro.
 - Los **webhooks** se autentican con un secreto propio de cada uno (se guarda cifrado, se compara en tiempo
   constante y se puede regenerar); no dan acceso al resto de la API.
 - Un **servidor MCP local es un programa que se ejecuta en el equipo del servidor con sus mismos permisos**, y

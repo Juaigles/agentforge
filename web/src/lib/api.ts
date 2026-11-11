@@ -34,7 +34,10 @@ import type {
   ValidationIssue,
   Workflow,
   WorkflowExport,
-  WorkflowImportResult,
+  AgentExport,
+  ImportDecision,
+  ImportPlan,
+  ImportResult,
   WorkflowInput,
   WorkspaceFile,
 } from '@shared/types';
@@ -194,7 +197,12 @@ export const api = {
     run: (id: string, input: string) => post<Run>(`/api/workflows/${id}/run`, { input }),
     /** Archivo portable: la definición y los agentes que usa. */
     export: (id: string) => get<WorkflowExport>(`/api/workflows/${id}/export`),
-    import: (bundle: unknown) => post<WorkflowImportResult>('/api/workflows/import', bundle),
+  },
+  /** Importación en dos pasos (workflows y agentes): primero el plan para revisarlo y después la aplicación. */
+  transfer: {
+    plan: (bundle: unknown) => post<ImportPlan>('/api/import/plan', { bundle }),
+    apply: (bundle: unknown, decisions: Record<string, ImportDecision>) => post<ImportResult>('/api/import', { bundle, decisions }),
+    exportAgent: (id: string) => get<AgentExport>(`/api/agents/${id}/export`),
   },
   triggers: {
     list: () => get<Trigger[]>('/api/triggers'),

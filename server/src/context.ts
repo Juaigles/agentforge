@@ -94,6 +94,8 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
   const secrets = overrides.inMemory ? SecretBox.ephemeral() : SecretBox.fromKeyFile(path.join(config.dataDir, 'secret.key'));
   const store = new Store(db, secrets);
   const interruptedRuns = store.markInterruptedRuns();
+  // Las credenciales que una versión anterior guardó en claro en las cabeceras de las herramientas se cifran al arrancar.
+  store.encryptLegacyToolHeaders();
   const mcp = new McpManager(store, { log: () => ctx.log });
   const tools = new ToolRegistry(store, mcp);
   const llm = overrides.llm ?? defaultLlmFactory;

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Alta y edición de herramientas HTTP personalizadas.
 import { extractRefs } from '@shared/template';
-import type { CustomToolInput, HttpMethod, JsonSchemaProp } from '@shared/types';
+import { isSecretHeaderName, type CustomToolInput, type HttpMethod, type JsonSchemaProp } from '@shared/types';
 import { CircleAlert, LoaderCircle, Plus, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api, ApiError, errorText } from '@/lib/api';
@@ -28,6 +28,8 @@ interface HeaderRow {
   key: number;
   name: string;
   value: string;
+  /** Tiene un valor secreto guardado (no se muestra; vacío = conservarlo). */
+  saved: boolean;
 }
 
 const NAME_RE = /^[a-z][a-z0-9_]{1,48}$/;
@@ -72,7 +74,7 @@ onMounted(async () => {
     form.urlTemplate = tool.urlTemplate;
     form.bodyTemplate = tool.bodyTemplate;
     form.enabled = tool.enabled;
-    form.headers = Object.entries(tool.headers ?? {}).map(([name, value]) => ({ key: nextKey++, name, value }));
+    form.headers = Object.entries(tool.headers ?? {}).map(([name, value]) => ({ key: nextKey++, name, value, saved: (tool.secretHeaders ?? []).includes(name) }));
     const required = new Set(tool.parameters.required ?? []);
     form.params = Object.entries(tool.parameters.properties ?? {}).map(([name, p]) => {
       const { type, description, enum: values, default: def, ...extra } = p;
@@ -160,7 +162,7 @@ function constraints(row: ParamRow): Constraints {
   }
   return out;
 }
-const addHeader = () => form.headers.push({ key: nextKey++, name: '', value: '' });
+const addHeader = () => form.headers.push({ key: nextKey++, name: '', value: '', saved: false });
 
 // ---------- Validación en vivo ----------
 const nameError = computed(() => {
@@ -320,9 +322,20 @@ async function save(): Promise<void> {
             <button class="btn btn-ghost btn-sm" type="button" @click="addHeader"><Plus /> Añadir cabecera</button>
           </div>
           <p v-if="!form.headers.length" class="faint small">Sin cabeceras adicionales.</p>
+          <p v-else-if="form.headers.some((h) => isSecretHeaderName(h.name))" class="hint">
+            Las cabeceras con credenciales (Authorization, Cookie, claves de API…) se guardan <Term id="cifrado">cifradas</Term> y su valor no se vuelve a
+            mostrar ni se incluye al exportar.
+          </p>
           <div v-for="(h, i) in form.headers" :key="h.key" class="header-row">
             <input v-model="h.name" class="input mono" type="text" placeholder="Authorization" :aria-label="`Nombre de la cabecera ${i + 1}`" autocomplete="off" />
-            <input v-model="h.value" class="input mono" type="text" placeholder="Bearer …" :aria-label="`Valor de la cabecera ${i + 1}`" autocomplete="off" />
+            <input
+              v-model="h.value"
+              class="input mono"
+              type="text"
+              :placeholder="h.saved && isSecretHeaderName(h.name) ? 'Guardado. Escribe para cambiarlo' : 'Bearer …'"
+              :aria-label="`Valor de la cabecera ${i + 1}`"
+              autocomplete="off"
+            />
             <button class="btn btn-ghost btn-icon" type="button" :aria-label="`Quitar la cabecera ${i + 1}`" @click="form.headers.splice(i, 1)"><Trash2 /></button>
           </div>
         </div>

@@ -161,8 +161,11 @@ reales y un commit local.
   *Hecho el 2026-11-11 (detalle en `PROGRESS.md`, «Hito 5 · Fase 4»). Del cliente MCP quedan fuera los recursos,
   las plantillas de prompt y el inicio de sesión OAuth; los disparadores no viajan en la exportación de un
   workflow (pasa a F5).*
-- [ ] **F5 · Portabilidad.** Exportar herramientas HTTP y proveedores sin claves; importación atómica con
+- [x] **F5 · Portabilidad.** Exportar herramientas HTTP y proveedores sin claves; importación atómica con
   pantalla de resolución de conflictos; exportar e importar agentes sueltos.
+  *Hecho el 2026-11-12 (detalle en `PROGRESS.md`, «Hito 5 · Fase 5»). Añadido sobre lo previsto: subworkflows y
+  disparadores en el archivo, y cifrado de las cabeceras con credenciales. No viajan los servidores MCP ni el
+  historial.*
 - [ ] **F6 · Interfaz.** Accesibilidad AA completa (constructor operable con teclado, trampa de foco, contraste,
   foco y anuncios); constructor con deshacer/rehacer, atajos, copiar/pegar y alineación automática; protección
   frente a pérdida de trabajo; primera sesión guiada; estado de conexión real; historial con filtros en la URL,

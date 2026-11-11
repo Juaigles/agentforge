@@ -105,7 +105,7 @@ export class ToolRegistry {
     if (builtin) return builtin;
     const external = this.mcp?.getTool(name);
     if (external) return external;
-    const custom = this.store?.getCustomToolByName(name);
+    const custom = this.store?.getCustomToolByName(name, true);
     return custom && custom.enabled ? customToolDefinition(custom) : undefined;
   }
 

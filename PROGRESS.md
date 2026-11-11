@@ -1,6 +1,6 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-11 (hito 5, fases 1 a 4; ver «Hito 5» más abajo)._
+_Última actualización: 2026-11-12 (hito 5, fases 1 a 5; ver «Hito 5» más abajo)._
 
 ## Estado real
 
@@ -322,6 +322,28 @@ sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
 - **Glosario**: disparador, cron, webhook, zona horaria y MCP.
 - **Verificado con Ollama**: ver `TEST_RESULTS.md`, sección 1.1.
 
+### Fase 5 · Portabilidad — HECHA (2026-11-12)
+
+- **Archivo de exportación completo (formato v2)**: además del workflow y sus agentes, lleva los **subworkflows**
+  que usa (también los anidados), las **herramientas HTTP personalizadas** de los agentes y de los nodos, los
+  **proveedores** de los agentes y los **disparadores**. No lleva ningún secreto: ni claves de API, ni valores de
+  cabeceras con credenciales, ni secretos de webhooks. Los archivos v1 se siguen pudiendo importar.
+- **Agentes sueltos**: se exportan e importan desde la pantalla de Agentes, con sus herramientas HTTP y su
+  proveedor.
+- **Importación en dos pasos** (`server/src/portability.ts`): el plan dice, para cada elemento del archivo, si es
+  nuevo, si ya existe o si existe pero es distinto, y qué se puede hacer (crear, usar el de aquí, sustituir el de
+  aquí, crear una copia, no importar; en los proveedores, elegir uno local). La interfaz lo enseña en un diálogo de
+  revisión antes de crear nada. Por defecto se respeta lo local; un subworkflow distinto se importa como copia.
+- **Atómica**: toda la importación va en una transacción. Una decisión imposible o un fallo a medias no deja nada
+  creado (antes, los agentes creados se quedaban si el workflow fallaba).
+- **Avisos de seguridad** al importar: herramientas que actúan fuera de la conversación (`http_request`,
+  `file_write`, `run_javascript`), a qué dirección llama cada herramienta HTTP nueva, credenciales por rellenar y
+  disparadores que llegan (siempre **en pausa**; los webhooks, con un secreto nuevo).
+- **Cabeceras con credenciales cifradas** en las herramientas HTTP: las que por su nombre llevan una credencial se
+  guardan cifradas, la API devuelve solo su nombre y al editar la herramienta un valor vacío conserva el guardado.
+  Las que una versión anterior guardó en claro se cifran al arrancar.
+- **Verificado con Ollama**: ver `TEST_RESULTS.md`, sección 1.1.
+
 ## Pendiente y limitaciones
 
 - **Sin multiusuario.** Una única clave de acceso opcional (obligatoria fuera de este equipo); no hay cuentas ni permisos.
@@ -358,9 +380,14 @@ sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
   aislamiento. El resultado no textual (imágenes, audio) se sustituye por una nota. Renombrar un servidor cambia
   el nombre de sus herramientas y los agentes que las usaban hay que volver a asignarlos. Si el servidor está
   caído, sus herramientas se siguen ofreciendo al modelo y la llamada falla con un mensaje.
-- **La importación no trae herramientas HTTP personalizadas ni proveedores**: solo avisa de las que faltan. Los
-  agentes se enlazan por nombre, así que dos agentes distintos con el mismo nombre se confunden.
-- **Sin MCP**: las herramientas son las integradas y las HTTP personalizadas.
+- **Exportación**: no viajan los servidores MCP (sus herramientas se señalan como inexistentes al importar si
+  aquí no están), el historial ni los archivos del espacio de trabajo; para llevarse todo está la copia de
+  seguridad. Una herramienta HTTP no se puede importar con otro nombre: si choca con una distinta, se usa la de
+  aquí o se sustituye.
+- **Qué cabeceras son secretas se decide por su nombre** (Authorization, Cookie, …-Key, …-Token…): una credencial
+  en una cabecera con un nombre que no lo parezca se guarda y se exporta en claro, igual que una credencial
+  escrita dentro de la URL o del cuerpo de una herramienta.
+- **Al importar, «es distinto» compara la definición entera**: no enseña en qué se diferencia.
 - **La retención viene desactivada** (0 = sin límite): hasta que se configure, el historial crece.
 - **Las estadísticas del panel son acumuladas**: tokens, llamadas, actividad diaria y rankings no bajan al borrar
   ejecuciones. Los recuentos por estado y la tasa de éxito sí reflejan el historial que queda.

@@ -104,14 +104,26 @@ export interface CustomTool {
   parameters: JsonSchema;
   method: HttpMethod;
   urlTemplate: string;
+  /** Cabeceras fijas. El valor de las secretas (ver `secretHeaders`) no sale del servidor: llega vacío. */
   headers: Record<string, string>;
+  /** Nombres de las cabeceras cuyo valor está guardado cifrado y no se devuelve. */
+  secretHeaders: string[];
   bodyTemplate: string;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
-export type CustomToolInput = Omit<CustomTool, 'id' | 'createdAt' | 'updatedAt'>;
+/** Al editar, una cabecera secreta enviada con el valor vacío conserva el valor guardado. */
+export type CustomToolInput = Omit<CustomTool, 'id' | 'createdAt' | 'updatedAt' | 'secretHeaders'>;
+
+/**
+ * ¿El nombre de la cabecera indica que su valor es una credencial (Authorization, Cookie, X-API-Key, …-Token…)?
+ * Esas cabeceras se guardan cifradas, no se devuelven por la API y no viajan en los archivos exportados.
+ */
+export function isSecretHeaderName(name: string): boolean {
+  return /authorization|cookie|token|secret|password|passwd|credential|session|signature|api[-_]?key|[-_]key$|^key$/i.test(name.trim());
+}
 
 // ---------- Workflows ----------
 export type NodeType = 'input' | 'agent' | 'tool' | 'condition' | 'transform' | 'foreach' | 'subworkflow' | 'approval' | 'output';
@@ -524,33 +536,131 @@ export interface McpServerInput {
 
 // ---------- Exportación / importación ----------
 export const WORKFLOW_EXPORT_FORMAT = 'agentforge.workflow';
+export const AGENT_EXPORT_FORMAT = 'agentforge.agent';
+/** Versión actual del formato de los archivos exportados. La 1 (solo workflow y agentes) se sigue pudiendo importar. */
+export const EXPORT_VERSION = 2;
 
-/** Agente tal como viaja en un archivo exportado (sin el proveedor: se reasigna al importar). */
+/** Agente tal como viaja en un archivo exportado: sin el id del proveedor, que se resuelve al importar. */
 export type ExportedAgent = Pick<
   Agent,
   'id' | 'name' | 'role' | 'description' | 'color' | 'model' | 'systemPrompt' | 'temperature' | 'maxTokens' | 'maxIterations' | 'tools' | 'thinking'
->;
+> & {
+  /** Nombre del proveedor que usaba (descrito en `providers`). */
+  provider?: string;
+};
+
+/** Proveedor en un archivo exportado: nunca lleva la clave. */
+export interface ExportedProvider {
+  name: string;
+  kind: ProviderKind;
+  baseUrl: string;
+  defaultModel: string;
+}
+
+/** Herramienta HTTP en un archivo exportado: las cabeceras secretas viajan sin valor. */
+export interface ExportedTool extends CustomToolInput {
+  /** Cabeceras cuyo valor no se ha exportado y hay que volver a escribir. */
+  secretHeaders: string[];
+}
+
+/** Otro workflow usado como subworkflow por el exportado. `id` es el que tenía en origen (lo referencian los nodos). */
+export interface ExportedWorkflow {
+  id: string;
+  workflow: WorkflowInput;
+}
 
 export interface WorkflowExport {
   format: typeof WORKFLOW_EXPORT_FORMAT;
-  version: 1;
+  version: 1 | 2;
   exportedAt: string;
   workflow: WorkflowInput;
-  /** Agentes que usan los nodos del workflow. */
+  /** Agentes que usan los nodos del workflow y de sus subworkflows. */
   agents: ExportedAgent[];
+  /** Proveedores de esos agentes, sin claves. */
+  providers?: ExportedProvider[];
+  /** Herramientas HTTP personalizadas que usan los agentes y los nodos de herramienta. */
+  tools?: ExportedTool[];
+  /** Workflows que este usa como subworkflow (también los que usan ellos). */
+  subworkflows?: ExportedWorkflow[];
+  /** Disparadores del workflow. Los webhooks viajan sin secreto. */
+  triggers?: TriggerInput[];
 }
 
-export interface WorkflowImportResult {
-  workflow: Workflow;
-  /** Agentes creados porque no existían (ni por id ni por nombre). */
+/** Uno o varios agentes sueltos, con sus herramientas HTTP y sus proveedores (sin claves). */
+export interface AgentExport {
+  format: typeof AGENT_EXPORT_FORMAT;
+  version: 2;
+  exportedAt: string;
+  agents: ExportedAgent[];
+  providers?: ExportedProvider[];
+  tools?: ExportedTool[];
+}
+
+export type ExportBundle = WorkflowExport | AgentExport;
+
+export type ImportItemKind = 'provider' | 'tool' | 'agent' | 'workflow';
+/** Qué hacer con un elemento del archivo: crearlo, usar el que ya hay, sustituir el que hay o no importarlo. */
+export type ImportAction = 'create' | 'reuse' | 'replace' | 'skip';
+
+/** Un elemento del archivo y cómo encaja con lo que ya existe aquí. */
+export interface ImportItem {
+  /** Identificador estable dentro del plan (`agent:<id>`, `tool:<nombre>`…): la clave de las decisiones. */
+  key: string;
+  kind: ImportItemKind;
+  name: string;
+  /** Elemento local con el que coincide (mismo id o mismo nombre). */
+  match: { id: string; name: string } | null;
+  /** Coincide con uno local, pero su contenido es distinto. */
+  differs: boolean;
+  /** Acciones posibles, y la que se aplica si no se decide otra cosa. */
+  actions: ImportAction[];
+  recommended: ImportAction;
+  /** Elementos locales con los que se puede enlazar al elegir «reuse» (proveedores). */
+  targets?: Array<{ id: string; name: string }>;
+  recommendedTargetId?: string;
+  /** Explicaciones para quien decide. */
+  notes: string[];
+}
+
+/** Lo que haría una importación, para revisarlo antes de aplicarla. */
+export interface ImportPlan {
+  kind: 'workflow' | 'agent';
+  /** Nombre del workflow (o del agente) principal del archivo. */
+  name: string;
+  items: ImportItem[];
+  warnings: string[];
+}
+
+export interface ImportDecision {
+  action: ImportAction;
+  /** Con «reuse»: el elemento local elegido, si no es el que coincide. */
+  targetId?: string;
+}
+
+export interface ImportResult {
+  /** Workflow creado (null al importar agentes sueltos). */
+  workflow: Workflow | null;
+  /** Agentes creados porque no existían o porque se pidió una copia. */
   createdAgents: Agent[];
   /** Agentes del archivo que se han enlazado con uno ya existente. */
   reusedAgents: Agent[];
-  /** Avisos de la importación (herramientas que no existen aquí, agentes sin proveedor…). */
+  /** Agentes locales sustituidos por la versión del archivo. */
+  replacedAgents: Agent[];
+  createdProviders: Provider[];
+  /** Nombres de las herramientas HTTP creadas y sustituidas. */
+  createdTools: string[];
+  replacedTools: string[];
+  /** Subworkflows creados. */
+  createdWorkflows: Workflow[];
+  /** Disparadores creados (siempre en pausa). */
+  triggers: number;
+  /** Avisos de la importación (herramientas que no existen aquí, cabeceras por rellenar, agentes sin proveedor…). */
   warnings: string[];
   /** Problemas de validación del workflow importado. */
   issues: ValidationIssue[];
 }
+
+export type WorkflowImportResult = ImportResult & { workflow: Workflow };
 
 export interface ProviderHealth {
   providerId: string;

@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { nodeUsesAgent } from '@shared/graph';
 import { validateWorkflow } from '@shared/graph';
-import type { Trigger, Workflow } from '@shared/types';
+import type { ImportResult, Trigger, Workflow } from '@shared/types';
 import { Bot, CalendarClock, CircleAlert, Copy, Download, Pencil, Play, Plus, Trash2, Upload, Workflow as WorkflowIcon } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import AgentAvatar from '@/components/AgentAvatar.vue';
 import AppModal from '@/components/AppModal.vue';
+import ImportModal from '@/components/ImportModal.vue';
 import TriggersModal from '@/components/TriggersModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
 import { plural, relativeTime } from '@/lib/format';
-import { downloadJson, exportFileName, readJsonFile, summarizeTriggers } from '@/lib/transfer';
+import { downloadJson, exportFileName, importSummary, readJsonFile, summarizeTriggers } from '@/lib/transfer';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 
@@ -44,7 +45,8 @@ onMounted(async () => {
 // ---------- Exportar, importar y programar ----------
 const scheduling = ref<Workflow | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
-const importing = ref(false);
+/** Archivo elegido, ya leído, a la espera de revisar la importación. */
+const importing = ref<{ bundle: unknown; fileName: string } | null>(null);
 
 async function exportWorkflow(wf: Workflow): Promise<void> {
   try {
@@ -60,19 +62,25 @@ async function onImportFile(ev: Event): Promise<void> {
   const file = input.files?.[0];
   input.value = ''; // permite volver a elegir el mismo archivo
   if (!file) return;
-  importing.value = true;
   try {
-    const result = await api.workflows.import(await readJsonFile(file));
-    await catalog.reload();
-    const created = result.createdAgents.length;
-    ui.success(`«${result.workflow.name}» importado${created ? ` con ${plural(created, 'agente nuevo', 'agentes nuevos')}` : ''}.`);
-    for (const warning of result.warnings) ui.info(warning);
-    await router.push(`/workflows/${result.workflow.id}`);
+    importing.value = { bundle: await readJsonFile(file), fileName: file.name };
   } catch (err) {
     ui.error(errorText(err));
-  } finally {
-    importing.value = false;
   }
+}
+
+async function onImported(result: ImportResult): Promise<void> {
+  importing.value = null;
+  try {
+    await Promise.all([catalog.reload(), loadTriggers()]);
+  } catch (err) {
+    ui.error(errorText(err));
+  }
+  const summary = importSummary(result);
+  if (result.workflow) ui.success(`«${result.workflow.name}» importado${summary ? ` con ${summary}` : ''}.`);
+  else ui.success(summary ? `Importación terminada: ${summary}.` : 'Importación terminada: todo lo que traía el archivo ya existía.');
+  for (const warning of result.warnings) ui.info(warning);
+  await router.push(result.workflow ? `/workflows/${result.workflow.id}` : '/agents');
 }
 
 const cards = computed(() =>
@@ -151,7 +159,7 @@ async function remove(wf: Workflow): Promise<void> {
       </div>
       <div class="row wrap">
         <input ref="fileInput" class="sr-only" type="file" accept=".json,application/json" aria-label="Archivo de workflow a importar" tabindex="-1" @change="onImportFile" />
-        <button class="btn" type="button" :disabled="importing" title="Importar un workflow exportado (archivo .json)" @click="fileInput?.click()"><Upload /> {{ importing ? 'Importando…' : 'Importar' }}</button>
+        <button class="btn" type="button" title="Importar un workflow exportado (archivo .json)" @click="fileInput?.click()"><Upload /> Importar</button>
         <RouterLink class="btn btn-primary" to="/workflows/new"><Plus /> Nuevo workflow</RouterLink>
       </div>
     </header>
@@ -202,6 +210,8 @@ async function remove(wf: Workflow): Promise<void> {
     </template>
 
     <div v-else class="grid" aria-busy="true"><div v-for="i in 2" :key="i" class="card skeleton" style="height: 200px" /></div>
+
+    <ImportModal v-if="importing" :bundle="importing.bundle" :file-name="importing.fileName" @close="importing = null" @done="onImported" />
 
     <TriggersModal
       v-if="scheduling"

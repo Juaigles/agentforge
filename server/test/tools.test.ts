@@ -198,6 +198,7 @@ describe('herramientas HTTP personalizadas', () => {
     try {
       const tool = customToolDefinition({
         id: 't',
+        secretHeaders: [],
         name: 'buscar',
         description: 'Busca',
         parameters: { type: 'object', properties: { q: { type: 'string' }, n: { type: 'integer' } }, required: ['q'] },
