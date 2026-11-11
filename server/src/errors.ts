@@ -40,15 +40,33 @@ export class LlmError extends Error {
   }
 }
 
-/** Fallo de una herramienta (argumentos inválidos, operación no permitida…). */
+/**
+ * Fallo de una herramienta (argumentos inválidos, operación no permitida…). Solo se reintenta si se marca como
+ * transitorio (fallo de red, tiempo de espera): repetir una llamada con argumentos inválidos no la arregla.
+ */
 export class ToolError extends Error {
-  constructor(message: string) {
+  readonly retryable: boolean;
+  constructor(message: string, opts: { retryable?: boolean } = {}) {
     super(message);
     this.name = 'ToolError';
+    this.retryable = opts.retryable ?? false;
   }
 }
 
+/** Motivo con el que se abortan las ejecuciones cuando el servidor se apaga (distinto de una cancelación manual). */
+export class ShutdownSignal extends Error {
+  constructor() {
+    super('Servidor detenido.');
+    this.name = 'ShutdownSignal';
+  }
+}
+
+/**
+ * ¿Merece la pena reintentar? Solo los errores marcados expresamente como transitorios: un error sin marca
+ * (un fallo de programación, una herramienta con argumentos inválidos) no se repite, porque reintentar un nodo
+ * vuelve a ejecutar las herramientas con efectos que ya se habían ejecutado.
+ */
 export function isRetryable(err: unknown): boolean {
   if (err && typeof err === 'object' && 'retryable' in err) return Boolean((err as { retryable: unknown }).retryable);
-  return true;
+  return false;
 }

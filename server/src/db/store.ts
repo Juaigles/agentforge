@@ -28,6 +28,7 @@ import {
   type WorkflowInput,
 } from '../../../shared/types';
 import type { SecretBox } from '../crypto/secrets';
+import { ConfigError } from '../errors';
 import { newId, nowIso } from '../util';
 
 type Row = Record<string, any>;
@@ -164,7 +165,16 @@ export class Store {
   getProviderWithSecret(id: string): ProviderWithSecret | null {
     const r = this.get('SELECT * FROM providers WHERE id = ?', id);
     if (!r) return null;
-    return { ...this.mapProvider(r), apiKey: r.api_key_enc ? this.secrets.decrypt(r.api_key_enc) : null };
+    let apiKey: string | null = null;
+    if (r.api_key_enc) {
+      try {
+        apiKey = this.secrets.decrypt(r.api_key_enc);
+      } catch {
+        // La clave maestra (secret.key) no es la que cifró este secreto: se perdió, se cambió o se restauró otra.
+        throw new ConfigError(`No se pudo descifrar la API key de «${r.name}». Vuelve a introducirla en Ajustes → Proveedores.`);
+      }
+    }
+    return { ...this.mapProvider(r), apiKey };
   }
 
   createProvider(input: ProviderInput): Provider {
@@ -631,13 +641,16 @@ export class Store {
     return this.exec('DELETE FROM runs WHERE id = ?', id) > 0;
   }
 
-  /** Borra todas las ejecuciones terminadas. Devuelve cuántas se han borrado. */
+  /** Borra todas las ejecuciones terminadas (no las interrumpidas que siguen pendientes de reanudar). Devuelve cuántas. */
   deleteFinishedRuns(): number {
-    return this.exec("DELETE FROM runs WHERE status IN ('completed','failed','cancelled')");
+    return this.exec("DELETE FROM runs WHERE status IN ('completed','failed','cancelled') AND interrupted = 0");
   }
 
-  /** Al arrancar: las ejecuciones que quedaron a medias por un apagado se marcan como fallidas. */
-  markInterruptedRuns(): number {
+  /**
+   * Las ejecuciones que quedaron a medias se marcan como fallidas e interrumpidas (reanudables). Se llama al
+   * arrancar (por si el proceso murió de golpe) y al apagar ordenadamente.
+   */
+  markInterruptedRuns(message = 'Ejecución interrumpida por un reinicio del servidor.'): number {
     const now = nowIso();
     const stale = this.all("SELECT id FROM runs WHERE status IN ('queued','running')");
     for (const { id } of stale) {
@@ -648,14 +661,11 @@ export class Store {
       );
       this.exec(
         "UPDATE runs SET status='failed', error=?, finished_at=?, interrupted=1 WHERE id=?",
-        'Ejecución interrumpida por un reinicio del servidor.',
+        message,
         now,
         id,
       );
-      this.appendEvent(id, 'run.finished', null, {
-        status: 'failed',
-        error: 'Ejecución interrumpida por un reinicio del servidor.',
-      });
+      this.appendEvent(id, 'run.finished', null, { status: 'failed', error: message });
     }
     return stale.length;
   }

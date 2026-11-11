@@ -15,7 +15,8 @@ import {
 import type { Store } from '../db/store';
 import type { LlmFactory } from '../llm/types';
 import type { ToolRegistry } from '../tools/registry';
-import { errorMessage, nowIso } from '../util';
+import { ShutdownSignal } from '../errors';
+import { errorMessage, nowIso, silentLogger, type Logger } from '../util';
 import { WorkflowExecution } from './workflow-engine';
 
 export interface RunManagerDeps {
@@ -26,6 +27,8 @@ export interface RunManagerDeps {
   retryBaseDelayMs?: number;
   /** Se llama cada vez que termina una ejecución (p. ej. para aplicar la retención del historial). */
   onRunFinished?: () => void;
+  /** Registro del ciclo de vida de las ejecuciones (por defecto, ninguno). */
+  log?: () => Logger;
 }
 
 interface ActiveRun {
@@ -43,6 +46,10 @@ export class RunManager {
 
   constructor(private readonly deps: RunManagerDeps) {
     this.emitter.setMaxListeners(0);
+  }
+
+  private get log(): Logger {
+    return this.deps.log?.() ?? silentLogger;
   }
 
   // ---------- Suscripciones ----------
@@ -198,18 +205,25 @@ export class RunManager {
       const controller = new AbortController();
       const entry: ActiveRun = { controller, partials: new Map(), done: Promise.resolve() };
       this.active.set(runId, entry);
-      entry.done = this.execute(runId, controller.signal, seeded).finally(() => {
-        this.active.delete(runId);
-        this.deps.store.releaseRun(runId);
-        for (const resolve of this.waiters.get(runId) ?? []) resolve();
-        this.waiters.delete(runId);
-        try {
-          this.deps.onRunFinished?.();
-        } catch {
-          /* la retención es secundaria: no debe afectar a la cola */
-        }
-        this.pump();
-      });
+      entry.done = this.execute(runId, controller.signal, seeded)
+        .catch((err) => {
+          // Ni siquiera se pudo cerrar la ejecución (base de datos ocupada, disco lleno): que no tumbe el proceso.
+          this.log.error({ err, runId }, 'No se pudo cerrar la ejecución');
+        })
+        .finally(() => {
+          this.active.delete(runId);
+          for (const resolve of this.waiters.get(runId) ?? []) resolve();
+          this.waiters.delete(runId);
+          if (this.closed) return;
+          try {
+            this.deps.store.releaseRun(runId);
+            this.deps.onRunFinished?.();
+            this.pump();
+          } catch (err) {
+            // La retención y el arranque de la siguiente son secundarios: no deben acabar en un rechazo sin dueño.
+            this.log.warn({ err, runId }, 'Fallo al terminar la ejecución (retención o cola)');
+          }
+        });
     }
   }
 
@@ -220,6 +234,7 @@ export class RunManager {
     store.updateRun(runId, { status: 'running', startedAt: nowIso() });
     this.emit(runId, 'run.started', null, { name: run.name, kind: run.kind });
     this.publishRun(runId);
+    this.log.info({ runId, kind: run.kind, name: run.name }, 'Ejecución iniciada');
 
     let result;
     try {
@@ -243,8 +258,21 @@ export class RunManager {
       result = await execution.execute();
     } catch (err) {
       // Error inesperado del propio motor: la ejecución se cierra como fallida en lugar de quedar colgada.
+      this.log.error({ err, runId }, 'Error interno del motor');
       result = { status: 'failed' as const, output: null, error: `Error interno del motor: ${errorMessage(err)}`, usage: run.usage };
+      // Ningún paso debe quedar «en curso» en una ejecución que ya ha terminado.
+      const now = nowIso();
+      for (const step of store.listSteps(runId)) {
+        if (step.status === 'pending' || step.status === 'running') store.updateStep(runId, step.nodeId, { status: 'cancelled', finishedAt: now });
+      }
     }
+    // Apagado del servidor: la ejecución no se cierra aquí. Queda «en curso» y `shutdown` la marca como
+    // interrumpida, igual que si el proceso hubiera muerto de golpe, para que se pueda reanudar al volver.
+    if (signal.reason instanceof ShutdownSignal) {
+      store.updateRun(runId, { usage: result.usage });
+      return;
+    }
+    this.log.info({ runId, status: result.status, usage: result.usage }, 'Ejecución terminada');
     store.updateRun(runId, {
       status: result.status,
       output: result.output,
@@ -294,13 +322,34 @@ export class RunManager {
     });
   }
 
-  /** Cancela todo y espera a que termine (apagado ordenado). */
-  async shutdown(): Promise<void> {
+  /**
+   * Apagado ordenado: detiene las ejecuciones y las deja INTERRUMPIDAS (reanudables), no canceladas. Espera
+   * como mucho `graceMs` a que reaccionen; lo que siga vivo después queda igualmente marcado. Devuelve cuántas
+   * ejecuciones se han interrumpido.
+   */
+  async shutdown(graceMs = 10_000): Promise<number> {
+    if (this.closed) return 0;
     // A partir de aquí no se arranca nada más (un pump pendiente no debe tocar una base de datos ya cerrada).
     this.closed = true;
-    for (const { runId } of [...this.queue]) this.cancel(runId);
+    // Las que esperaban en la cola no llegan a empezar: siguen «en cola» en la base y se marcan más abajo.
+    const queued = this.queue.splice(0);
     const pending = [...this.active.values()].map((a) => a.done);
-    for (const entry of this.active.values()) entry.controller.abort(new Error('Servidor detenido.'));
-    await Promise.allSettled(pending);
+    for (const entry of this.active.values()) entry.controller.abort(new ShutdownSignal());
+    let timer: NodeJS.Timeout | undefined;
+    const settled = await Promise.race([
+      Promise.allSettled(pending).then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), graceMs);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (!settled) this.log.warn({ active: this.active.size, graceMs }, 'Hay ejecuciones que no han reaccionado al apagado dentro del plazo');
+    const interrupted = this.deps.store.markInterruptedRuns('Ejecución interrumpida por el apagado del servidor.');
+    for (const { runId } of queued) {
+      for (const resolve of this.waiters.get(runId) ?? []) resolve();
+      this.waiters.delete(runId);
+    }
+    if (interrupted) this.log.info({ interrupted }, 'Ejecuciones interrumpidas por el apagado; se podrán reanudar al arrancar');
+    return interrupted;
   }
 }

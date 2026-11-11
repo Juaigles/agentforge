@@ -11,6 +11,29 @@ import type { ToolDefinition } from './types';
 
 const MAX_READ_BYTES = 200_000;
 const MAX_WRITE_BYTES = 1_000_000;
+/** Cuotas del espacio de trabajo: un agente en bucle (o programado) no puede llenar el disco. */
+export const MAX_FILE_BYTES = 5_000_000;
+export const MAX_WORKSPACE_BYTES = 100_000_000;
+
+/** Tamaño total de los archivos del espacio de trabajo. */
+export async function workspaceSize(root: string): Promise<number> {
+  let total = 0;
+  const walk = async (dir: string): Promise<void> => {
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.isFile()) total += (await fs.stat(full).catch(() => ({ size: 0 }))).size;
+    }
+  };
+  await walk(path.resolve(root));
+  return total;
+}
 
 /** Resuelve una ruta relativa dentro del workspace e impide salir de él (path traversal). */
 export function resolveInWorkspace(root: string, relPath: string): string {
@@ -163,8 +186,17 @@ const fileWrite: ToolDefinition = {
     required: ['path', 'content'],
   },
   async execute({ path: rel, content, append }, ctx) {
-    if (Buffer.byteLength(content) > MAX_WRITE_BYTES) throw new ToolError('El contenido supera el límite de 1 MB.');
+    const bytes = Buffer.byteLength(content);
+    if (bytes > MAX_WRITE_BYTES) throw new ToolError('El contenido supera el límite de 1 MB.');
     const target = resolveInWorkspace(ctx.workspaceDir, rel);
+    const existing = (await fs.stat(target).catch(() => null))?.size ?? 0;
+    const finalSize = append ? existing + bytes : bytes;
+    if (finalSize > MAX_FILE_BYTES) {
+      throw new ToolError(`El archivo superaría el límite de ${MAX_FILE_BYTES / 1_000_000} MB por archivo. Escribe en otro archivo o sobrescribe este.`);
+    }
+    if ((await workspaceSize(ctx.workspaceDir)) - existing + finalSize > MAX_WORKSPACE_BYTES) {
+      throw new ToolError(`El espacio de trabajo ha alcanzado su límite de ${MAX_WORKSPACE_BYTES / 1_000_000} MB. Borra archivos desde Herramientas → Archivos.`);
+    }
     await fs.mkdir(path.dirname(target), { recursive: true });
     if (append) await fs.appendFile(target, content, 'utf8');
     else await fs.writeFile(target, content, 'utf8');
@@ -292,7 +324,7 @@ const runJavascript: ToolDefinition = {
     if (!ctx.settings.allowCodeExecution) {
       throw new ToolError('La ejecución de código está desactivada. Puede habilitarse en Ajustes → "Permitir ejecución de código".');
     }
-    return runJavaScript(code, { timeoutMs: 5000, signal: ctx.signal });
+    return runJavaScript(code, { timeoutMs: 5000, signal: ctx.signal, backend: ctx.settings.codeSandbox });
   },
 };
 

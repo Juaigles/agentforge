@@ -47,16 +47,32 @@ así que no toca `data/` ni necesita Ollama. Detalles en [e2e/README.md](e2e/REA
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama usado para los datos de ejemplo |
 | `AGENTFORGE_DEFAULT_MODEL` | (autodetectado) | Modelo de los agentes de ejemplo |
 | `AGENTFORGE_SEED` | `1` | `0` para no crear datos de ejemplo |
-| `AGENTFORGE_LOG` | `0` | `1` para activar el log de peticiones |
-| `AGENTFORGE_SCHEDULER_TICK_MS` | `5000` | Cada cuánto se comprueban las programaciones vencidas |
+| `AGENTFORGE_TOKEN` | (sin clave) | Clave de acceso a la API (16 caracteres o más). **Obligatoria si `HOST` no es local** |
+| `AGENTFORGE_ALLOWED_HOSTS` | (ninguno) | Nombres adicionales por los que se llega al servidor, separados por comas (p. ej. detrás de un proxy) |
+| `AGENTFORGE_LOG_LEVEL` | `info` | `silent`, `error`, `warn`, `info` o `debug` (este añade una línea por petición) |
+| `AGENTFORGE_RATE_LIMIT` | `1200` | Peticiones por minuto y cliente a la API (0 = sin límite) |
+| `AGENTFORGE_SHUTDOWN_GRACE_MS` | `10000` | Tiempo máximo que el apagado espera a las ejecuciones en curso |
+| `AGENTFORGE_SCHEDULER_TICK_MS` | `5000` | Cada cuánto se comprueban las programaciones vencidas (mínimo 250) |
 | `AGENTFORGE_TEST_MODEL` | (autodetectado) | Modelo de los tests de integración |
+
+La configuración se valida al arrancar: un valor incorrecto detiene el servidor con un mensaje que nombra la
+variable. `AGENTFORGE_LOG=0/1` se sigue aceptando (equivale a `silent`/`debug`). El registro es JSON, una línea por
+suceso, por la salida estándar; las credenciales nunca se escriben.
 
 En *Ajustes → Datos* se configura la **retención del historial**: días que se conservan las ejecuciones
 terminadas y número máximo de ejecuciones guardadas (0 = sin límite, el valor por defecto). Se aplica al
 arrancar, cada hora, al terminar cada ejecución y al cambiar el ajuste.
 
 Todos los datos viven en `data/` (`agentforge.db`, `secret.key`, `workspace/`). Borrar esa carpeta deja la
-aplicación como recién instalada.
+aplicación como recién instalada. Solo puede usarla un servidor a la vez (`agentforge.lock`). Antes de actualizar
+el esquema de la base de datos se guarda una copia (`agentforge.db.v<N>.bak`).
+
+### Parar el servidor
+
+Ctrl+C (o `SIGTERM`) hace un apagado ordenado: las ejecuciones en curso quedan **interrumpidas**, no canceladas,
+y al volver a arrancar la interfaz ofrece reanudarlas reutilizando los pasos ya terminados. Lo mismo ocurre si el
+proceso muere de golpe. Un segundo Ctrl+C fuerza la salida. Sondas para un orquestador: `GET /api/health/live`
+(el proceso atiende) y `GET /api/health/ready` (base de datos, carpeta de datos y planificador; 503 si falla algo).
 
 ## Qué incluye
 
@@ -112,23 +128,36 @@ el catálogo, en el editor de agentes y en el constructor sin tocar el frontend.
 
 ## Seguridad
 
-- El servidor escucha solo en `127.0.0.1` y rechaza peticiones con un `Host` ajeno (DNS rebinding).
-  **No tiene autenticación**: no lo expongas a una red sin ponerle delante un proxy con control de acceso.
-- Las API keys se cifran en reposo (AES-256-GCM) y la API nunca las devuelve.
+- El servidor escucha solo en `127.0.0.1`. Rechaza siempre las peticiones con un `Host` que no sea suyo (DNS
+  rebinding) y las que proceden de otra web (CSRF), y responde con una política de contenido estricta (CSP),
+  `X-Frame-Options: DENY` y `nosniff`.
+- **Para usarlo desde otros equipos** hace falta una clave de acceso: con `HOST=0.0.0.0` (o cualquier dirección que
+  no sea local) el servidor **no arranca** si no se define `AGENTFORGE_TOKEN`. La interfaz la pide al entrar; los
+  clientes de API la envían como `Authorization: Bearer <clave>`. Detrás de un proxy inverso, declara su nombre en
+  `AGENTFORGE_ALLOWED_HOSTS`. No hay cuentas ni permisos: quien tiene la clave puede hacerlo todo.
+- Las API keys de los proveedores se cifran en reposo (AES-256-GCM), la API nunca las devuelve y **no se envían a
+  una dirección distinta de aquella para la que se guardaron**: si cambias la URL de un proveedor hay que volver a
+  escribir la clave. Las cabeceras de las herramientas HTTP personalizadas, en cambio, se guardan en claro.
+- Hay un límite de peticiones por cliente, más estricto para lo que lanza ejecuciones y para el inicio de sesión.
 - Las herramientas de red bloquean por defecto localhost y redes privadas (SSRF), también en redirecciones y
   en cualquier notación de la dirección (IPv4 mapeada en IPv6, decimal, NAT64…). La conexión se hace siempre a la
   IP que se validó (**fijación de DNS**), así que un DNS malicioso no puede cambiarla entre la comprobación y la
-  conexión (DNS rebinding).
+  conexión (DNS rebinding). Al seguir una redirección hacia otro sitio no se reenvían las cabeceras de la
+  herramienta (credenciales), y nunca pueden llamar a la propia API de AgentForge.
 - Las herramientas de archivos están confinadas a `data/workspace`.
-- `run_javascript` está desactivada por defecto. Cuando se activa, el código corre con dos capas de aislamiento:
-  un contexto `node:vm` vacío (sin `require`, `process`, `fetch`, temporizadores ni `eval`) dentro de un **proceso
-  hijo** lanzado con el modelo de permisos de Node (`--permission`) y sin variables de entorno, con límites de
-  tiempo (5 s), memoria (64 MB) y tamaño de salida.
-  **Lo que NO es:** no es un aislamiento fuerte. `node:vm` no está diseñado para código hostil; el modelo de
-  permisos impide leer o escribir archivos, lanzar programas y crear workers, pero **en Node 22–24 no restringe
-  la red** (un código que escapara del contexto podría hacer peticiones, incluso a tu red local); y no hay
-  aislamiento del sistema operativo (contenedor, usuario sin privilegios, seccomp). Para ejecutar código de
-  terceros no confiables hace falta un contenedor o una máquina virtual, que este proyecto no incluye.
+- `run_javascript` está desactivada por defecto. Al activarla se elige en *Ajustes* dónde corre el código:
+  - **Proceso aislado** (por defecto): un contexto `node:vm` vacío (sin `require`, `process`, `fetch`,
+    temporizadores ni `eval`) dentro de un **proceso hijo** lanzado con el modelo de permisos de Node
+    (`--permission`) y sin variables de entorno, con límites de tiempo (5 s), memoria (64 MB) y tamaño de salida.
+    El proceso **no tiene red**: donde Node ofrece permiso de red lo deniega el propio modelo de permisos; en
+    Node 22–24, que no lo ofrece, el proceso inutiliza sus API de red antes de ejecutar nada. El servidor lo
+    comprueba con una conexión real y Ajustes muestra el resultado.
+    **Lo que NO es:** no es una frontera del sistema operativo. `node:vm` no está diseñado para código hostil.
+  - **Contenedor** (Docker o Podman): el mismo programa en un contenedor sin red (`--network none`), de solo
+    lectura, sin privilegios ni capacidades y con límites de memoria, CPU y procesos. Es la opción para código en
+    el que no confíes. Necesita el motor en marcha y la imagen `node:24-alpine` descargada (`docker pull
+    node:24-alpine`); AgentForge no la descarga por su cuenta.
+- El espacio de trabajo tiene cuota: 5 MB por archivo y 100 MB en total.
 - La salida de los modelos se renderiza como Markdown saneado con DOMPurify.
 
 ## Limitaciones conocidas

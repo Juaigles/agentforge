@@ -32,6 +32,8 @@ export interface AppHandle {
   fake: FakeOllama;
   /** Mata el proceso del servidor (sin apagado ordenado) y lo vuelve a arrancar sobre los mismos datos. */
   restart(): Promise<void>;
+  /** Pide al servidor un apagado ORDENADO (como Ctrl+C) y espera a que termine. Devuelve su código de salida. */
+  shutdown(): Promise<number | null>;
   stop(): Promise<void>;
   start(): Promise<void>;
   /** Salida estándar y de error del servidor (para diagnosticar fallos). */
@@ -84,7 +86,8 @@ async function startApp(): Promise<AppHandle> {
         AGENTFORGE_LOG: '0',
         AGENTFORGE_SCHEDULER_TICK_MS: '1000',
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      // Con canal IPC: permite pedir el apagado ordenado, que en Windows no se puede pedir con una señal.
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
     child.stdout?.on('data', (c) => (output += c));
     child.stderr?.on('data', (c) => (output += c));
@@ -93,7 +96,7 @@ async function startApp(): Promise<AppHandle> {
     for (;;) {
       if (started.exitCode !== null) throw new Error(`El servidor de AgentForge terminó al arrancar (código ${started.exitCode}).\n${output}`);
       try {
-        const res = await fetch(`${url}/api/health`);
+        const res = await fetch(`${url}/api/health/live`);
         if (res.ok) return;
       } catch {
         /* todavía no escucha */
@@ -110,6 +113,16 @@ async function startApp(): Promise<AppHandle> {
     await new Promise<void>((resolve) => {
       proc.once('exit', () => resolve());
       proc.kill('SIGKILL');
+    });
+  }
+
+  async function shutdown(): Promise<number | null> {
+    const proc = child;
+    child = null;
+    if (!proc || proc.exitCode !== null) return proc?.exitCode ?? null;
+    return new Promise((resolve) => {
+      proc.once('exit', (code) => resolve(code));
+      proc.send('shutdown');
     });
   }
 
@@ -147,6 +160,7 @@ async function startApp(): Promise<AppHandle> {
     fake,
     start,
     stop,
+    shutdown,
     async restart() {
       await stop();
       await start();

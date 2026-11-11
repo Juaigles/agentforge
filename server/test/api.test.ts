@@ -533,7 +533,7 @@ describe('persistencia entre reinicios', () => {
     expect((await get(`/api/workflows/${wf.id}`)).json()).toEqual(wf);
     expect((await get(`/api/runs/${run.id}`)).json()).toEqual(run);
     expect((await get(`/api/runs/${run.id}/events`)).json()).toEqual(events);
-    expect((await get('/api/settings')).json()).toEqual({ allowPrivateNetwork: true, allowCodeExecution: false, maxConcurrentRuns: 5, retentionDays: 0, retentionMaxRuns: 0 });
+    expect((await get('/api/settings')).json()).toEqual({ allowPrivateNetwork: true, allowCodeExecution: false, codeSandbox: 'process', maxConcurrentRuns: 5, retentionDays: 0, retentionMaxRuns: 0 });
     expect((await get('/api/tools')).json().some((t: { name: string }) => t.name === 'mi_api')).toBe(true);
 
     // Y sigue funcionando: se puede ejecutar de nuevo y la numeración de eventos no choca.

@@ -234,7 +234,20 @@ test.describe('Ajustes · ejecución, seguridad y datos', () => {
     await page.getByRole('dialog', { name: 'Permitir ejecución de código' }).getByRole('button', { name: 'Permitir' }).click();
     await expect(toast(page, 'Ejecución de código permitida.')).toBeVisible();
     await expect(toggle).toBeChecked();
-    await expect(page.getByText('no es una barrera de seguridad fuerte')).toBeVisible();
+    // Al activarla aparece dónde se ejecuta el código, con el estado que comprueba el servidor.
+    const options = page.getByTestId('sandbox-options');
+    await expect(options.getByRole('radio', { name: /Proceso aislado/ })).toBeChecked();
+    await expect(options.getByText('Sin red (comprobado con una conexión real al arrancar).')).toBeVisible();
+    await expect(options.getByText('no es una barrera del sistema operativo')).toBeVisible();
+    // El contenedor solo se puede elegir si hay Docker o Podman en marcha con la imagen descargada.
+    const status = await app.api('GET', '/api/sandbox/status');
+    expect(status.process.networkBlocked).toBe(true);
+    const container = options.getByRole('radio', { name: /Contenedor/ });
+    if (status.container.available) await expect(container).toBeEnabled();
+    else {
+      await expect(container).toBeDisabled();
+      await expect(options.getByText('No disponible:')).toBeVisible();
+    }
 
     await page.getByRole('link', { name: 'Herramientas' }).click();
     await expect(page.getByText('La ejecución de código está desactivada')).toHaveCount(0);
@@ -259,7 +272,10 @@ test.describe('Ajustes · ejecución, seguridad y datos', () => {
   });
 
   test('permitir redes privadas: desactivarlo vuelve a bloquear las llamadas a localhost', async ({ page, app }) => {
-    const call = () => app.api('POST', '/api/tools/http_request/invoke', { args: { url: `${app.url}/api/health` } });
+    // Un servicio de la red local (aquí, el modelo simulado, que escucha en 127.0.0.1).
+    const call = () => app.api('POST', '/api/tools/http_request/invoke', { args: { url: `${app.fake.url}/api/tags` } });
+    // La propia API de AgentForge: inalcanzable para las herramientas con cualquier ajuste.
+    const callSelf = () => app.api('POST', '/api/tools/http_request/invoke', { args: { url: `${app.url}/api/settings` } });
     await page.goto('/settings');
     const toggle = page.getByLabel('Permitir redes privadas');
     await expect(toggle).not.toBeChecked();
@@ -269,6 +285,9 @@ test.describe('Ajustes · ejecución, seguridad y datos', () => {
     await page.getByRole('dialog', { name: 'Permitir redes privadas' }).getByRole('button', { name: 'Permitir' }).click();
     await expect(toast(page, 'Acceso a redes privadas permitido.')).toBeVisible();
     expect((await call()).ok).toBe(true);
+    const self = await callSelf();
+    expect(self.ok).toBe(false);
+    expect(self.error).toContain('propia API de AgentForge');
     // El aviso del catálogo de herramientas desaparece.
     await page.getByRole('link', { name: 'Herramientas' }).click();
     await expect(page.getByText('no pueden acceder a tu')).toHaveCount(0);

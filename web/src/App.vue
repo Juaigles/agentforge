@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Activity, Bot, BookOpen, LayoutDashboard, Monitor, Moon, Settings, Sun, Workflow, Wrench } from 'lucide-vue-next';
-import { computed, onMounted } from 'vue';
-import { api } from '@/lib/api';
+import { computed, onMounted, ref } from 'vue';
+import { api, authRequired } from '@/lib/api';
+import AccessGate from '@/components/AccessGate.vue';
 import InterruptedBanner from '@/components/InterruptedBanner.vue';
 import UiHost from '@/components/UiHost.vue';
 import { useCatalog } from '@/stores/catalog';
@@ -35,7 +36,18 @@ const providerStatus = computed(() => {
   return { tone: 'danger', text: ok ? `${ok} de ${catalog.health.length} proveedores disponibles` : 'Proveedor no disponible' };
 });
 
+/** Hasta saber si el servidor exige clave no se pinta la aplicación (ni se abren flujos que serían rechazados). */
+const ready = ref(false);
+
 onMounted(async () => {
+  try {
+    const status = await api.auth.status();
+    if (status.required && !status.authenticated) authRequired.value = true;
+  } catch {
+    /* sin conexión: la aplicación se muestra y cada vista informa del error */
+  }
+  ready.value = true;
+  if (authRequired.value) return;
   runs.connect();
   try {
     await catalog.ensure();
@@ -51,7 +63,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="shell">
+  <AccessGate v-if="authRequired" />
+  <div v-else-if="ready" class="shell">
     <aside class="sidebar">
       <RouterLink to="/" class="brand" aria-label="AgentForge, ir al panel">
         <svg viewBox="0 0 32 32" aria-hidden="true">

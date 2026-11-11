@@ -1,26 +1,75 @@
-// Ejecución de JavaScript generado por agentes, con dos capas de aislamiento:
+// Ejecución de JavaScript generado por agentes. Hay dos formas de aislarlo, a elegir en Ajustes:
 //
-//  1. Un contexto `node:vm` vacío (sin require, process, fetch ni temporizadores), sin generación de código a
-//     partir de cadenas y con límite de tiempo que cubre también las promesas.
-//  2. Ese contexto vive en un PROCESO HIJO de Node lanzado con el modelo de permisos (`--permission`) y sin
-//     variables de entorno: aunque el código lograra escapar del contexto, el proceso no puede leer ni escribir
-//     archivos, lanzar otros programas, crear workers ni cargar módulos nativos. Tiene además límite de memoria,
-//     de tiempo (se mata el proceso) y de tamaño de salida.
+//  A) PROCESO (por defecto). Tres capas:
+//     1. Un contexto `node:vm` vacío (sin require, process, fetch ni temporizadores), sin generación de código a
+//        partir de cadenas y con límite de tiempo que cubre también las promesas.
+//     2. Ese contexto vive en un PROCESO HIJO de Node lanzado con el modelo de permisos (`--permission`) y sin
+//        variables de entorno: aunque el código escapara del contexto, el proceso no puede leer ni escribir
+//        archivos, lanzar otros programas, crear workers ni cargar módulos nativos. Tiene además límite de
+//        memoria, de tiempo (se mata el proceso) y de tamaño de salida.
+//     3. RED. Donde Node ofrece permiso de red (`--allow-net`, a partir de Node 25) el propio `--permission` la
+//        deniega. En Node 22–24 ese permiso no existe, así que antes de ejecutar nada el proceso hijo inutiliza
+//        sus propias API de red (sockets TCP y UDP, DNS, fetch, WebSocket, `process.binding`). No es una
+//        frontera del sistema operativo, pero deja sin red a un código que lograra escapar del contexto.
 //
-// AVISO: no es una frontera de seguridad fuerte. `node:vm` no está pensado para código hostil y el modelo de
-// permisos de Node no restringe la red en todas las versiones; no hay aislamiento del sistema operativo
-// (contenedor, seccomp, usuario sin privilegios). Por eso la herramienta está desactivada por defecto.
-import { spawn } from 'node:child_process';
+//  B) CONTENEDOR (Docker o Podman). El mismo programa corre en un contenedor sin red (`--network none`), de solo
+//     lectura, sin privilegios ni capacidades y con límites de memoria, CPU y procesos. Aquí el aislamiento sí
+//     lo impone el sistema operativo.
+//
+// AVISO: la opción A no es una frontera de seguridad fuerte (`node:vm` no está pensado para código hostil). Por eso
+// la herramienta está desactivada por defecto y, para código no confiable, se recomienda la opción B.
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import net from 'node:net';
 import os from 'node:os';
+import type { Settings } from '../../../shared/types';
 import { ToolError } from '../errors';
 
 const MAX_OUTPUT_BYTES = 256 * 1024;
 const MAX_CODE_CHARS = 100_000;
 const MAX_CONCURRENT = 4;
+/** Imagen del contenedor: solo hace falta que traiga Node. No se descarga sola (ver `--pull=never`). */
+export const SANDBOX_IMAGE = 'node:24-alpine';
+
+/**
+ * Preludio del proceso hijo: inutiliza las API de red de Node antes de ejecutar nada. Se exporta para poder
+ * comprobar en tests, con sockets reales, lo que de verdad impide.
+ */
+export const SANDBOX_NETWORK_LOCKDOWN = `
+(() => {
+  const deny = function () {
+    const err = new Error('La red está desactivada en el entorno aislado.');
+    err.code = 'ERR_ACCESS_DENIED';
+    throw err;
+  };
+  const lock = (target, names) => {
+    for (const name of names) {
+      try { Object.defineProperty(target, name, { value: deny, writable: false, configurable: false }); } catch {}
+    }
+  };
+  const functionsOf = (obj) => Object.getOwnPropertyNames(obj).filter((k) => k !== 'constructor' && typeof Object.getOwnPropertyDescriptor(obj, k).value === 'function');
+  const net = require('node:net');
+  lock(net.Socket.prototype, ['connect']);
+  lock(net.Server.prototype, ['listen']);
+  lock(net, ['connect', 'createConnection']);
+  const dgram = require('node:dgram');
+  lock(dgram.Socket.prototype, ['bind', 'connect', 'send']);
+  const dns = require('node:dns');
+  lock(dns, functionsOf(dns).filter((k) => /^(lookup|resolve|reverse)/.test(k)));
+  lock(dns.promises, functionsOf(dns.promises).filter((k) => /^(lookup|resolve|reverse)/.test(k)));
+  lock(dns.Resolver.prototype, functionsOf(dns.Resolver.prototype));
+  lock(dns.promises.Resolver.prototype, functionsOf(dns.promises.Resolver.prototype));
+  lock(process, ['binding', '_linkedBinding']);
+  for (const name of ['fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest']) {
+    try { Object.defineProperty(globalThis, name, { value: deny, writable: false, configurable: false }); } catch {}
+  }
+})();
+`;
 
 /** Programa del proceso hijo: lee {code, timeoutMs} por la entrada estándar y escribe un JSON con el resultado. */
 const RUNNER = `
 'use strict';
+${SANDBOX_NETWORK_LOCKDOWN}
 const vm = require('node:vm');
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -36,23 +85,25 @@ process.stdin.on('end', () => {
     });
     vm.runInContext(
       'globalThis.__logs = []; globalThis.console = { log: (...a) => { if (__logs.length < 200) __logs.push(a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ").slice(0, 2000)); } };' +
-      'console.info = console.warn = console.error = console.debug = console.log;',
+      'console.info = console.warn = console.error = console.debug = console.log;' +
+      // Error que se entrega a quien use import(): creado DENTRO del contexto, para no filtrar objetos del anfitrión.
+      'globalThis.__noImport = () => { throw new Error("import() no está disponible en el entorno aislado."); };',
       context,
     );
-    context.__result = vm.runInContext(code, context, { timeout: timeoutMs });
+    const noImport = context.__noImport;
+    const run = (source, ms) => new vm.Script(source, { importModuleDynamically: () => noImport() }).runInContext(context, { timeout: ms });
+    context.__result = run(code, timeoutMs);
     // Si el código devuelve una promesa se espera a su valor (ya resuelta gracias a microtaskMode).
-    vm.runInContext(
+    run(
       'globalThis.__state = "pending"; Promise.resolve(__result).then((v) => { globalThis.__value = v; __state = "ok"; }, (e) => { globalThis.__error = e; __state = "error"; });',
-      context,
-      { timeout: timeoutMs },
+      timeoutMs,
     );
-    const output = vm.runInContext(
+    const output = run(
       '(() => { if (__state === "pending") return JSON.stringify({ pending: true });' +
       ' if (__state === "error") return JSON.stringify({ thrown: String(__error && __error.message ? __error.message : __error) });' +
       ' let r; try { r = JSON.stringify(__value); } catch { r = undefined; }' +
       ' return JSON.stringify({ result: r === undefined ? String(__value) : JSON.parse(r), logs: __logs }); })()',
-      context,
-      { timeout: 1000 },
+      1000,
     );
     message = { ok: true, output: String(output) };
   } catch (err) {
@@ -64,13 +115,21 @@ process.stdin.on('end', () => {
 });
 `;
 
+/** ¿Esta versión de Node tiene permiso de red? Si lo tiene, `--permission` la deniega por sí solo. */
+export function hasNetPermission(): boolean {
+  return process.allowedNodeEnvironmentFlags.has('--allow-net');
+}
+
 /** Argumentos de Node del proceso aislado (exportados para poder comprobar en tests lo que de verdad restringen). */
 export function sandboxNodeArgs(): string[] {
   const permission = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission';
-  return [permission, '--max-old-space-size=64', '--disallow-code-generation-from-strings', '--no-warnings'];
+  // --experimental-vm-modules: sin él, import() dentro del contexto falla al instante con un error creado en el
+  // proceso anfitrión (un objeto de fuera al alcance del código). Con él, la petición pasa por nuestra función,
+  // que la rechaza; la promesa no se resuelve dentro del tiempo del código y no se entrega ningún objeto ajeno.
+  return [permission, '--max-old-space-size=64', '--disallow-code-generation-from-strings', '--experimental-vm-modules', '--no-warnings'];
 }
 
-// Pocas ejecuciones a la vez: cada una es un proceso con su propia memoria.
+// Pocas ejecuciones a la vez: cada una es un proceso (o un contenedor) con su propia memoria.
 let running = 0;
 const waiting: Array<() => void> = [];
 async function acquire(signal?: AbortSignal): Promise<void> {
@@ -97,30 +156,33 @@ function release(): void {
   else running--;
 }
 
+export interface SandboxResult {
+  result: unknown;
+  logs: string[];
+}
+
 export async function runJavaScript(
   code: string,
-  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
-): Promise<{ result: unknown; logs: string[] }> {
+  opts: { timeoutMs?: number; signal?: AbortSignal; backend?: Settings['codeSandbox'] } = {},
+): Promise<SandboxResult> {
   if (code.length > MAX_CODE_CHARS) throw new ToolError(`El código es demasiado largo (máximo ${MAX_CODE_CHARS} caracteres).`);
   if (opts.signal?.aborted) throw opts.signal.reason;
   const timeoutMs = opts.timeoutMs ?? 5000;
   await acquire(opts.signal);
   try {
-    return await runInChild(code, timeoutMs, opts.signal);
+    return opts.backend === 'container' ? await runInContainer(code, timeoutMs, opts.signal) : await runInChild(code, timeoutMs, opts.signal);
   } finally {
     release();
   }
 }
 
-function runInChild(code: string, timeoutMs: number, signal?: AbortSignal): Promise<{ result: unknown; logs: string[] }> {
+/** Recoge la salida del proceso aislado, aplica los límites y traduce el resultado. */
+function collect(
+  child: ChildProcessWithoutNullStreams,
+  input: { code: string; timeoutMs: number },
+  opts: { graceMs: number; signal?: AbortSignal; memoryMb: number; onKill?: () => void; startError: (stderr: string) => string | null },
+): Promise<SandboxResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [...sandboxNodeArgs(), '-e', RUNNER], {
-      // Sin variables de entorno (ni claves, ni rutas) y en un directorio que no es el del proyecto.
-      env: {},
-      cwd: os.tmpdir(),
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
     let settled = false;
     let stdout = '';
     let stderr = '';
@@ -128,14 +190,20 @@ function runInChild(code: string, timeoutMs: number, signal?: AbortSignal): Prom
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
-      if (child.exitCode === null) child.kill('SIGKILL');
+      opts.signal?.removeEventListener('abort', onAbort);
+      if (child.exitCode === null) {
+        child.kill('SIGKILL');
+        opts.onKill?.();
+      }
       fn();
     };
-    const onAbort = () => finish(() => reject(signal!.reason));
-    // Margen para el arranque del proceso; el límite fino lo aplica vm dentro del hijo.
-    const timer = setTimeout(() => finish(() => reject(new ToolError(`El código superó el tiempo máximo (${timeoutMs} ms).`))), timeoutMs + 3000);
-    signal?.addEventListener('abort', onAbort, { once: true });
+    const onAbort = () => finish(() => reject(opts.signal!.reason));
+    // Margen para el arranque; el límite fino lo aplica vm dentro del proceso aislado.
+    const timer = setTimeout(
+      () => finish(() => reject(new ToolError(`El código superó el tiempo máximo (${input.timeoutMs} ms).`))),
+      input.timeoutMs + opts.graceMs,
+    );
+    opts.signal?.addEventListener('abort', onAbort, { once: true });
 
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
@@ -153,8 +221,12 @@ function runInChild(code: string, timeoutMs: number, signal?: AbortSignal): Prom
         try {
           message = JSON.parse(stdout);
         } catch {
+          const startProblem = opts.startError(stderr);
+          if (startProblem) return reject(new ToolError(startProblem));
           const oom = /heap out of memory|Allocation failed/i.test(stderr);
-          return reject(new ToolError(oom ? 'El código superó el límite de memoria (64 MB).' : 'El código terminó sin devolver resultado (¿límite de memoria?).'));
+          return reject(
+            new ToolError(oom ? `El código superó el límite de memoria (${opts.memoryMb} MB).` : 'El código terminó sin devolver resultado (¿límite de memoria?).'),
+          );
         }
         if (!message.ok) return reject(new ToolError(`Error al ejecutar el código: ${message.error}`));
         const output = JSON.parse(message.output!) as { result?: unknown; logs?: string[]; pending?: boolean; thrown?: string };
@@ -163,7 +235,216 @@ function runInChild(code: string, timeoutMs: number, signal?: AbortSignal): Prom
         resolve({ result: output.result, logs: output.logs ?? [] });
       }),
     );
-    child.stdin.on('error', () => undefined); // el hijo pudo morir antes de leer
-    child.stdin.end(JSON.stringify({ code, timeoutMs }));
+    child.stdin.on('error', () => undefined); // el proceso pudo morir antes de leer
+    child.stdin.end(JSON.stringify(input));
   });
+}
+
+function runInChild(code: string, timeoutMs: number, signal?: AbortSignal): Promise<SandboxResult> {
+  const child = spawn(process.execPath, [...sandboxNodeArgs(), '-e', RUNNER], {
+    // Sin variables de entorno (ni claves, ni rutas) y en un directorio que no es el del proyecto.
+    env: {},
+    cwd: os.tmpdir(),
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  return collect(child, { code, timeoutMs }, { graceMs: 3000, signal, memoryMb: 64, startError: () => null });
+}
+
+// ---------- Contenedor ----------
+export interface ContainerEngine {
+  engine: 'docker' | 'podman';
+  version: string;
+}
+
+function exec(command: string, args: string[], timeoutMs: number): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    } catch (err) {
+      return resolve({ code: null, stdout, stderr: (err as Error).message });
+    }
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    child.stdout.on('data', (c) => (stdout += c));
+    child.stderr.on('data', (c) => (stderr += c));
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({ code: null, stdout, stderr: err.message });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr });
+    });
+    child.stdin.end();
+  });
+}
+
+let engineCache: { at: number; value: ContainerEngine | null; error: string | null } | null = null;
+
+/** Busca un motor de contenedores en marcha (Docker o Podman). El resultado se recuerda 30 s. */
+export async function detectContainerEngine(force = false): Promise<{ value: ContainerEngine | null; error: string | null }> {
+  if (!force && engineCache && Date.now() - engineCache.at < 30_000) return engineCache;
+  let error: string | null = null;
+  let value: ContainerEngine | null = null;
+  for (const engine of ['docker', 'podman'] as const) {
+    const res = await exec(engine, ['version', '--format', engine === 'docker' ? '{{.Server.Version}}' : '{{.Version}}'], 6000);
+    if (res.code === 0 && res.stdout.trim()) {
+      value = { engine, version: res.stdout.trim() };
+      error = null;
+      break;
+    }
+    if (res.code !== null) error ??= `${engine === 'docker' ? 'Docker' : 'Podman'} está instalado pero su servicio no responde. Arráncalo e inténtalo de nuevo.`;
+  }
+  if (!value) error ??= 'No se ha encontrado Docker ni Podman en este equipo.';
+  engineCache = { at: Date.now(), value, error };
+  return engineCache;
+}
+
+/** ¿Está descargada la imagen del entorno aislado? (No se descarga sola: AgentForge no baja nada sin que lo pidas.) */
+export async function containerImagePresent(engine: ContainerEngine['engine'], image = SANDBOX_IMAGE): Promise<boolean> {
+  return (await exec(engine, ['image', 'inspect', image, '--format', '{{.Id}}'], 6000)).code === 0;
+}
+
+/** Argumentos de `docker run` / `podman run` del entorno aislado (exportados para comprobar lo que restringen). */
+export function containerRunArgs(name: string, image = SANDBOX_IMAGE): string[] {
+  return [
+    'run',
+    '--rm',
+    '-i',
+    '--name',
+    name,
+    '--pull=never',
+    '--network',
+    'none',
+    '--read-only',
+    '--tmpfs',
+    '/tmp:rw,size=16m',
+    '--memory',
+    '160m',
+    '--memory-swap',
+    '160m',
+    '--cpus',
+    '1',
+    '--pids-limit',
+    '64',
+    '--cap-drop',
+    'ALL',
+    '--security-opt',
+    'no-new-privileges',
+    '--user',
+    '65534:65534',
+    image,
+    'node',
+    '--max-old-space-size=64',
+    '--disallow-code-generation-from-strings',
+    '--experimental-vm-modules',
+    '--no-warnings',
+    '-e',
+    RUNNER,
+  ];
+}
+
+async function runInContainer(code: string, timeoutMs: number, signal?: AbortSignal): Promise<SandboxResult> {
+  const { value: found, error } = await detectContainerEngine();
+  if (!found) throw new ToolError(`El entorno aislado en contenedor no está disponible: ${error} Puedes volver al aislamiento por proceso en Ajustes.`);
+  const name = `agentforge-sbx-${randomBytes(6).toString('hex')}`;
+  const child = spawn(found.engine, containerRunArgs(name), { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  return collect(
+    child,
+    { code, timeoutMs },
+    {
+      // Arrancar un contenedor tarda bastante más que un proceso.
+      graceMs: 20_000,
+      signal,
+      memoryMb: 64,
+      // Matar el cliente no detiene el contenedor: hay que pedírselo al motor.
+      onKill: () => void exec(found.engine, ['kill', name], 10_000),
+      startError: (stderr) =>
+        /No such image|image not known|pull access denied|not found locally|Unable to find image/i.test(stderr)
+          ? `Falta la imagen ${SANDBOX_IMAGE} del entorno aislado. Descárgala una vez con: ${found.engine} pull ${SANDBOX_IMAGE}`
+          : stderr.trim() && !/heap out of memory|Allocation failed/i.test(stderr)
+            ? `El contenedor no pudo arrancar: ${stderr.trim().slice(0, 400)}`
+            : null,
+    },
+  );
+}
+
+// ---------- Comprobación real del corte de red ----------
+/**
+ * Comprueba de verdad si el proceso aislado puede abrir una conexión: lanza un proceso con los mismos argumentos
+ * y el mismo preludio y le pide conectarse a un servidor local que solo existe para esta prueba.
+ * Devuelve true si la conexión NO llegó.
+ */
+export function probeProcessNetworkBlocked(): Promise<boolean> {
+  return new Promise((resolve) => {
+    let reached = false;
+    const server = net.createServer((socket) => {
+      reached = true;
+      socket.destroy();
+    });
+    server.on('error', () => resolve(false));
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address() as net.AddressInfo;
+      const attack = `
+        ${SANDBOX_NETWORK_LOCKDOWN}
+        const finish = () => setTimeout(() => process.exit(0), 150);
+        try {
+          const socket = new (require('node:net').Socket)();
+          socket.on('error', finish);
+          socket.connect(${port}, '127.0.0.1', finish);
+        } catch { finish(); }
+      `;
+      const child = spawn(process.execPath, [...sandboxNodeArgs(), '-e', attack], { env: {}, cwd: os.tmpdir(), stdio: 'ignore', windowsHide: true });
+      const done = () => {
+        clearTimeout(timer);
+        // Un instante para que una conexión ya aceptada por el sistema llegue al manejador.
+        setTimeout(() => server.close(() => resolve(!reached)), 100);
+      };
+      const timer = setTimeout(() => child.kill('SIGKILL'), 8000);
+      child.on('error', done);
+      child.on('close', done);
+    });
+  });
+}
+
+export interface SandboxStatus {
+  process: {
+    /** ¿El proceso aislado se queda sin red? Comprobado con una conexión real al arrancar. */
+    networkBlocked: boolean;
+    /** 'permission' = lo impide el modelo de permisos de Node; 'lockdown' = lo impide el preludio del proceso. */
+    method: 'permission' | 'lockdown';
+    nodeVersion: string;
+  };
+  container: {
+    available: boolean;
+    engine: ContainerEngine['engine'] | null;
+    version: string | null;
+    image: string;
+    imagePresent: boolean;
+    /** Por qué no está disponible, si no lo está. */
+    error: string | null;
+  };
+}
+
+let processProbe: Promise<boolean> | null = null;
+
+/** Estado real de los dos aislamientos (para Ajustes). La prueba de red del proceso se hace una sola vez. */
+export async function sandboxStatus(force = false): Promise<SandboxStatus> {
+  processProbe ??= probeProcessNetworkBlocked();
+  const [networkBlocked, found] = await Promise.all([processProbe, detectContainerEngine(force)]);
+  const imagePresent = found.value ? await containerImagePresent(found.value.engine) : false;
+  return {
+    process: { networkBlocked, method: hasNetPermission() ? 'permission' : 'lockdown', nodeVersion: process.version },
+    container: {
+      available: Boolean(found.value) && imagePresent,
+      engine: found.value?.engine ?? null,
+      version: found.value?.version ?? null,
+      image: SANDBOX_IMAGE,
+      imagePresent,
+      error: found.value ? (imagePresent ? null : `Falta la imagen ${SANDBOX_IMAGE}. Descárgala una vez con: ${found.value.engine} pull ${SANDBOX_IMAGE}`) : found.error,
+    },
+  };
 }

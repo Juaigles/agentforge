@@ -104,6 +104,43 @@ test.describe('Persistencia tras reiniciar el servidor', () => {
     expect(await app.api('GET', '/api/runs/interrupted')).toEqual([]);
   });
 
+  test('un apagado ORDENADO también deja las ejecuciones reanudables, no «canceladas por el usuario»', async ({ page, app }) => {
+    const agent = await app.createAgent({ name: unique('Apagado ordenado') });
+    const wf = await app.createWorkflow(
+      unique('Flujo apagado'),
+      [
+        { id: 'entrada', type: 'input' },
+        { id: 'a', type: 'agent', label: 'Paso hecho', config: { agentId: agent.id, prompt: '[[decir:beta]] {{input}}' } },
+        { id: 'b', type: 'agent', label: 'Paso a medias', config: { agentId: agent.id, prompt: '[[lentosi:apagado]] sigue con {{a}}' } },
+        { id: 'salida', type: 'output', config: { template: '{{b}}' } },
+      ],
+      ['entrada>a', 'a>b', 'b>salida'],
+    );
+    app.fake.failing.add('apagado');
+    const run = await app.api('POST', `/api/workflows/${wf.id}/run`, { input: 'dato' });
+    await expect.poll(async () => (await app.api('GET', `/api/runs/${run.id}`)).steps.find((s: any) => s.nodeId === 'b').status).toBe('running');
+
+    // El servidor recibe la orden de parar (lo mismo que hace con Ctrl+C) y termina por sí mismo, sin que lo maten.
+    const started = Date.now();
+    expect(await app.shutdown()).toBe(0);
+    expect(Date.now() - started).toBeLessThan(15_000);
+    app.fake.failing.clear();
+    await app.start();
+
+    const after = await app.api('GET', `/api/runs/${run.id}`);
+    expect(after).toMatchObject({ status: 'failed', interrupted: true, error: 'Ejecución interrumpida por el apagado del servidor.' });
+    expect(Object.fromEntries(after.steps.map((s: any) => [s.nodeId, s.status]))).toMatchObject({ a: 'completed', b: 'cancelled' });
+
+    await page.goto('/');
+    const banner = page.locator('.interrupted');
+    await expect(banner.getByRole('link', { name: wf.name })).toBeVisible();
+    const before = app.fake.chats.length;
+    await banner.getByRole('button', { name: 'Reanudar' }).click();
+    await expect(page.locator('.page-header .badge').first()).toHaveText('Completado');
+    await expect(page.locator('.panel .output')).toContainText('Eco: sigue con beta');
+    expect(app.fake.chats.slice(before).map((c) => c.user)).toEqual(['[[lentosi:apagado]] sigue con beta']);
+  });
+
   test('las ejecuciones interrumpidas se pueden descartar, y el aviso aparece sin recargar si el servidor se reinicia', async ({ page, app }) => {
     const agent = await app.createAgent({ name: unique('Descartable'), systemPrompt: '[[lento]]' });
     await page.goto('/runs');

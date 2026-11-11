@@ -34,6 +34,10 @@ export const GLOSSARY = {
     term: 'Capacidades',
     definition: 'Lo que un modelo sabe hacer además de conversar: usar herramientas (tools), razonar (thinking), ver imágenes (vision)…',
   },
+  'clave-acceso': {
+    term: 'Clave de acceso',
+    definition: 'Contraseña que el servidor de AgentForge pide para usarlo cuando se puede llegar a él desde otros equipos. La define quien lo arranca.',
+  },
   cifrado: {
     term: 'Cifrado',
     definition: 'Transformar un dato con una clave para que sea ilegible sin ella. Las API keys se guardan así en el disco.',
@@ -41,6 +45,10 @@ export const GLOSSARY = {
   cola: {
     term: 'Cola',
     definition: 'Fila de espera: cuando se alcanza el máximo de ejecuciones simultáneas, las nuevas aguardan aquí su turno.',
+  },
+  contenedor: {
+    term: 'Contenedor',
+    definition: 'Caja cerrada que crea Docker o Podman para ejecutar un programa separado del resto del equipo: sin red, sin tus archivos y con memoria limitada.',
   },
   condicion: {
     term: 'Condición',

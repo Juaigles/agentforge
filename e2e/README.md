@@ -15,7 +15,7 @@ La primera vez hay que descargar el navegador: `npx playwright install chromium`
 
 | Pieza | Qué hace |
 |---|---|
-| `support/fixtures.ts` | Por cada worker arranca **el servidor de producción** (`node --import tsx server/src/index.ts`) en un puerto libre (`PORT`), con un directorio de datos temporal (`AGENTFORGE_DATA_DIR`) y `OLLAMA_URL` apuntando al modelo simulado. Sirve la interfaz compilada (`web/dist`), igual que `npm start`. Expone `app.restart()`, que **mata el proceso** (sin apagado ordenado) y lo relanza sobre los mismos datos. |
+| `support/fixtures.ts` | Por cada worker arranca **el servidor de producción** (`node --import tsx server/src/index.ts`) en un puerto libre (`PORT`), con un directorio de datos temporal (`AGENTFORGE_DATA_DIR`) y `OLLAMA_URL` apuntando al modelo simulado. Sirve la interfaz compilada (`web/dist`), igual que `npm start`. Expone `app.restart()`, que **mata el proceso** (sin apagado ordenado) y lo relanza sobre los mismos datos, y `app.shutdown()`, que pide un apagado **ordenado** por el canal IPC (lo mismo que Ctrl+C) y espera a que el proceso termine solo. |
 | `support/fake-ollama.ts` | Servidor HTTP local que habla el protocolo de cable de Ollama (`/api/tags`, `/api/chat` en NDJSON con streaming y tool-calls) y el de OpenAI (`/v1/models`, `/v1/chat/completions` en SSE). AgentForge se conecta a él con sus adaptadores de producción. Es el **único** doble de prueba. |
 | `*.spec.ts` | Los tests. Cada uno crea sus propios datos con nombres únicos, así que no dependen del orden. |
 
@@ -50,4 +50,5 @@ para comprobar qué llegó de verdad al proveedor.
 | `tools.spec.ts` | Herramienta HTTP personalizada (alta, prueba, uso por un agente contra una API local, edición de valores permitidos y valor por defecto, desactivar, borrar); POST con cuerpo; nombres en conflicto; búsqueda y banco de pruebas; visor y borrado de archivos |
 | `settings.spec.ts` | Proveedores (alta con API key, modelos antes de guardar, edición sin reenviar la clave, quitar clave, activar/desactivar, borrado); concurrencia máxima; ejecución de código; redes privadas; retención del historial; eliminar ejecuciones terminadas |
 | `automation.spec.ts` | Exportar a un archivo e importarlo (descarga y subida reales, recreación de agentes, archivos no válidos, avisos); programar un workflow, ejecutarlo ahora, pausarlo y quitarlo; disparo por el temporizador real tras un minuto |
+| `access.spec.ts` | Clave de acceso: con `AGENTFORGE_TOKEN` la API responde 401 y la interfaz solo muestra la pantalla de entrada; clave incorrecta y correcta; cookie de sesión `HttpOnly`; flujos en vivo con la sesión. Lanza su propio servidor |
 | `layout.spec.ts` | Tema claro/oscuro/sistema y contraste; 14 rutas a 375 × 812 sin desbordamiento horizontal en ambos temas; navegación y glosario táctiles |

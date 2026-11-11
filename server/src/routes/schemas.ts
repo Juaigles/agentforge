@@ -24,6 +24,9 @@ export const providerSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
+/** Prueba de una configuración sin guardar: `id` indica qué proveedor se está editando (para usar su clave guardada). */
+export const providerProbeSchema = providerSchema.extend({ id: z.string().min(1).max(64).optional() });
+
 export const agentSchema = z.object({
   name: z.string().trim().min(1, 'El nombre es obligatorio').max(80),
   role: z.string().trim().max(160).default(''),
@@ -100,13 +103,31 @@ export const customToolSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
-const nodeSchema = z.object({
-  id: z.string().min(1).max(64),
-  type: z.enum(['input', 'agent', 'tool', 'condition', 'transform', 'foreach', 'output']),
-  label: z.string().max(80).default(''),
-  position: z.object({ x: z.number(), y: z.number() }),
-  config: z.record(z.string(), z.unknown()).default({}),
-});
+/** Tope del tiempo máximo de un nodo (6 h): por encima, el temporizador del motor no es representable. */
+const MAX_NODE_TIMEOUT_MS = 6 * 3_600_000;
+
+const nodeSchema = z
+  .object({
+    id: z.string().min(1).max(64),
+    type: z.enum(['input', 'agent', 'tool', 'condition', 'transform', 'foreach', 'output']),
+    label: z.string().max(80).default(''),
+    position: z.object({ x: z.number(), y: z.number() }),
+    config: z.record(z.string(), z.unknown()).default({}),
+  })
+  .superRefine((node, ctx) => {
+    // Límites numéricos de la configuración: un valor absurdo no debe llegar al motor (también al importar).
+    const bounded = (key: string, min: number, max: number, what: string) => {
+      const value = node.config[key];
+      if (value === undefined || value === null || value === '') return;
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+        ctx.addIssue({ code: 'custom', path: ['config', key], message: `${what} debe ser un número entero entre ${min} y ${max}` });
+      }
+    };
+    bounded('timeoutMs', 0, MAX_NODE_TIMEOUT_MS, 'El tiempo máximo (en milisegundos)');
+    bounded('retries', 0, 5, 'El número de reintentos');
+    bounded('concurrency', 1, 8, 'El número de elementos a la vez');
+    bounded('maxItems', 1, 100, 'El máximo de elementos');
+  });
 
 const edgeSchema = z.object({
   id: z.string().min(1).max(200),
@@ -182,8 +203,33 @@ export const settingsSchema = z.object({
   maxConcurrentRuns: z.number().int().min(1).max(10).optional(),
   allowPrivateNetwork: z.boolean().optional(),
   allowCodeExecution: z.boolean().optional(),
+  codeSandbox: z.enum(['process', 'container']).optional(),
   retentionDays: z.number().int().min(0).max(3650).optional(),
   retentionMaxRuns: z.number().int().min(0).max(100_000).optional(),
+});
+
+/** Parámetros de consulta del historial. Los valores llegan como texto: se convierten y se acotan aquí. */
+export const runsQuerySchema = z.object({
+  status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled'], { error: 'estado no reconocido' }).optional(),
+  kind: z.enum(['agent', 'workflow'], { error: 'tipo no reconocido' }).optional(),
+  workflowId: z.string().max(64).optional(),
+  agentId: z.string().max(64).optional(),
+  search: z.string().max(200).optional(),
+  limit: z.coerce
+    .number({ error: 'debe ser un número entero entre 1 y 200' })
+    .int('debe ser un número entero entre 1 y 200')
+    .min(1, 'debe ser un número entero entre 1 y 200')
+    .max(200, 'debe ser un número entero entre 1 y 200')
+    .optional(),
+  offset: z.coerce
+    .number({ error: 'debe ser un número entero mayor o igual que 0' })
+    .int('debe ser un número entero mayor o igual que 0')
+    .min(0, 'debe ser un número entero mayor o igual que 0')
+    .optional(),
+});
+
+export const eventsQuerySchema = z.object({
+  after: z.coerce.number({ error: 'debe ser un número entero mayor o igual que 0' }).int().min(0).optional(),
 });
 
 export const runIdsSchema = z.object({

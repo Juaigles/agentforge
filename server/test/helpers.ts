@@ -31,7 +31,12 @@ export function testConfig(dataDir = tempDir()): AppConfig {
     webDist: path.join(dataDir, 'no-web'),
     seed: false,
     ollamaUrl: 'http://127.0.0.1:1',
-    logger: false,
+    defaultModel: '',
+    logLevel: 'silent',
+    allowedHosts: [],
+    authToken: null,
+    rateLimitPerMinute: 0,
+    shutdownGraceMs: 2000,
     schedulerTickMs: 5000,
   };
 }

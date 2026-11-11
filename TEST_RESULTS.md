@@ -6,15 +6,21 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 ## 1. Tests automatizados
 
 Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
-Resultados finales del 2026-11-10 (tras el punto 4.5):
+Resultados del 2026-11-11 (hito 5, tras la fase 1):
 
 ```
-servidor     Test Files  10 passed (10)   Tests  203 passed (203)
+servidor     Test Files  12 passed (12)   Tests  274 passed | 1 skipped (275)
 frontend     Test Files  7 passed (7)     Tests   40 passed (40)
-end-to-end   43 passed (2.4m)   (tras 4.1, con 21 tests: repetida dos veces seguidas, 42 passed, sin intermitencias)
+end-to-end   45 passed (2.4m)
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
 npm audit    found 0 vulnerabilities
 ```
+
+El test omitido es el que ejecuta código dentro de un contenedor: se salta solo cuando no hay Docker ni Podman
+en marcha, y en esta máquina Docker Desktop estaba apagado.
+
+Punto de partida del hito 5 (commit `8bef427`, medido el 2026-11-11 antes de tocar nada): 203 de servidor, 40 de
+frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 
 | Archivo | Qué verifica | Dobles de prueba |
 |---|---|---|
@@ -26,6 +32,8 @@ npm audit    found 0 vulnerabilities
 | `server/test/hardening.test.ts` | **SSRF**: direcciones privadas en todas sus notaciones, rechazo sin conectar, **rebinding** (dos servidores reales en 127.0.0.1/127.0.0.2 y un DNS que cambia), redirecciones, compresión, límites y cancelación. **Sandbox**: sin `require`/`process`/`eval`, bucles y memoria acotados, promesas, y segunda capa (el proceso no puede leer, escribir, lanzar programas ni crear workers). **Retención**: por antigüedad y por número, con pasos y eventos | La resolución DNS se inyecta como función (seam); los sockets y procesos son reales |
 | `server/test/foreach.test.ts` | Nodo «para cada»: interpretación de listas, concurrencia y orden, lista vacía, tope, fallo y reintento por elemento, cancelación, presupuesto de llamadas, herramientas en paralelo, validación | Solo el proveedor LLM |
 | `server/test/schedule-import.test.ts` | Programación (cálculo de citas, alta/validación, disparo, apagado largo, sin solapes, workflow roto, «ejecutar ahora», reinicio, temporizador real) y exportar/importar (contenido, alta de agentes, reutilización, avisos, archivos no válidos) | Solo el proveedor LLM; el reloj se pasa como argumento a `tick()` |
+| `server/test/lifecycle.test.ts` | **Apagado ordenado** (en curso y en cola → interrumpidas y reanudables; plazo), respuestas comprimidas cortadas o canceladas, herramienta que ignora la cancelación, configuración de nodos fuera de rango, reintentos solo de errores transitorios, expresiones regulares catastróficas (con el bucle de eventos vivo), versión de esquema superior, copia previa a migrar, migración fallida, API key indescifrable, instancia única, validación de la configuración | Solo el proveedor LLM; servidores HTTP y procesos reales |
+| `server/test/security.test.ts` | Claves ligadas a su origen (se comprueba qué cabecera llega a cada servidor), `Host` con `0.0.0.0`, clave de acceso y sesión, peticiones de otra web, límite de tasa, cabeceras y CSP, bloqueo de la propia API, redirecciones a otro origen, direcciones privadas disfrazadas, plantillas del cuerpo, cuotas, consultas no válidas, sondas de salud, **`run_javascript` sin red** (proceso real con sus argumentos y su preludio intentando conectar, resolver nombres y usar `fetch`), contenedor, y **fijación de DNS contra un servidor DNS real** | El proveedor LLM (salvo donde se usan los adaptadores reales); servidores HTTP, DNS y procesos reales |
 | `server/test/static.test.ts` | Servido del frontend: fallback de la SPA, caché, 404 de assets, archivos nuevos sin reiniciar | Ninguno |
 | `server/test/ollama.integration.test.ts` | **Modelo real**: chat nativo, adaptador OpenAI vía `/v1`, agente con herramienta por ambos adaptadores, workflow paralelo de 3 agentes | **Ninguno** (se omite si no hay Ollama) |
 | `web/src/lib/run-state.test.ts` | Reductor de eventos del monitor en vivo, emparejado de llamadas a herramientas, formato | Ninguno |
@@ -35,7 +43,7 @@ npm audit    found 0 vulnerabilities
 | `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
 | `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
 | `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
-| `e2e/*.spec.ts` (43 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
+| `e2e/*.spec.ts` (45 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
 Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
 puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
@@ -66,6 +74,26 @@ puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de
 | Nodo «para cada» | `workflow-builder.spec.ts`, `foreach.test.ts` | Configurado en el lienzo; lista de 6 con tope 5 → falla sin llamar al modelo; lista de 3 → 3 peticiones, una por elemento, y avance en vivo |
 | Exportar / importar | `automation.spec.ts`, `schedule-import.test.ts` | Se descarga el archivo real, se borran workflow y agente, se sube el archivo y el workflow importado se ejecuta; archivos no válidos rechazados sin crear nada |
 | Ejecución programada | `automation.spec.ts`, `schedule-import.test.ts` | Alta, pausa y baja desde la interfaz; «Ejecutar ahora»; y una ejecución que aparece sola al cumplirse **un minuto real** |
+
+Comprobado con el servidor real y Ollama tras la fase 1 del hito 5 (2026-11-11, `qwen3.5:4b-q4_K_M`):
+
+- **Reanudación tras un corte**: «Informe de investigación multiagente» con la entrada «Ventajas e inconvenientes
+  de la energía solar doméstica»; se paró el servidor con `redactar` en curso. Al arrancar, el registro anotó
+  «Hay ejecuciones interrumpidas por el cierre anterior» y el Panel mostró el aviso. «Reanudar» (pulsado en el
+  navegador) → ejecución **Completado**, `step.reused` para `tema`, `investigar` y `analizar`, **2 llamadas al
+  modelo** e informe generado. Ese cierre fue brusco (la vista previa mata el proceso); el apagado ordenado está
+  comprobado en la suite e2e con el mensaje IPC `shutdown` (código de salida 0, ejecución interrumpida y reanudada).
+- **Sondas y cabeceras**: `/api/health/ready` → `ok`, esquema v3, carpeta de datos y planificador correctos; todas
+  las respuestas con CSP, `X-Frame-Options: DENY` y `nosniff`; un POST con `Origin: https://evil.example` → 403;
+  `Host: evil.example` → 403.
+- **Entorno aislado**: `/api/sandbox/status` → `networkBlocked: true`, método `lockdown`, Node v24.19.0; contenedor
+  no disponible («Docker está instalado pero su servicio no responde»). `fib(20)` → 6765 en 111 ms; un intento de
+  `import("node:net")` → error, sin conexión; elegir el contenedor → 409 con el motivo.
+- **Herramientas de red**, con redes privadas permitidas: `http://127.0.0.1:4310/api/settings` → «las herramientas
+  no pueden llamar a la propia API de AgentForge»; `http://localhost:11434/api/version` (Ollama) → 200;
+  `web_fetch` de `https://www.wikipedia.org/` → título «Wikipedia» en 218 ms.
+- **Modo desarrollo**: Vite en :5173 sirve la aplicación y el código compartido; `/@fs/…/data/secret.key` y
+  `/@fs/…/data/agentforge.db` → 403; consola del navegador sin errores.
 
 Comprobado con el servidor real y Ollama tras 4.5:
 
@@ -152,10 +180,18 @@ de una ejecución anterior al reinicio.
 
 - Proveedores de pago reales (OpenAI, OpenRouter, Groq…): no se usan servicios de pago. El adaptador
   OpenAI-compatible sí está verificado contra el endpoint `/v1` de Ollama.
-- **Red desde el entorno aislado**: comprobado que con Node 24 el proceso con `--permission` **sí puede** abrir
-  conexiones (`net.connect` y `fetch` a localhost funcionan); no se ha podido restringir sin dependencias externas.
-- **Rebinding contra un DNS real**: el test inyecta la resolución; no se ha montado un servidor DNS ni se ha
-  probado con un dominio de rebinding público.
+- **Aislamiento en contenedor**: no se ha ejecutado código dentro de un contenedor (Docker Desktop apagado). Están
+  probados los argumentos de `docker run`, la detección del motor y el rechazo cuando falta.
+- **Permiso de red de Node** (`--allow-net`): esta máquina tiene Node 24.19, que no lo ofrece; el camino que se
+  ha probado es el del proceso que inutiliza sus API de red. Sin ese preludio el mismo proceso sí conecta (hay un
+  test que lo demuestra).
+- **Apagado por señal** (`SIGINT`, `SIGTERM`, `SIGBREAK`, `SIGHUP`): no se puede enviar una señal a otro proceso en
+  Windows; se ha probado el mismo código por el mensaje IPC `shutdown`.
+- **Rebinding contra un dominio público**: probado contra un servidor DNS local real, no contra un dominio de
+  rebinding de Internet.
+- **Redirección de https a http**: el rechazo está en el código pero no tiene test (haría falta un servidor TLS).
+- **Clave de acceso detrás de un proxy inverso** y con `HOST=0.0.0.0` en una red real: probado con peticiones
+  inyectadas y con un servidor en 127.0.0.1, no desde otro equipo.
 - **Retención con historiales grandes** (decenas de miles de ejecuciones): no medido el tiempo de borrado.
 - **Programación diaria a una hora**: probado el cálculo de la cita y su disparo adelantando el reloj; no se ha
   esperado a una hora real ni se ha probado un cambio de hora (horario de verano).

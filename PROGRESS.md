@@ -1,6 +1,6 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-10 (hito 4: endurecimiento punto por punto; ver «Hito 4» más abajo)._
+_Última actualización: 2026-11-11 (hito 5, fase 1: fiabilidad y seguridad del servidor; ver «Hito 5» más abajo)._
 
 ## Estado real
 
@@ -134,9 +134,87 @@ Se trabaja punto por punto, sin pasar al siguiente hasta implementar, verificar 
 - Defecto encontrado por los tests y corregido: un arranque de cola pendiente podía ejecutarse **después** de
   cerrar la base de datos al apagar (`database is not open`).
 
+## Hito 5 — Llevarlo a primer nivel
+
+Plan, auditoría inicial (siete informes) y fases en `PLAN.md`. Se trabaja por fases; cada una termina con las
+cuatro baterías en verde, verificación real y un commit.
+
+### Fase 1 · Fiabilidad y seguridad del servidor — HECHA (2026-11-11)
+
+**Ciclo de vida de las ejecuciones**
+
+- **El apagado ordenado deja las ejecuciones reanudables.** Antes, Ctrl+C las cerraba como «canceladas por el
+  usuario» y la reanudación solo funcionaba tras una muerte brusca. Ahora se abortan con un motivo propio
+  (`ShutdownSignal`), quedan «interrumpidas» —también las que esperaban en la cola— y al volver se ofrecen para
+  reanudar. El apagado tiene plazo (`AGENTFORGE_SHUTDOWN_GRACE_MS`, 10 s), una segunda señal fuerza la salida, y
+  se atienden `SIGBREAK`, `SIGHUP` y el mensaje IPC `shutdown` (la única vía de apagado ordenado entre procesos
+  en Windows). Orden: ejecuciones → conexiones → base de datos.
+- **`safeFetch` ya no se cuelga** con una respuesta comprimida que se corta o se cancela (`pipe` no propagaba el
+  cierre; ahora `pipeline`). Como defensa añadida, el motor espera cada nodo en carrera con la señal: una
+  herramienta que ignore la cancelación no retiene la ejecución ni el apagado.
+- **Ningún paso queda «en curso»** tras un fallo inesperado: `executeNode` nunca rechaza, el planificador aborta
+  y espera a los nodos en vuelo antes de salir, y el gestor cierra los pasos abiertos si el motor falla.
+- **Configuración de nodos validada** al guardar y al importar (`timeoutMs` ≤ 6 h, reintentos 0-5, concurrencia
+  1-8, elementos 1-100); el motor recorta además los valores heredados fuera de rango.
+- **Reintentos solo de errores transitorios.** Antes se reintentaba todo lo que no llevara marca, repitiendo
+  herramientas con efectos. Ahora solo lo marcado (red, tiempo de espera, 408/429/5xx).
+- **Base de datos:** una base de versión más reciente que el código se rechaza al abrir; antes de migrar se
+  guarda una copia coherente (`agentforge.db.v<N>.bak`); `synchronous=NORMAL`. Un solo servidor por carpeta de
+  datos (`agentforge.lock`). Una API key que no se puede descifrar da un mensaje accionable.
+- **Errores que ya no se tragan:** el planificador evalúa cada programación por separado y registra los fallos;
+  un error al cerrar una ejecución ya no es un rechazo sin dueño; hay manejadores de `unhandledRejection` y
+  `uncaughtException`.
+
+**Seguridad**
+
+- **Las API keys guardadas no salen hacia otra dirección.** Probar, listar modelos o guardar un proveedor con una
+  URL de otro origen exige volver a escribir la clave. Antes bastaba una petición para que el servidor la enviase
+  a una URL elegida por quien llamaba.
+- **Cabecera `Host` siempre comprobada**, también con `HOST=0.0.0.0` (antes se desactivaba entera):
+  se admiten las direcciones y el nombre del propio equipo y lo declarado en `AGENTFORGE_ALLOWED_HOSTS`.
+- **Clave de acceso** (`AGENTFORGE_TOKEN`): obligatoria para escuchar fuera de este equipo —el servidor se niega
+  a arrancar sin ella—; se acepta como `Authorization: Bearer` o como sesión (cookie `HttpOnly`, `SameSite=Strict`,
+  derivada de la clave). La interfaz muestra una pantalla de entrada.
+- **Peticiones desde otra web rechazadas** (`Sec-Fetch-Site`, `Origin`), también las lecturas y los POST sin cuerpo.
+- **Cabeceras de seguridad** en todas las respuestas, con una política de contenido (CSP) que solo admite scripts
+  propios y, por su hash, el script en línea de `index.html`. La suite e2e completa pasa con ella activa.
+- **Límite de tasa** por cliente (`AGENTFORGE_RATE_LIMIT`, 1200/min), diez veces más estricto para lo que lanza
+  trabajo caro y de 10/min para el inicio de sesión.
+- **Las herramientas no pueden llamar a la propia API**, ni con «redes privadas» permitidas.
+- **Redirecciones:** las cabeceras de la herramienta no viajan a otro origen y se rechaza pasar de https a http.
+- **Condición «coincide con»** evaluada en un hilo aparte con límite de tiempo: una expresión con retroceso
+  catastrófico ya no congela el servidor.
+- **Plantillas del cuerpo** de las herramientas HTTP escapadas para JSON; saltos de línea fuera de las cabeceras.
+- **Cuota del espacio de trabajo** (5 MB por archivo, 100 MB en total) y lectura acotada al mostrar un archivo.
+- **Direcciones privadas disfrazadas:** 6to4, Teredo, NAT64 local y `192.88.99.0/24`.
+- **`run_javascript` sin red.** Node 24 no tiene permiso de red, así que el proceso aislado inutiliza sus propias
+  API de red antes de ejecutar nada; donde exista `--allow-net` lo deniega el propio modelo de permisos. El
+  servidor lo **comprueba con una conexión real** y lo muestra en Ajustes. `import()` ya no entrega objetos del
+  proceso anfitrión. Nuevo **aislamiento en contenedor** (Docker o Podman, sin red, de solo lectura, sin
+  privilegios), seleccionable en Ajustes; no descarga la imagen por su cuenta.
+- **Vite en desarrollo** ya no puede servir la carpeta de datos.
+
+**Operación**
+
+- Configuración validada al arrancar, con un mensaje por variable; registro estructurado siempre activo
+  (`AGENTFORGE_LOG_LEVEL`), con las credenciales excluidas; sondas `GET /api/health/live` y `/api/health/ready`
+  (esta comprueba la base de datos, la carpeta de datos y el planificador); mensajes claros para puerto ocupado e
+  interfaz sin compilar.
+
+**Defectos encontrados al implementar** (además de los de la auditoría): `import()` dentro del entorno aislado
+entregaba un error del proceso anfitrión; el mensaje de un parámetro de consulta no válido salía en inglés.
+
 ## Pendiente y limitaciones
 
-- **Sin autenticación ni multiusuario.** Pensado para uso local (escucha en 127.0.0.1).
+- **Sin multiusuario.** Una única clave de acceso opcional (obligatoria fuera de este equipo); no hay cuentas ni permisos.
+- **El apagado ordenado por señal no se ha podido ejercitar en Windows** (un proceso no puede enviar `SIGINT` a
+  otro). Se ha comprobado de punta a punta por el mensaje IPC `shutdown`, que recorre el mismo código.
+- **El aislamiento en contenedor no se ha ejecutado**: Docker Desktop estaba apagado en esta máquina. Están
+  probados los argumentos, la detección y el rechazo cuando no hay motor; el test que lo ejecuta se omite solo.
+- **El corte de red del proceso aislado no es una frontera del sistema operativo**: el proceso inutiliza sus
+  propias API de red. Para código no confiable, el contenedor.
+- **Las cabeceras con credenciales de las herramientas HTTP siguen guardándose en claro** (previsto en la fase 5).
+- **La política de contenido admite estilos en línea** (`style-src 'unsafe-inline'`): Vue y Vue Flow los necesitan.
 - **Los workflows son DAG**: no hay bucles; la iteración sobre listas se hace con el nodo «para cada» (un solo agente por elemento, sin subflujos).
 - **«Para cada» ejecuta un solo agente por elemento**: no admite un subflujo de varios nodos ni una herramienta
   como cuerpo. Si falla un elemento falla el nodo entero, y al reintentar desde el fallo se repiten todos.
@@ -150,10 +228,8 @@ Se trabaja punto por punto, sin pasar al siguiente hasta implementar, verificar 
   se compacta el archivo de la base de datos (`VACUUM`); SQLite reutiliza el espacio, pero el archivo no encoge.
 - **La reanudación tras un apagado la decide el usuario** (aviso en la interfaz); no hay reanudación automática
   desatendida. Un paso que estaba a medias se repite entero: el texto parcial del modelo no se recupera.
-- **`run_javascript` no es un sandbox fuerte** (desactivado por defecto): sin contenedor ni aislamiento del sistema
-  operativo, y con Node 22–24 el proceso aislado conserva acceso a la red si el código escapa de `node:vm`.
-- **Fijación de DNS**: la resolución de nombres del test de rebinding se inyecta como función (no hay un servidor
-  DNS real en la prueba); la conexión a la IP fijada sí se comprueba con sockets reales. No se ha probado contra un
+- **Fijación de DNS**: probada contra un servidor DNS local real (UDP, protocolo de cable). El producto resuelve con
+  el sistema operativo; la prueba usa el resolvedor de Node apuntando a ese servidor. No se ha probado contra un
   dominio de rebinding real en Internet.
 - **Los proveedores OpenAI reales (de pago) no se han probado**; el adaptador se ha verificado contra el
   endpoint compatible de Ollama y contra un servidor de pruebas que habla el protocolo.

@@ -1,7 +1,9 @@
 // Cliente tipado de la API de AgentForge.
+import { ref } from 'vue';
 import type {
   Agent,
   AgentInput,
+  AuthStatus,
   CustomTool,
   CustomToolInput,
   DashboardStats,
@@ -15,6 +17,7 @@ import type {
   RunKind,
   RunStatus,
   RunSummary,
+  SandboxStatus,
   Schedule,
   ScheduleInput,
   Settings,
@@ -43,6 +46,9 @@ export class ApiError extends Error {
   }
 }
 
+/** true cuando el servidor ha rechazado una petición por falta de clave de acceso: la aplicación muestra la pantalla de entrada. */
+export const authRequired = ref(false);
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
@@ -62,6 +68,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   } catch {
     /* respuesta no JSON (p. ej. el proxy cuando la API está caída) */
   }
+  if (res.status === 401 && json?.code === 'auth_required') authRequired.value = true;
   if (!res.ok) {
     const message = json?.error ?? (res.status >= 500 ? 'El servidor de AgentForge no responde.' : `Error ${res.status}`);
     throw new ApiError(message, res.status, json?.issues ?? [], json?.details);
@@ -94,10 +101,17 @@ export interface ToolInvokeResult {
 export const api = {
   health: () => get<{ ok: boolean; version: string; uptimeSec: number }>('/api/health'),
   stats: () => get<DashboardStats>('/api/stats'),
+  auth: {
+    status: () => get<AuthStatus>('/api/auth/status'),
+    login: (token: string) => post<void>('/api/auth/login', { token }),
+    logout: () => post<void>('/api/auth/logout'),
+  },
   settings: {
     get: () => get<Settings>('/api/settings'),
     update: (patch: Partial<Settings>) => put<Settings>('/api/settings', patch),
   },
+  /** Estado real de los dos aislamientos de run_javascript. */
+  sandboxStatus: (force = false) => get<SandboxStatus>(`/api/sandbox/status${force ? '?force=1' : ''}`),
   providers: {
     list: () => get<Provider[]>('/api/providers'),
     create: (input: ProviderInput) => post<Provider>('/api/providers', input),

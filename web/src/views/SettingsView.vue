@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { DashboardStats, Provider, ProviderTestResult, Settings } from '@shared/types';
+import type { DashboardStats, Provider, ProviderTestResult, SandboxStatus, Settings } from '@shared/types';
 import {
   CircleAlert,
   Cpu,
@@ -41,6 +41,7 @@ async function load(): Promise<void> {
     retentionDaysDraft.value = s.retentionDays;
     retentionRunsDraft.value = s.retentionMaxRuns;
     void catalog.refreshHealth();
+    if (s.allowCodeExecution) void loadSandbox();
   } catch (err) {
     loadError.value = errorText(err);
   } finally {
@@ -220,7 +221,7 @@ async function toggleCodeExecution(ev: Event): Promise<void> {
     const ok = await ui.confirm({
       title: 'Permitir ejecución de código',
       message:
-        'Los agentes con la herramienta run_javascript podrán ejecutar el código que genere el modelo. Se ejecuta en un proceso aparte sin acceso a archivos ni a otros programas y con límites de tiempo y memoria, pero no es una barrera de seguridad fuerte: no restringe la red.',
+        'Los agentes con la herramienta run_javascript podrán ejecutar el código que genere el modelo. Se ejecuta en un proceso aparte sin acceso a archivos, a la red ni a otros programas, con límites de tiempo y memoria. Para código en el que no confíes, elige después el aislamiento en contenedor.',
       confirmLabel: 'Permitir',
       danger: true,
     });
@@ -231,6 +232,29 @@ async function toggleCodeExecution(ev: Event): Promise<void> {
   }
   await updateSetting('allowCodeExecution', next, next ? 'Ejecución de código permitida.' : 'Ejecución de código desactivada.');
   input.checked = settings.value?.allowCodeExecution ?? false;
+  if (settings.value?.allowCodeExecution) void loadSandbox();
+}
+
+// Estado real del aislamiento (lo comprueba el servidor: red del proceso y motor de contenedores).
+const sandbox = ref<SandboxStatus | null>(null);
+const sandboxLoading = ref(false);
+
+async function loadSandbox(force = false): Promise<void> {
+  sandboxLoading.value = true;
+  try {
+    sandbox.value = await api.sandboxStatus(force);
+  } catch (err) {
+    ui.error(errorText(err));
+  } finally {
+    sandboxLoading.value = false;
+  }
+}
+
+const ENGINE_LABEL = { docker: 'Docker', podman: 'Podman' } as const;
+
+async function chooseSandbox(backend: Settings['codeSandbox']): Promise<void> {
+  await updateSetting('codeSandbox', backend, backend === 'container' ? 'El código se ejecutará en un contenedor sin red.' : 'El código se ejecutará en un proceso aislado.');
+  void loadSandbox(true);
 }
 
 // ---------- Datos ----------
@@ -422,13 +446,63 @@ async function clearFinished(): Promise<void> {
                 Habilita la herramienta <code>run_javascript</code>, que ejecuta el código que escribe el modelo en un
                 <Term id="sandbox">entorno aislado</Term> sin acceso a red, disco ni módulos, con límites de tiempo y memoria.
               </p>
-              <div v-if="settings.allowCodeExecution" class="callout warning" style="margin-top: 8px">
-                <ShieldAlert />
-                <span>
-                  El código corre en un contexto <code>node:vm</code> dentro de un proceso aparte que no puede leer ni escribir archivos ni
-                  lanzar programas. Aun así no es una barrera de seguridad fuerte: un código hostil que escapara del contexto podría usar la
-                  red. Mantenlo activado solo con modelos y entradas en los que confíes.
-                </span>
+              <div v-if="settings.allowCodeExecution" class="sandbox" data-testid="sandbox-options">
+                <div class="sandbox-head">
+                  <span id="sandbox-label" class="o-title">Dónde se ejecuta</span>
+                  <button class="btn btn-ghost btn-sm" type="button" :disabled="sandboxLoading" @click="loadSandbox(true)">
+                    <RefreshCw :class="{ spin: sandboxLoading }" /> Comprobar de nuevo
+                  </button>
+                </div>
+                <div class="sandbox-choices" role="radiogroup" aria-labelledby="sandbox-label">
+                  <label class="sandbox-choice" :class="{ active: settings.codeSandbox === 'process' }">
+                    <input type="radio" name="code-sandbox" value="process" :checked="settings.codeSandbox === 'process'" :disabled="savingSetting === 'codeSandbox'" @change="chooseSandbox('process')" />
+                    <span class="grow">
+                      <strong>Proceso aislado</strong>
+                      <span class="muted small">
+                        Un proceso aparte de <Term id="nodejs">Node.js</Term> sin acceso a archivos ni a otros programas. No necesita instalar nada.
+                      </span>
+                      <span v-if="sandbox" class="sandbox-status small" role="status">
+                        <template v-if="sandbox.process.networkBlocked">
+                          <span class="dot success" aria-hidden="true" /> Sin red (comprobado con una conexión real al arrancar).
+                        </template>
+                        <template v-else>
+                          <span class="dot danger" aria-hidden="true" /> Este equipo no ha podido cortar la red del proceso: usa el contenedor para código no confiable.
+                        </template>
+                      </span>
+                    </span>
+                  </label>
+                  <label class="sandbox-choice" :class="{ active: settings.codeSandbox === 'container', unavailable: sandbox && !sandbox.container.available }">
+                    <input
+                      type="radio"
+                      name="code-sandbox"
+                      value="container"
+                      :checked="settings.codeSandbox === 'container'"
+                      :disabled="savingSetting === 'codeSandbox' || !sandbox?.container.available"
+                      @change="chooseSandbox('container')"
+                    />
+                    <span class="grow">
+                      <strong>Contenedor</strong>
+                      <span class="muted small">
+                        Un <Term id="contenedor">contenedor</Term> sin red, de solo lectura y sin privilegios. El aislamiento lo impone el sistema operativo:
+                        es la opción recomendada para código en el que no confíes.
+                      </span>
+                      <span v-if="sandbox" class="sandbox-status small" role="status">
+                        <template v-if="sandbox.container.available">
+                          <span class="dot success" aria-hidden="true" /> {{ ENGINE_LABEL[sandbox.container.engine!] }} {{ sandbox.container.version }} disponible.
+                        </template>
+                        <template v-else><span class="dot" aria-hidden="true" /> No disponible: {{ sandbox.container.error }}</template>
+                      </span>
+                      <span v-else class="sandbox-status small muted">Comprobando…</span>
+                    </span>
+                  </label>
+                </div>
+                <div v-if="settings.codeSandbox === 'process'" class="callout warning">
+                  <ShieldAlert />
+                  <span>
+                    El proceso aislado no puede leer ni escribir archivos, lanzar programas ni usar la red, pero no es una barrera del sistema
+                    operativo. Úsalo con modelos y entradas en los que confíes.
+                  </span>
+                </div>
               </div>
             </div>
             <input
@@ -539,6 +613,57 @@ async function clearFinished(): Promise<void> {
 </template>
 
 <style scoped>
+.sandbox {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sandbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sandbox-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 10px;
+}
+.sandbox-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.sandbox-choice.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.sandbox-choice.unavailable {
+  cursor: default;
+}
+.sandbox-choice input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.sandbox-choice .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.sandbox-status {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
 .sections {
   display: flex;
   flex-direction: column;

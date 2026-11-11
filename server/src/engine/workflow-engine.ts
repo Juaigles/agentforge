@@ -21,10 +21,28 @@ import type { Store } from '../db/store';
 import { ConfigError, isRetryable } from '../errors';
 import type { LlmFactory } from '../llm/types';
 import type { ToolRegistry } from '../tools/registry';
-import { addUsage, errorMessage, nowIso, sleep, stringifyResult, truncate } from '../util';
+import { addUsage, errorMessage, localDate, nowIso, raceAbort, sleep, stringifyResult, truncate } from '../util';
 import { runAgent, type Budget } from './agent-runner';
+import { regexTest } from './regex';
 
 const MAX_OUTPUT_CHARS = 200_000;
+/** Tope del tiempo máximo de un nodo: 6 horas (AbortSignal.timeout no admite valores de 2^31 ms o más). */
+export const MAX_NODE_TIMEOUT_MS = 6 * 3_600_000;
+
+/** Interpreta un número escrito con coma o punto decimal y, si los hay, separadores de miles («1.234,5», «1,234.5»). */
+function parseNumber(text: string): number {
+  let t = text.trim().replace(/\s+/g, '');
+  if (!t) return NaN;
+  const comma = t.lastIndexOf(',');
+  const dot = t.lastIndexOf('.');
+  if (comma >= 0 && dot >= 0) {
+    // El separador que aparece el último es el decimal; el otro, el de miles.
+    t = comma > dot ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+  } else if (comma >= 0) {
+    t = t.indexOf(',') === comma ? t.replace(',', '.') : t.replace(/,/g, '');
+  }
+  return Number(t);
+}
 
 export type EmitFn = (type: RunEventType, nodeId: string | null, data: Record<string, any>, transient?: boolean) => void;
 
@@ -46,7 +64,7 @@ export interface ExecutionResult {
   usage: Usage;
 }
 
-export function evaluateCondition(left: string, operator: string, right: string): boolean {
+export async function evaluateCondition(left: string, operator: string, right: string, signal?: AbortSignal): Promise<boolean> {
   const l = left.trim();
   const r = right.trim();
   switch (operator) {
@@ -59,15 +77,12 @@ export function evaluateCondition(left: string, operator: string, right: string)
     case 'not_equals':
       return l.toLowerCase() !== r.toLowerCase();
     case 'matches':
-      try {
-        return new RegExp(right, 'i').test(left);
-      } catch {
-        throw new ConfigError(`Expresión regular no válida: ${right}`);
-      }
+      // En un hilo aparte y con límite de tiempo: una expresión maliciosa o torpe no puede congelar el servidor.
+      return regexTest(right, left, { signal });
     case 'gt':
     case 'lt': {
-      const a = Number(l.replace(',', '.'));
-      const b = Number(r.replace(',', '.'));
+      const a = parseNumber(l);
+      const b = parseNumber(r);
       if (!Number.isFinite(a) || !Number.isFinite(b)) {
         throw new ConfigError(`La condición numérica necesita números; se recibió "${truncate(l, 40)}" y "${truncate(r, 40)}".`);
       }
@@ -130,6 +145,28 @@ export class WorkflowExecution {
     const running = new Map<string, Promise<void>>();
     const maxConcurrency = Math.max(1, this.settings.maxConcurrency);
 
+    try {
+      await this.schedule(order, running, maxConcurrency);
+    } finally {
+      // Pase lo que pase (también un error inesperado del propio motor), ningún nodo sigue trabajando por su
+      // cuenta después de que la ejecución haya terminado: se abortan y se espera a que acaben.
+      if (running.size) this.failFast.abort(new Error('La ejecución ha terminado.'));
+      await Promise.allSettled(running.values());
+    }
+
+    // Lo que no llegó a ejecutarse queda cancelado.
+    for (const id of order) {
+      if (this.status.get(id) === 'pending') {
+        this.status.set(id, 'cancelled');
+        this.deps.store.updateStep(this.run.id, id, { status: 'cancelled', finishedAt: nowIso() });
+        this.deps.emit('step.finished', id, { status: 'cancelled' });
+      }
+    }
+    return this.buildResult(order);
+  }
+
+  /** Bucle del planificador: salta, lanza y espera hasta que no queda nada por hacer o se aborta la ejecución. */
+  private async schedule(order: string[], running: Map<string, Promise<void>>, maxConcurrency: number): Promise<void> {
     while (!this.signal.aborted) {
       // 1) Propagar saltos: ramas no tomadas y dependencias fallidas (puede encadenarse).
       for (let changed = true; changed; ) {
@@ -159,17 +196,6 @@ export class WorkflowExecution {
         this.failFast.abort(new Error('Otro nodo ha fallado.'));
       }
     }
-    await Promise.allSettled(running.values());
-
-    // Lo que no llegó a ejecutarse queda cancelado.
-    for (const id of order) {
-      if (this.status.get(id) === 'pending') {
-        this.status.set(id, 'cancelled');
-        this.deps.store.updateStep(this.run.id, id, { status: 'cancelled', finishedAt: nowIso() });
-        this.deps.emit('step.finished', id, { status: 'cancelled' });
-      }
-    }
-    return this.buildResult(order);
   }
 
   /** Decide si un nodo pendiente puede ejecutarse ya, debe esperar o debe saltarse. */
@@ -200,12 +226,29 @@ export class WorkflowExecution {
     this.deps.emit('step.skipped', nodeId, { reason: parentFailed ? 'Una dependencia ha fallado.' : 'Rama no tomada.' });
   }
 
+  /** Ejecuta un nodo. Nunca rechaza: cualquier fallo, también uno inesperado, deja el paso cerrado como fallido. */
   private async executeNode(node: WorkflowNode): Promise<void> {
+    try {
+      await this.attemptNode(node);
+    } catch (err) {
+      const message = `Error interno al ejecutar el nodo: ${errorMessage(err)}`;
+      this.status.set(node.id, 'failed');
+      this.errors.set(node.id, message);
+      try {
+        this.deps.store.updateStep(this.run.id, node.id, { status: 'failed', error: message, finishedAt: nowIso() });
+        this.deps.emit('step.finished', node.id, { status: 'failed', error: message });
+      } catch {
+        /* si ni siquiera se puede escribir, el gestor de ejecuciones cierra los pasos que queden abiertos */
+      }
+    }
+  }
+
+  private async attemptNode(node: WorkflowNode): Promise<void> {
     const { store, emit } = this.deps;
     // En «para cada» los reintentos se aplican a cada elemento, no al nodo entero (ver runForeach).
     const retriable = node.type === 'agent' || node.type === 'tool';
     const retries = retriable ? Math.min(Math.max(Number(node.config?.retries ?? this.settings.defaultRetries) || 0, 0), 5) : 0;
-    const timeoutMs = retriable || node.type === 'foreach' ? Number(node.config?.timeoutMs) || 0 : 0;
+    const timeoutMs = retriable || node.type === 'foreach' ? Math.min(Math.max(Math.round(Number(node.config?.timeoutMs) || 0), 0), MAX_NODE_TIMEOUT_MS) : 0;
     const startedAt = nowIso();
     const startMs = Date.now();
     let stepUsage: Usage = { ...ZERO_USAGE };
@@ -221,7 +264,8 @@ export class WorkflowExecution {
       const signal = nodeTimeout ? AbortSignal.any([this.signal, nodeTimeout]) : this.signal;
 
       try {
-        const output = truncate(await this.runNodeBody(node, signal, trackUsage), MAX_OUTPUT_CHARS);
+        // En carrera con la señal: una herramienta que ignore la cancelación no puede retener la ejecución.
+        const output = truncate(await raceAbort(this.runNodeBody(node, signal, trackUsage), signal), MAX_OUTPUT_CHARS);
         this.outputs.set(node.id, output);
         this.status.set(node.id, 'completed');
         store.updateStep(this.run.id, node.id, { status: 'completed', output, usage: stepUsage, finishedAt: nowIso() });
@@ -335,7 +379,7 @@ export class WorkflowExecution {
         const left = this.render(String(cfg.left || '{{upstream}}'), node);
         const right = this.render(String(cfg.right ?? ''), node);
         store.updateStep(this.run.id, node.id, { input: `${truncate(left, 2000)}\n${cfg.operator} ${right}` });
-        return String(evaluateCondition(left, String(cfg.operator), right));
+        return String(await evaluateCondition(left, String(cfg.operator), right, signal));
       }
 
       case 'transform':
@@ -458,9 +502,10 @@ export class WorkflowExecution {
   /** Sustituye las referencias {{...}} de una plantilla con los resultados disponibles. */
   private render(template: string, node: WorkflowNode, extra: Record<string, string> = {}): string {
     return renderTemplate(template, (ref) => {
-      if (ref in extra) return extra[ref];
+      if (Object.hasOwn(extra, ref)) return extra[ref];
       if (ref === 'input') return this.run.input;
-      if (ref === 'date') return new Date().toISOString().slice(0, 10);
+      // Fecha local del servidor: con la fecha UTC, un workflow lanzado poco después de medianoche recibía la de ayer.
+      if (ref === 'date') return localDate();
       if (ref === 'upstream') return this.upstreamText(node);
       const id = ref.endsWith('.output') ? ref.slice(0, -7) : ref;
       return this.outputs.get(id);

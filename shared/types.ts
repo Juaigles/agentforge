@@ -321,6 +321,8 @@ export interface Settings {
   allowPrivateNetwork: boolean;
   /** Habilita la herramienta run_javascript. */
   allowCodeExecution: boolean;
+  /** Cómo se aísla run_javascript: en un proceso de Node restringido o en un contenedor sin red (Docker/Podman). */
+  codeSandbox: 'process' | 'container';
   /** Días que se conservan las ejecuciones terminadas (0 = sin límite). */
   retentionDays: number;
   /** Número máximo de ejecuciones terminadas que se conservan (0 = sin límite). */
@@ -331,6 +333,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxConcurrentRuns: 3,
   allowPrivateNetwork: false,
   allowCodeExecution: false,
+  codeSandbox: 'process',
   retentionDays: 0,
   retentionMaxRuns: 0,
 };
@@ -427,4 +430,29 @@ export interface WorkspaceFile {
   path: string;
   sizeBytes: number;
   modifiedAt: string;
+}
+
+/** Estado real de los dos aislamientos de run_javascript (se comprueba en el servidor, no se supone). */
+export interface SandboxStatus {
+  process: {
+    /** ¿El proceso aislado se queda sin red? Comprobado con una conexión real. */
+    networkBlocked: boolean;
+    /** 'permission' = lo impide el modelo de permisos de Node; 'lockdown' = lo impide el propio proceso al arrancar. */
+    method: 'permission' | 'lockdown';
+    nodeVersion: string;
+  };
+  container: {
+    available: boolean;
+    engine: 'docker' | 'podman' | null;
+    version: string | null;
+    image: string;
+    imagePresent: boolean;
+    error: string | null;
+  };
+}
+
+export interface AuthStatus {
+  /** ¿El servidor exige clave de acceso? */
+  required: boolean;
+  authenticated: boolean;
 }

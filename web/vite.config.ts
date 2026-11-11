@@ -16,7 +16,8 @@ export default defineConfig({
     port: 5173,
     // El frontend habla con la API a través de este proxy: mismo origen, sin CORS.
     proxy: { '/api': { target: apiTarget, changeOrigin: false } },
-    fs: { allow: ['..'] },
+    // Solo el frontend y el código compartido: nunca la carpeta de datos (clave maestra y base de datos).
+    fs: { allow: ['.', '../shared', '../node_modules'], deny: ['**/data/**', '**/.env*', '**/*.key', '**/*.db'] },
   },
   test: { environment: 'node', include: ['src/**/*.test.ts'] },
 });

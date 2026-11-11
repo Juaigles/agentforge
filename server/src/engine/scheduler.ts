@@ -3,6 +3,7 @@
 // que una ejecución manual.
 import type { Run, Schedule, ScheduleInput, ValidationIssue, Workflow } from '../../../shared/types';
 import type { Store } from '../db/store';
+import { errorMessage, silentLogger, type Logger } from '../util';
 import type { RunManager } from './run-manager';
 
 /** Próximo instante en que debe dispararse una programación, contado a partir de `from`. */
@@ -23,6 +24,7 @@ export interface SchedulerDeps {
   runs: RunManager;
   /** Problemas de validación del workflow (los errores impiden lanzarlo). */
   validate: (workflow: Workflow) => ValidationIssue[];
+  log?: () => Logger;
 }
 
 export class Scheduler {
@@ -30,17 +32,27 @@ export class Scheduler {
 
   constructor(private readonly deps: SchedulerDeps) {}
 
+  private get log(): Logger {
+    return this.deps.log?.() ?? silentLogger;
+  }
+
   /** Empieza a comprobar las programaciones cada `tickMs`. No impide que el proceso termine. */
   start(tickMs = 5000): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
       try {
         this.tick();
-      } catch {
-        /* un fallo puntual (p. ej. la base de datos ocupada) se reintenta en la siguiente pasada */
+      } catch (err) {
+        // Un fallo puntual (p. ej. la base de datos ocupada) se reintenta en la siguiente pasada.
+        this.log.warn({ err }, 'No se pudieron comprobar las programaciones');
       }
     }, tickMs);
     this.timer.unref();
+  }
+
+  /** ¿Está en marcha el temporizador? */
+  get running(): boolean {
+    return this.timer !== null;
   }
 
   stop(): void {
@@ -59,9 +71,17 @@ export class Scheduler {
         this.deps.store.updateScheduleState(schedule.workflowId, { nextRunAt: next, lastError: 'Se omitió una ejecución porque la anterior seguía en curso.' });
         continue;
       }
-      const result = this.launch(schedule);
+      // Cada programación por separado: si una falla de forma inesperada, las demás se siguen evaluando.
+      let result: { run: Run } | { error: string };
+      try {
+        result = this.launch(schedule);
+      } catch (err) {
+        this.log.error({ err, workflowId: schedule.workflowId }, 'Fallo inesperado al lanzar una programación');
+        result = { error: `No se pudo lanzar: ${errorMessage(err)}` };
+      }
       if ('run' in result) {
         started.push(result.run.id);
+        this.log.info({ workflowId: schedule.workflowId, runId: result.run.id }, 'Programación lanzada');
         this.deps.store.updateScheduleState(schedule.workflowId, { nextRunAt: next, lastRunAt: new Date(now).toISOString(), lastRunId: result.run.id, lastError: null });
       } else {
         this.deps.store.updateScheduleState(schedule.workflowId, { nextRunAt: next, lastError: result.error });

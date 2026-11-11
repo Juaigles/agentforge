@@ -11,6 +11,7 @@ import { RunManager } from './engine/run-manager';
 import { Scheduler } from './engine/scheduler';
 import { defaultLlmFactory, type LlmFactory } from './llm';
 import { ToolRegistry } from './tools/registry';
+import { silentLogger, type Logger } from './util';
 
 export interface AppContext {
   config: AppConfig;
@@ -22,10 +23,14 @@ export interface AppContext {
   /** Programación de workflows. El temporizador solo se arranca en el servidor real (index.ts). */
   scheduler: Scheduler;
   startedAt: number;
+  /** Registro de la aplicación. `buildApp` lo sustituye por el de Fastify; hasta entonces no escribe nada. */
+  log: Logger;
   /** Ejecuciones que estaban a medias en el arranque y se han marcado como interrumpidas. */
   interruptedRuns: number;
   /** Aplica la política de retención del historial configurada en Ajustes. Devuelve cuántas ejecuciones borra. */
   applyRetention(): number;
+  /** Detiene las ejecuciones dejándolas reanudables (ver RunManager.shutdown). Devuelve cuántas se interrumpen. */
+  stopRuns(): Promise<number>;
   close(): Promise<void>;
 }
 
@@ -36,7 +41,46 @@ export interface ContextOverrides {
   retryBaseDelayMs?: number;
 }
 
+/**
+ * Impide que dos servidores usen a la vez la misma carpeta de datos: el segundo marcaría como interrumpidas
+ * las ejecuciones que el primero sí está ejecutando y ambos dispararían las programaciones por duplicado.
+ * Devuelve la función que libera el bloqueo.
+ */
+function acquireInstanceLock(dataDir: string): () => void {
+  const file = path.join(dataDir, 'agentforge.lock');
+  fs.mkdirSync(dataDir, { recursive: true });
+  try {
+    const pid = Number(fs.readFileSync(file, 'utf8').trim());
+    if (Number.isInteger(pid) && pid > 0 && pid !== process.pid) {
+      let alive = true;
+      try {
+        process.kill(pid, 0);
+      } catch (err) {
+        // EPERM: el proceso existe pero es de otro usuario. Cualquier otro error: ya no existe.
+        alive = (err as NodeJS.ErrnoException).code === 'EPERM';
+      }
+      if (alive) {
+        throw new Error(
+          `Ya hay otro servidor de AgentForge (proceso ${pid}) usando la carpeta de datos ${dataDir}. ` +
+            'Ciérralo antes de arrancar este, o usa otra carpeta con AGENTFORGE_DATA_DIR.',
+        );
+      }
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  fs.writeFileSync(file, String(process.pid));
+  return () => {
+    try {
+      if (fs.readFileSync(file, 'utf8').trim() === String(process.pid)) fs.rmSync(file, { force: true });
+    } catch {
+      /* ya no está: nada que liberar */
+    }
+  };
+}
+
 export function createContext(config: AppConfig, overrides: ContextOverrides = {}): AppContext {
+  const releaseLock = overrides.inMemory ? () => undefined : acquireInstanceLock(config.dataDir);
   fs.mkdirSync(config.workspaceDir, { recursive: true });
   const db = openDatabase(overrides.inMemory ? ':memory:' : config.dbFile);
   const secrets = overrides.inMemory ? SecretBox.ephemeral() : SecretBox.fromKeyFile(path.join(config.dataDir, 'secret.key'));
@@ -56,14 +100,15 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
     workspaceDir: config.workspaceDir,
     retryBaseDelayMs: overrides.retryBaseDelayMs,
     onRunFinished: applyRetention,
+    log: () => ctx.log,
   });
   // La retención por antigüedad se aplica al arrancar y, después, cada hora (sin impedir que el proceso termine).
   applyRetention();
   const retentionTimer = setInterval(() => {
     try {
       applyRetention();
-    } catch {
-      /* se reintentará en la siguiente pasada */
+    } catch (err) {
+      ctx.log.warn({ err }, 'No se pudo aplicar la retención del historial; se reintentará en la siguiente pasada');
     }
   }, 3_600_000);
   retentionTimer.unref();
@@ -71,8 +116,9 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
     store,
     runs,
     validate: (wf) => validateWorkflow(wf, { agentIds: store.listAgents().map((a) => a.id), toolNames: tools.names() }),
+    log: () => ctx.log,
   });
-  return {
+  const ctx: AppContext = {
     config,
     db,
     store,
@@ -81,13 +127,19 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
     runs,
     scheduler,
     startedAt: Date.now(),
+    log: silentLogger,
     interruptedRuns,
     applyRetention,
-    async close() {
+    async stopRuns() {
       clearInterval(retentionTimer);
       scheduler.stop();
-      await runs.shutdown();
+      return runs.shutdown(config.shutdownGraceMs);
+    },
+    async close() {
+      await ctx.stopRuns();
       if (db.isOpen) db.close();
+      releaseLock();
     },
   };
+  return ctx;
 }

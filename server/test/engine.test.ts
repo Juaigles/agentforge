@@ -199,18 +199,23 @@ describe('condiciones y ramas', () => {
     expect(run.output).toBe('A');
   });
 
-  it('evalúa todos los operadores', () => {
-    expect(evaluateCondition('Hola Mundo', 'contains', 'mundo')).toBe(true);
-    expect(evaluateCondition('Hola', 'not_contains', 'x')).toBe(true);
-    expect(evaluateCondition(' SI ', 'equals', 'si')).toBe(true);
-    expect(evaluateCondition('a', 'not_equals', 'a')).toBe(false);
-    expect(evaluateCondition('pedido 123', 'matches', '\\d{3}')).toBe(true);
-    expect(evaluateCondition('7,5', 'gt', '7')).toBe(true);
-    expect(evaluateCondition('3', 'lt', '2')).toBe(false);
-    expect(evaluateCondition('  ', 'is_empty', '')).toBe(true);
-    expect(evaluateCondition('x', 'not_empty', '')).toBe(true);
-    expect(() => evaluateCondition('abc', 'gt', '1')).toThrow(/números/);
-    expect(() => evaluateCondition('a', 'matches', '(')).toThrow(/regular/);
+  it('evalúa todos los operadores', async () => {
+    expect(await evaluateCondition('Hola Mundo', 'contains', 'mundo')).toBe(true);
+    expect(await evaluateCondition('Hola', 'not_contains', 'x')).toBe(true);
+    expect(await evaluateCondition(' SI ', 'equals', 'si')).toBe(true);
+    expect(await evaluateCondition('a', 'not_equals', 'a')).toBe(false);
+    expect(await evaluateCondition('pedido 123', 'matches', '\\d{3}')).toBe(true);
+    expect(await evaluateCondition('pedido', 'matches', '\\d{3}')).toBe(false);
+    expect(await evaluateCondition('7,5', 'gt', '7')).toBe(true);
+    expect(await evaluateCondition('3', 'lt', '2')).toBe(false);
+    expect(await evaluateCondition('  ', 'is_empty', '')).toBe(true);
+    expect(await evaluateCondition('x', 'not_empty', '')).toBe(true);
+    await expect(evaluateCondition('abc', 'gt', '1')).rejects.toThrow(/números/);
+    await expect(evaluateCondition('a', 'matches', '(')).rejects.toThrow(/regular/);
+    // Números con separador de miles y decimal, en las dos convenciones; un valor vacío no vale 0.
+    expect(await evaluateCondition('1.234,5', 'gt', '1234')).toBe(true);
+    expect(await evaluateCondition('1,234.5', 'lt', '1235')).toBe(true);
+    await expect(evaluateCondition('', 'lt', '5')).rejects.toThrow(/números/);
   });
 });
 

@@ -126,20 +126,44 @@ const MIGRATIONS: string[] = [
   `,
 ];
 
-/** Abre (o crea) la base de datos y aplica las migraciones pendientes. Usa ':memory:' en tests. */
-export function openDatabase(file: string): DatabaseSync {
+/** Versión de esquema que conoce este código. */
+export const SCHEMA_VERSION = MIGRATIONS.length;
+
+/**
+ * Abre (o crea) la base de datos y aplica las migraciones pendientes. Usa ':memory:' en tests.
+ *
+ * Antes de migrar una base con datos se guarda una copia coherente (`agentforge.db.v<N>.bak`), porque las
+ * migraciones no tienen marcha atrás. Una base de una versión MÁS NUEVA que el código se rechaza: abrirla
+ * daría errores tardíos o datos incoherentes.
+ */
+export function openDatabase(file: string, migrations: string[] = MIGRATIONS): DatabaseSync {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+  // synchronous=NORMAL con WAL: la base nunca se corrompe; ante un corte de luz se puede perder la última
+  // transacción confirmada, a cambio de no hacer un fsync por cada evento escrito.
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  for (let v = current; v < MIGRATIONS.length; v++) {
+  if (current > migrations.length) {
+    db.close();
+    throw new Error(
+      `La base de datos (${file}) tiene el esquema v${current}, más reciente que el que entiende esta versión de AgentForge (v${migrations.length}). ` +
+        'Actualiza AgentForge o restaura una copia de seguridad anterior.',
+    );
+  }
+  if (file !== ':memory:' && current > 0 && current < migrations.length) {
+    const backup = `${file}.v${current}.bak`;
+    fs.rmSync(backup, { force: true });
+    db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+  }
+  for (let v = current; v < migrations.length; v++) {
     db.exec('BEGIN');
     try {
-      db.exec(MIGRATIONS[v]);
+      db.exec(migrations[v]);
       db.exec(`PRAGMA user_version = ${v + 1}`);
       db.exec('COMMIT');
     } catch (err) {
       db.exec('ROLLBACK');
+      db.close();
       throw err;
     }
   }

@@ -14,7 +14,7 @@ export async function seedIfEmpty(ctx: AppContext): Promise<boolean> {
   const { store } = ctx;
   if (store.listProviders().length || store.listAgents().length || store.listWorkflows().length) return false;
 
-  let model = process.env.AGENTFORGE_DEFAULT_MODEL ?? '';
+  let model = ctx.config.defaultModel;
   if (!model) {
     try {
       const models = await ctx.llm.create({ kind: 'ollama', baseUrl: ctx.config.ollamaUrl }).listModels(AbortSignal.timeout(3000));

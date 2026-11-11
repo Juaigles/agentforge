@@ -73,6 +73,104 @@ Prioridad seguida: T1→T8 (núcleo verificable) antes que la interfaz; después
 
 Todas las tareas están completadas. Lo que queda fuera de alcance está en `PROGRESS.md` ("Pendiente y limitaciones").
 
+## Hito 5 — Llevarlo a primer nivel
+
+Punto de partida: commit `8bef427`, con 203 tests de servidor, 40 de frontend y 43 e2e (Chromium) en verde,
+`typecheck` limpio y `npm audit` con 0 vulnerabilidades (medido el 2026-11-11).
+
+### Auditoría inicial (solo lectura, siete subagentes en paralelo)
+
+Los informes completos, con archivo y línea, están fuera del repositorio, en la carpeta de notas de la sesión
+(`auditoria-*.md`). Recuento de hallazgos:
+
+| Auditoría | Crítico | Alto | Medio | Bajo |
+|---|---|---|---|---|
+| Seguridad | 0 | 2 | 4 | 11 |
+| Corrección y deuda técnica | 0 | 3 | 18 | 19 |
+| Rendimiento y escalabilidad | 1 | 6 | 10 | 8 |
+| Cobertura de tests | 3 | 10 | 18 | 8 |
+| Accesibilidad WCAG 2.1 AA | 2 | 8 | 13 | 22 |
+| UX y diseño | 3 | 11 | 16 | 12 |
+| Documentación y operación | 1 | 8 | 14 | 10 |
+
+Críticos y altos, agrupados por causa (varios informes señalan lo mismo):
+
+- **Ciclo de vida de las ejecuciones.** El apagado ordenado (Ctrl+C, `SIGTERM`) deja las ejecuciones como
+  «canceladas por el usuario» y no reanudables; `safeFetch` se cuelga para siempre si una respuesta comprimida se
+  corta, y con ello la ejecución y el propio apagado; un `timeoutMs` fuera de rango o un error de SQLite al cerrar
+  una ejecución dejan pasos «en curso» o tumban el proceso; no hay plazo de apagado ni manejadores de proceso.
+- **Secretos y exposición.** `POST /api/providers/test|models` y `PUT /api/providers/:id` envían la API key
+  guardada a la URL que indique quien llama; `HOST=0.0.0.0` anula la comprobación de `Host`; sin autenticación,
+  `Origin`, CSP ni límite de tasa; un agente con redes privadas permitidas puede llamar a la propia API; las
+  credenciales se reenvían al seguir redirecciones a otro origen; la condición `matches` admite ReDoS que congela
+  el servidor; las cabeceras de las herramientas HTTP se guardan en claro.
+- **Rendimiento.** `stats()` recorre `runs` tres veces por petición (0,76 s con 20 000 ejecuciones) y el panel la
+  pide tras cada paso; los listados arrastran `input`/`output` completos; la retención recorre la tabla en cada
+  ejecución terminada y el archivo no encoge; faltan índices; el Markdown se renderiza entero por cada token;
+  expresiones regulares cuadráticas sobre HTML ajeno en `web_fetch`.
+- **Pruebas.** Sin CI ni cobertura; migraciones con un único test; saneado de Markdown sin test contra XSS;
+  `useRunStream`, `lib/api.ts`, cuatro modales y las vistas grandes sin tests; e2e solo en Chromium.
+- **Interfaz.** Con teclado no se puede abrir un nodo ya creado ni conectar dos nodos existentes; los modales no
+  atrapan el foco; `--text-3` y los bordes de campo no alcanzan el contraste AA; el constructor no tiene
+  deshacer/rehacer y borra al instante; se pierde trabajo al cerrar la pestaña o un modal; la primera sesión sin
+  Ollama no guía; si el servidor cae, la interfaz sigue diciendo que todo va bien; el historial no escala.
+- **Documentación y operación.** Sin licencia, referencia de la API, guías de usuario, de arquitectura ni de
+  solución de problemas; sin `Dockerfile`, copia de seguridad, métricas ni registro por defecto; la configuración
+  no se valida; nada impide dos instancias sobre la misma carpeta de datos.
+
+### Fases
+
+Un solo escritor por fase (los archivos bisagra son `shared/types.ts`, `server/src/db/store.ts`,
+`server/src/routes/api.ts` y `web/src/lib/api.ts`). Cada fase termina con las cuatro baterías en verde,
+verificación en el navegador y con Ollama real donde aplique, `PROGRESS.md` y `TEST_RESULTS.md` con resultados
+reales y un commit local.
+
+- [x] **F1 · Fiabilidad y seguridad del servidor.** Apagado que deja las ejecuciones interrumpidas y
+  reanudables, con plazo y manejadores de proceso; `safeFetch` sin cuelgues y carrera con la señal en el motor;
+  configuración de nodos validada (`timeoutMs`, reintentos) y `executeNode` que nunca deja pasos huérfanos;
+  consulta de `/api/runs` validada; base de datos de versión superior rechazada y copia previa a migrar; bloqueo
+  de instancia única. Claves ligadas a su origen; comprobación de `Host` siempre activa con
+  `AGENTFORGE_ALLOWED_HOSTS`; autenticación por token obligatoria fuera de loopback; comprobación de `Origin` y
+  `Sec-Fetch-Site`; cabeceras de seguridad y CSP; límite de tasa; bloqueo de la propia API desde las herramientas;
+  cabeceras retiradas en redirecciones a otro origen; `matches` evaluada en un `Worker` con límite de tiempo;
+  escape JSON en `bodyTemplate`; reintentos solo de errores marcados; cuota del espacio de trabajo;
+  `run_javascript` sin red (permiso de red donde exista, comprobado al arrancar, y backend de contenedor
+  Docker/Podman seleccionable en Ajustes); test de rebinding contra un servidor DNS local real; configuración
+  validada; registro estructurado siempre activo; salud `live`/`ready`.
+  *Hecho el 2026-11-11 (detalle en `PROGRESS.md`, «Hito 5 · Fase 1»). Lo que se movió a otra fase: cifrar las
+  cabeceras con credenciales de las herramientas HTTP (F5), `parseList` y el adaptador OpenAI (F3), las
+  expresiones regulares cuadráticas de `web_fetch` y el resto de rendimiento (F2).*
+- [ ] **F2 · Datos y rendimiento.** Índices y columnas ligeras en los listados; estadísticas incrementales o
+  cacheadas; retención acotada, por lotes y con `VACUUM`; `synchronous=NORMAL`; SSE con contrapresión; copia de
+  seguridad y restauración de `data/` desde la interfaz; memoria compartida persistida; prueba de carga
+  reproducible con cifras medidas antes y después.
+- [ ] **F3 · Motor.** Registro de tipos de nodo con esquemas en `shared/`; identidad de paso por ruta;
+  subworkflows; «para cada» con cuerpo de subworkflow o de herramienta, política por elemento y reutilización de
+  elementos completados al reintentar; nodo de aprobación humana (ejecución en espera que sobrevive a un
+  reinicio); texto parcial de un paso cancelado persistido; reanudación automática opcional; `parseList`
+  tolerante a prosa; adaptador OpenAI que detecta respuestas cortadas; fechas en hora local.
+- [ ] **F4 · Disparadores y MCP.** Tabla de disparadores: cron, días de la semana, zona horaria, varios por
+  workflow y webhooks locales con secreto; cliente MCP (stdio y HTTP) como tercera fuente de herramientas.
+- [ ] **F5 · Portabilidad.** Exportar herramientas HTTP y proveedores sin claves; importación atómica con
+  pantalla de resolución de conflictos; exportar e importar agentes sueltos.
+- [ ] **F6 · Interfaz.** Accesibilidad AA completa (constructor operable con teclado, trampa de foco, contraste,
+  foco y anuncios); constructor con deshacer/rehacer, atajos, copiar/pegar y alineación automática; protección
+  frente a pérdida de trabajo; primera sesión guiada; estado de conexión real; historial con filtros en la URL,
+  paginación, búsqueda en el contenido y comparación de ejecuciones; pulido visual y tokens de tipografía y
+  espaciado; datos de ejemplo corregidos (agente «Redactor»).
+- [ ] **F7 · Inglés además de español.** Códigos de error con parámetros desde el servidor, `vue-i18n`, formato
+  dependiente del idioma y selector de idioma.
+- [ ] **F8 · Calidad y pruebas.** ESLint y Prettier limpios; cobertura con umbrales; tests de componentes para
+  `ProviderModal`, `ToolEditorModal`, `ScheduleModal` y el constructor; tests de migraciones, de saneado de
+  Markdown y de los huecos altos de la auditoría; suite e2e en Firefox y WebKit; archivo de CI listo, sin publicar.
+- [ ] **F9 · Operación y documentación.** Métricas, `Dockerfile` local, OpenAPI, guía de usuario, guía de
+  arquitectura, solución de problemas, `CHANGELOG.md`, licencia y política de seguridad.
+- [ ] **F10 · Segunda auditoría e iteración** hasta que no quede nada crítico, alto ni medio, o lo que quede sea
+  imposible con las reglas del encargo.
+
+Condicionantes del entorno comprobados: Node 24.19 no tiene `--allow-net`, así que el permiso de red no corta
+la red de `run_javascript` en esta máquina; Docker 29.7 está instalado pero su demonio estaba apagado al empezar.
+
 ## Cómo retomar el trabajo
 
 1. `npm install && npm test && npm run test:e2e` para confirmar que el entorno funciona.

@@ -11,25 +11,28 @@ import {
   type ProviderHealth,
   type ProviderTestResult,
   type RunEvent,
-  type RunKind,
-  type RunStatus,
   type Workflow,
   type WorkflowExport,
   type WorkflowImportResult,
 } from '../../../shared/types';
 import type { AppContext } from '../context';
+import { SCHEMA_VERSION } from '../db/database';
 import { nextOccurrence } from '../engine/scheduler';
 import { HttpError } from '../errors';
 import type { LlmProviderConfig } from '../llm/types';
 import { listWorkspaceFiles, resolveInWorkspace } from '../tools/builtin';
+import { sandboxStatus } from '../tools/sandbox';
 import { errorMessage, stringifyResult } from '../util';
 import {
   agentSchema,
   customToolSchema,
+  eventsQuerySchema,
   invokeToolSchema,
+  providerProbeSchema,
   providerSchema,
   retrySchema,
   runIdsSchema,
+  runsQuerySchema,
   scheduleSchema,
   workflowImportSchema,
   runInputSchema,
@@ -89,6 +92,31 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     }
   }
 
+  const originOf = (url: string): string | null => {
+    try {
+      return new URL(url).origin;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * Clave con la que probar una configuración sin guardar. La clave guardada de un proveedor solo se reutiliza
+   * si la URL sigue apuntando al MISMO origen: de lo contrario, cualquiera que pudiera llamar a la API podría
+   * hacer que el servidor enviase la clave a una URL de su elección.
+   */
+  function probeKey(input: { id?: string; baseUrl: string; apiKey?: string | null }): string | null | undefined {
+    if (input.apiKey !== undefined) return input.apiKey;
+    const saved = input.id ? store.getProviderWithSecret(input.id) : null;
+    if (!saved?.apiKey) return undefined;
+    if (originOf(saved.baseUrl) !== originOf(input.baseUrl)) {
+      throw new HttpError(400, 'Has cambiado la dirección del proveedor: vuelve a escribir la API key para probarla con la nueva dirección.', {
+        code: 'api_key_required',
+      });
+    }
+    return saved.apiKey;
+  }
+
   function workflowIssues(wf: Pick<Workflow, 'nodes' | 'edges'>) {
     return validateWorkflow(wf, { agentIds: store.listAgents().map((a) => a.id), toolNames: tools.names() });
   }
@@ -101,7 +129,31 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
   }
 
   // ---------- Sistema ----------
-  app.get('/api/health', async () => ({ ok: true, version: APP_VERSION, uptimeSec: Math.round((Date.now() - ctx.startedAt) / 1000) }));
+  const uptimeSec = () => Math.round((Date.now() - ctx.startedAt) / 1000);
+  app.get('/api/health', async () => ({ ok: true, version: APP_VERSION, uptimeSec: uptimeSec() }));
+
+  /** Sonda de vida: el proceso atiende peticiones. No toca la base de datos ni exige clave de acceso. */
+  app.get('/api/health/live', async () => ({ ok: true, version: APP_VERSION, uptimeSec: uptimeSec() }));
+
+  /** Sonda de disponibilidad: comprueba de verdad la base de datos, la carpeta de datos y el planificador. */
+  app.get('/api/health/ready', async (_req, reply) => {
+    const checks: Record<string, { ok: boolean; detail?: string }> = {};
+    try {
+      const version = Number((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
+      checks.database = version === SCHEMA_VERSION ? { ok: true, detail: `esquema v${version}` } : { ok: false, detail: `esquema v${version}, se esperaba v${SCHEMA_VERSION}` };
+    } catch (err) {
+      checks.database = { ok: false, detail: errorMessage(err) };
+    }
+    try {
+      await fsp.access(ctx.config.workspaceDir, fs.constants.W_OK);
+      checks.dataDir = { ok: true };
+    } catch (err) {
+      checks.dataDir = { ok: false, detail: errorMessage(err) };
+    }
+    checks.scheduler = ctx.scheduler.running ? { ok: true } : { ok: false, detail: 'el temporizador de programaciones no está en marcha' };
+    const ok = Object.values(checks).every((c) => c.ok);
+    return reply.status(ok ? 200 : 503).send({ ok, version: APP_VERSION, uptimeSec: uptimeSec(), activeRuns: runs.activeCount, queuedRuns: runs.queuedCount, checks });
+  });
 
   app.get('/api/stats', async (): Promise<DashboardStats> => {
     const s = store.stats();
@@ -146,8 +198,16 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
   });
 
   app.get('/api/settings', async () => store.getSettings());
+
+  /** Estado real de los aislamientos de run_javascript: red del proceso (comprobada) y motor de contenedores. */
+  app.get('/api/sandbox/status', async (req) => sandboxStatus((req.query as { force?: string }).force === '1'));
   app.put('/api/settings', async (req) => {
-    const settings = store.updateSettings(settingsSchema.parse(req.body));
+    const patch = settingsSchema.parse(req.body);
+    if (patch.codeSandbox === 'container') {
+      const status = await sandboxStatus(true);
+      if (!status.container.available) throw new HttpError(409, `No se puede usar el contenedor: ${status.container.error}`);
+    }
+    const settings = store.updateSettings(patch);
     // Un cambio en la retención se aplica en el momento, sin esperar a la siguiente pasada.
     ctx.applyRetention();
     return settings;
@@ -164,7 +224,13 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
         .listProviders()
         .filter((p) => p.enabled)
         .map(async (p) => {
-          const r = await testProvider(store.getProviderWithSecret(p.id)!);
+          let r: ProviderTestResult;
+          try {
+            r = await testProvider(store.getProviderWithSecret(p.id)!);
+          } catch (err) {
+            // P. ej. una API key que ya no se puede descifrar: es el estado de ESE proveedor, no un error de la ruta.
+            r = { ok: false, latencyMs: 0, error: errorMessage(err) };
+          }
           return { providerId: p.id, name: p.name, kind: p.kind, ok: r.ok, latencyMs: r.latencyMs, modelCount: r.modelCount ?? 0, error: r.error };
         }),
     );
@@ -179,26 +245,28 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
 
   /** Prueba una configuración sin guardarla (para el formulario de alta/edición). */
   app.post('/api/providers/test', async (req) => {
-    const body = req.body as { id?: string };
-    const input = providerSchema.parse(req.body);
-    // Al editar, si no se envía una clave nueva se prueba con la guardada.
-    const saved = body.id ? store.getProviderWithSecret(body.id) : null;
-    return testProvider({ kind: input.kind, baseUrl: input.baseUrl, apiKey: input.apiKey === undefined ? saved?.apiKey : input.apiKey });
+    const input = providerProbeSchema.parse(req.body);
+    // Al editar, si no se envía una clave nueva se prueba con la guardada (solo hacia el mismo origen).
+    return testProvider({ kind: input.kind, baseUrl: input.baseUrl, apiKey: probeKey(input) });
   });
 
   /** Lista los modelos de una configuración sin guardarla (para elegir el modelo por defecto al dar de alta). */
   app.post('/api/providers/models', async (req) => {
-    const body = req.body as { id?: string };
-    const input = providerSchema.parse(req.body);
-    const saved = body.id ? store.getProviderWithSecret(body.id) : null;
-    return ctx.llm
-      .create({ kind: input.kind, baseUrl: input.baseUrl, apiKey: input.apiKey === undefined ? saved?.apiKey : input.apiKey })
-      .listModels(AbortSignal.timeout(8000));
+    const input = providerProbeSchema.parse(req.body);
+    return ctx.llm.create({ kind: input.kind, baseUrl: input.baseUrl, apiKey: probeKey(input) }).listModels(AbortSignal.timeout(8000));
   });
 
   app.put('/api/providers/:id', async (req) => {
     healthCache = null;
-    return store.updateProvider(idOf(req), providerSchema.parse(req.body)) ?? notFound('Proveedor');
+    const input = providerSchema.parse(req.body);
+    const current = store.getProvider(idOf(req)) ?? notFound('Proveedor');
+    // La clave guardada no se «muda» a otra dirección: si cambia el origen hay que escribirla de nuevo (o quitarla).
+    if (current.hasApiKey && input.apiKey === undefined && originOf(current.baseUrl) !== originOf(input.baseUrl)) {
+      throw new HttpError(400, 'Has cambiado la dirección del proveedor: vuelve a escribir la API key (o quítala) antes de guardar.', {
+        code: 'api_key_required',
+      });
+    }
+    return store.updateProvider(current.id, input) ?? notFound('Proveedor');
   });
 
   app.delete('/api/providers/:id', async (req, reply) => {
@@ -321,8 +389,16 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     }
     const stat = await fsp.stat(target).catch(() => null);
     if (!stat?.isFile()) notFound('Archivo');
-    const content = await fsp.readFile(target, 'utf8');
-    return { path: rel, sizeBytes: stat!.size, content: content.slice(0, 500_000), truncated: content.length > 500_000 };
+    // Se lee como mucho el tramo que se va a mostrar: un archivo enorme no se carga entero en memoria.
+    const maxBytes = 500_000;
+    const handle = await fsp.open(target, 'r');
+    try {
+      const buffer = Buffer.alloc(Math.min(stat!.size, maxBytes));
+      await handle.read(buffer, 0, buffer.length, 0);
+      return { path: rel, sizeBytes: stat!.size, content: buffer.toString('utf8'), truncated: stat!.size > maxBytes };
+    } finally {
+      await handle.close();
+    }
   });
 
   app.delete('/api/workspace/file', async (req, reply) => {
@@ -467,18 +543,7 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
   });
 
   // ---------- Ejecuciones ----------
-  app.get('/api/runs', async (req) => {
-    const q = req.query as Record<string, string | undefined>;
-    return store.listRuns({
-      status: q.status as RunStatus | undefined,
-      kind: q.kind as RunKind | undefined,
-      workflowId: q.workflowId,
-      agentId: q.agentId,
-      search: q.search,
-      limit: q.limit ? Number(q.limit) : undefined,
-      offset: q.offset ? Number(q.offset) : undefined,
-    });
-  });
+  app.get('/api/runs', async (req) => store.listRuns(runsQuerySchema.parse(req.query)));
 
   // Ejecuciones que un apagado dejó a medias: la interfaz ofrece reanudarlas o descartarlas al arrancar.
   app.get('/api/runs/interrupted', async () => store.listInterruptedRuns());
@@ -501,7 +566,7 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
 
   app.get('/api/runs/:id/events', async (req) => {
     if (!store.getRunSummary(idOf(req))) notFound('Ejecución');
-    return store.listEvents(idOf(req), Number((req.query as { after?: string }).after ?? 0) || 0);
+    return store.listEvents(idOf(req), eventsQuerySchema.parse(req.query).after ?? 0);
   });
 
   app.post('/api/runs/:id/cancel', async (req) => {

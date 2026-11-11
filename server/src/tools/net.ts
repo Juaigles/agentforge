@@ -7,7 +7,8 @@ import { lookup } from 'node:dns/promises';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
-import type { Readable } from 'node:stream';
+import os from 'node:os';
+import { pipeline, type Readable } from 'node:stream';
 import zlib from 'node:zlib';
 import { ToolError } from '../errors';
 
@@ -21,6 +22,7 @@ function isPrivateV4(ip: string): boolean {
     (a === 169 && b === 254) || // enlace local (incluye metadatos de nube)
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 0 && c === 0) || // asignaciones de protocolo IETF
+    (a === 192 && b === 88 && c === 99) || // retransmisión 6to4 (obsoleta)
     (a === 192 && b === 168) ||
     (a === 198 && (b === 18 || b === 19)) || // pruebas de rendimiento
     a >= 224 // multidifusión y reservadas
@@ -60,12 +62,43 @@ export function isPrivateAddress(ip: string): boolean {
   if (zeros(5) && g[5] === 0xffff) return isPrivateV4(v4FromGroups(g[6], g[7]));
   if (zeros(6)) return g[6] === 0 && g[7] <= 1 ? true : isPrivateV4(v4FromGroups(g[6], g[7])); // :: y ::1 incluidos
   if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0)) return isPrivateV4(v4FromGroups(g[6], g[7]));
+  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 1) return true; // 64:ff9b:1::/48, NAT64 de uso local
+  if (g[0] === 0x2002) return isPrivateV4(v4FromGroups(g[1], g[2])); // 6to4: lleva la IPv4 en los grupos 1 y 2
+  if (g[0] === 0x2001 && g[1] === 0) return true; // Teredo (2001::/32): túnel hacia una IPv4 arbitraria
   return (
     (g[0] & 0xfe00) === 0xfc00 || // fc00::/7 direcciones locales únicas
     (g[0] & 0xffc0) === 0xfe80 || // fe80::/10 enlace local
     (g[0] & 0xffc0) === 0xfec0 || // fec0::/10 local de sitio (obsoleta)
     (g[0] & 0xff00) === 0xff00 // ff00::/8 multidifusión
   );
+}
+
+// Puertos de este mismo equipo que las herramientas no pueden tocar nunca, ni siquiera con «redes privadas»
+// permitidas: la API de AgentForge. Sin esto, un agente que lea contenido no fiable podría cambiar los ajustes
+// o pedir las claves llamando a http://127.0.0.1:<puerto>/api.
+const protectedPorts = new Set<number>();
+
+/** Declara un puerto local como inalcanzable para las herramientas. Devuelve la función que lo libera. */
+export function protectLocalPort(port: number): () => void {
+  protectedPorts.add(port);
+  return () => protectedPorts.delete(port);
+}
+
+function isOwnAddress(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    if (ip.startsWith('127.') || ip === '0.0.0.0') return true;
+  } else {
+    const g = expandV6(ip);
+    if (!g) return true;
+    const head = g.slice(0, 5).every((x) => x === 0);
+    // :: y ::1, y las IPv4 de loopback mapeadas (::ffff:127.x.x.x) o compatibles.
+    if (head && g[5] === 0 && g[6] === 0 && g[7] <= 1) return true;
+    if (head && (g[5] === 0xffff || g[5] === 0) && g[6] >> 8 === 127) return true;
+  }
+  for (const list of Object.values(os.networkInterfaces())) {
+    if (list?.some((iface) => iface.address.toLowerCase() === ip.toLowerCase())) return true;
+  }
+  return false;
 }
 
 /** Resuelve un nombre de host a sus direcciones IP. Sustituible en tests. */
@@ -108,6 +141,10 @@ export async function resolveTarget(rawUrl: string, allowPrivate: boolean, looku
   // Basta una dirección privada entre las respuestas para rechazar el nombre entero.
   if (!allowPrivate && addresses.some(isPrivateAddress)) {
     throw new ToolError(`Acceso bloqueado a red privada o local (${host}). Puede habilitarse en Ajustes → "Permitir redes privadas".`);
+  }
+  const port = Number(url.port) || (url.protocol === 'https:' ? 443 : 80);
+  if (protectedPorts.has(port) && addresses.some(isOwnAddress)) {
+    throw new ToolError(`Acceso bloqueado: las herramientas no pueden llamar a la propia API de AgentForge (${url.host}).`);
   }
   const address = addresses.find((a) => net.isIPv4(a)) ?? addresses[0];
   return { url, address, family: net.isIPv4(address) ? 4 : 6 };
@@ -170,13 +207,29 @@ function pinnedRequest(
   });
 }
 
+/**
+ * Cuerpo de la respuesta ya descomprimido. Se usa `pipeline` y no `pipe`: `pipe` no propaga ni el error ni el
+ * cierre del origen, así que una respuesta comprimida que se cortara a medias (o que se abortara) dejaba al
+ * descompresor esperando para siempre, y con él a la herramienta, a la ejecución y al apagado del servidor.
+ */
 function decoded(res: http.IncomingMessage): Readable {
   const encoding = String(res.headers['content-encoding'] ?? '').toLowerCase();
-  if (encoding === 'gzip' || encoding === 'x-gzip') return res.pipe(zlib.createGunzip());
-  if (encoding === 'deflate') return res.pipe(zlib.createInflate());
-  if (encoding === 'br') return res.pipe(zlib.createBrotliDecompress());
-  return res;
+  const decoder =
+    encoding === 'gzip' || encoding === 'x-gzip'
+      ? zlib.createGunzip()
+      : encoding === 'deflate'
+        ? zlib.createInflate()
+        : encoding === 'br'
+          ? zlib.createBrotliDecompress()
+          : null;
+  if (!decoder) return res;
+  // El error llega al consumidor a través del propio descompresor (pipeline lo destruye con él).
+  pipeline(res, decoder, () => undefined);
+  return decoder;
 }
+
+/** Cabeceras propias del cliente: las únicas que se conservan al seguir una redirección hacia otro origen. */
+const BASE_HEADERS = { 'User-Agent': 'AgentForge/0.1', Accept: '*/*', 'Accept-Encoding': 'gzip, deflate, br' };
 
 /** fetch con validación y fijación del destino en cada redirección, timeout y límite de tamaño de respuesta. */
 export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise<SafeFetchResult> {
@@ -185,30 +238,39 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
   let current = rawUrl;
   let method = (opts.method ?? 'GET').toUpperCase();
   let body = opts.body;
+  // Las cabeceras de quien llama (Authorization, cookies, claves de API…) solo viajan al origen inicial.
+  let extraHeaders: Record<string, string> = opts.headers ?? {};
+  let origin: string | null = null;
 
   for (let hop = 0; hop <= 5; hop++) {
     const target = await resolveTarget(current, opts.allowPrivate, opts.lookup);
     const { url } = target;
+    origin ??= url.origin;
+    if (url.origin !== origin) extraHeaders = {};
     const hasBody = method !== 'GET' && method !== 'HEAD' && body !== undefined;
     let res: http.IncomingMessage;
     try {
       res = await pinnedRequest(target, {
         method,
-        headers: { 'User-Agent': 'AgentForge/0.1', Accept: '*/*', 'Accept-Encoding': 'gzip, deflate, br', ...opts.headers },
+        headers: { ...BASE_HEADERS, ...extraHeaders },
         body: hasBody ? body : undefined,
         signal,
       });
     } catch (err) {
       if (opts.signal.aborted) throw opts.signal.reason;
-      if (signal.aborted) throw new ToolError(`La petición a ${url.host} superó el tiempo de espera.`);
-      throw new ToolError(`Fallo de red al conectar con ${url.host}: ${(err as Error).message}`);
+      if (signal.aborted) throw new ToolError(`La petición a ${url.host} superó el tiempo de espera.`, { retryable: true });
+      throw new ToolError(`Fallo de red al conectar con ${url.host}: ${(err as Error).message}`, { retryable: true });
     }
 
     const status = res.statusCode ?? 0;
     const location = res.headers.location;
     if (status >= 300 && status < 400 && location) {
       res.destroy();
-      current = new URL(location, url).toString();
+      const next = new URL(location, url);
+      if (url.protocol === 'https:' && next.protocol === 'http:') {
+        throw new ToolError(`Redirección rechazada: ${url.host} redirige de https a http (${next.host}).`);
+      }
+      current = next.toString();
       if (status === 303 || ((status === 301 || status === 302) && method === 'POST')) {
         method = 'GET';
         body = undefined;
@@ -232,8 +294,8 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
       }
     } catch (err) {
       if (opts.signal.aborted) throw opts.signal.reason;
-      if (signal.aborted) throw new ToolError(`La petición a ${url.host} superó el tiempo de espera.`);
-      throw new ToolError(`Fallo de red al leer la respuesta de ${url.host}: ${(err as Error).message}`);
+      if (signal.aborted) throw new ToolError(`La petición a ${url.host} superó el tiempo de espera.`, { retryable: true });
+      throw new ToolError(`Fallo de red al leer la respuesta de ${url.host}: ${(err as Error).message}`, { retryable: true });
     } finally {
       res.destroy();
     }
