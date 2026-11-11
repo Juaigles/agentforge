@@ -4,6 +4,9 @@ import type {
   Agent,
   AgentInput,
   AuthStatus,
+  BackupInfo,
+  BackupState,
+  PendingRestore,
   CustomTool,
   CustomToolInput,
   DashboardStats,
@@ -110,6 +113,26 @@ export const api = {
     get: () => get<Settings>('/api/settings'),
     update: (patch: Partial<Settings>) => put<Settings>('/api/settings', patch),
   },
+  backups: {
+    state: () => get<BackupState>('/api/backups'),
+    create: () => post<BackupInfo>('/api/backups'),
+    remove: (name: string) => del(`/api/backups/${encodeURIComponent(name)}`),
+    downloadUrl: (name: string) => `/api/backups/${encodeURIComponent(name)}/download`,
+    restore: (name: string) => post<PendingRestore>(`/api/backups/${encodeURIComponent(name)}/restore`),
+    cancelRestore: () => del<{ cancelled: boolean }>('/api/backups/restore/pending'),
+    /** Sube un archivo de copia tal cual (sin leerlo en memoria como texto). */
+    async upload(file: Blob): Promise<BackupInfo> {
+      let res: Response;
+      try {
+        res = await fetch('/api/backups/upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+      } catch {
+        throw new ApiError('No se pudo conectar con el servidor de AgentForge. ¿Está en marcha?', 0);
+      }
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new ApiError(json?.error ?? `Error ${res.status}`, res.status);
+      return json as BackupInfo;
+    },
+  },
   /** Estado real de los dos aislamientos de run_javascript. */
   sandboxStatus: (force = false) => get<SandboxStatus>(`/api/sandbox/status${force ? '?force=1' : ''}`),
   providers: {
@@ -174,7 +197,7 @@ export const api = {
     list: (q: RunQuery = {}) => {
       const params = new URLSearchParams();
       for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') params.set(k, String(v));
-      return get<{ items: RunSummary[]; total: number }>(`/api/runs?${params}`);
+      return get<{ items: RunSummary[]; total: number; capped?: boolean }>(`/api/runs?${params}`);
     },
     get: (id: string) => get<Run>(`/api/runs/${id}`),
     events: (id: string, after = 0) => get<RunEvent[]>(`/api/runs/${id}/events?after=${after}`),

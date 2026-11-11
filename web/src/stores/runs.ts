@@ -21,7 +21,9 @@ export const useRuns = defineStore('runs', () => {
   function apply(run: RunSummary, notify = true): void {
     const previous = known.value.get(run.id);
     const next = new Map(known.value);
-    next.set(run.id, run);
+    // Solo se guardan las que siguen vivas: una pestaña abierta durante días no acumula todo el historial.
+    if (isActiveStatus(run.status)) next.set(run.id, run);
+    else next.delete(run.id);
     known.value = next;
     lastChanged.value = run;
     version.value++;
@@ -36,7 +38,7 @@ export const useRuns = defineStore('runs', () => {
   /** Registra ejecuciones obtenidas por REST (p. ej. las activas al cargar la página). */
   function seed(runs: RunSummary[]): void {
     const next = new Map(known.value);
-    for (const r of runs) next.set(r.id, r);
+    for (const r of runs) if (isActiveStatus(r.status)) next.set(r.id, r);
     known.value = next;
   }
 

@@ -315,20 +315,71 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
   throw new ToolError('Demasiadas redirecciones.');
 }
 
-/** Convierte HTML en texto legible (sin scripts, estilos ni etiquetas). */
+/** HTML que se convierte como mucho: lo que sobra no aporta a un modelo y solo cuesta tiempo. */
+const MAX_HTML_CHARS = 600_000;
+const SKIPPED_BLOCKS = ['script', 'style', 'noscript', 'svg', 'head'];
+
+/**
+ * Quita del HTML los bloques que no son contenido (scripts, estilos, cabecera, comentarios) en UNA pasada.
+ * Antes se hacía con expresiones regulares perezosas, que con miles de aperturas sin cierre (una página
+ * maliciosa, o simplemente cortada por el límite de tamaño) tardaban minutos y congelaban el servidor.
+ */
+function stripBlocks(html: string): string {
+  const lower = html.toLowerCase();
+  let out = '';
+  let pos = 0;
+  while (pos < html.length) {
+    const open = lower.indexOf('<', pos);
+    if (open < 0) break;
+    out += html.slice(pos, open);
+    if (lower.startsWith('<!--', open)) {
+      const close = lower.indexOf('-->', open + 4);
+      if (close < 0) return out; // comentario sin cerrar: el resto se descarta
+      pos = close + 3;
+      continue;
+    }
+    const name = SKIPPED_BLOCKS.find((tag) => lower.startsWith(tag, open + 1) && !/[a-z0-9-]/.test(lower[open + 1 + tag.length] ?? ''));
+    if (name) {
+      const close = lower.indexOf(`</${name}`, open + 1);
+      if (close < 0) return out; // bloque sin cerrar: el resto se descarta
+      const end = lower.indexOf('>', close);
+      if (end < 0) return out;
+      out += ' ';
+      pos = end + 1;
+      continue;
+    }
+    out += '<';
+    pos = open + 1;
+  }
+  return out + html.slice(pos);
+}
+
+/** Título de la página (contenido de <title>), sin expresiones regulares que retrocedan. */
+export function htmlTitle(html: string): string | null {
+  const lower = html.slice(0, MAX_HTML_CHARS).toLowerCase();
+  const open = lower.indexOf('<title');
+  if (open < 0) return null;
+  const start = lower.indexOf('>', open);
+  const close = start < 0 ? -1 : lower.indexOf('</title', start);
+  if (start < 0 || close < 0) return null;
+  return html.slice(start + 1, close).replace(/\s+/g, ' ').trim().slice(0, 300) || null;
+}
+
+/** Convierte HTML en texto legible (sin scripts, estilos ni etiquetas). Coste lineal en el tamaño de la entrada. */
 export function htmlToText(html: string): string {
-  return html
-    .replace(/<(script|style|noscript|svg|head)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
+  return stripBlocks(html.length > MAX_HTML_CHARS ? html.slice(0, MAX_HTML_CHARS) : html)
     .replace(/<\/(p|div|section|article|li|tr|h[1-6]|br)\s*>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
+    .replace(/<[^<>]*>/g, ' ')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&#(\d+);/g, (_m, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#(\d{1,7});/g, (m, code) => {
+      const n = Number(code);
+      return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m;
+    })
     .replace(/[ \t]+/g, ' ')
     .replace(/ ?\n ?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

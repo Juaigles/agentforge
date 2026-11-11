@@ -31,6 +31,15 @@ export interface RunManagerDeps {
   log?: () => Logger;
 }
 
+/** Ventana en la que se agrupan los fragmentos de texto del modelo antes de emitirlos (ms). */
+const DELTA_WINDOW_MS = 33;
+
+interface PendingDelta {
+  type: RunEventType;
+  nodeId: string;
+  data: Record<string, any>;
+}
+
 interface ActiveRun {
   controller: AbortController;
   /** Texto parcial en streaming por nodo, para clientes que se conectan a mitad de una respuesta. */
@@ -76,16 +85,46 @@ export class RunManager {
     return this.queue.length;
   }
 
+  /** Fragmentos de texto pendientes de emitir, por ejecución y por origen (nodo, tipo, agente, elemento). */
+  private readonly deltas = new Map<string, { timer: NodeJS.Timeout; pending: Map<string, PendingDelta> }>();
+
   private emit(runId: string, type: RunEventType, nodeId: string | null, data: Record<string, any>, transient = false): void {
     const partials = this.active.get(runId)?.partials;
     if (partials && nodeId) {
       if (type === 'llm.delta' && !data.depth) partials.set(nodeId, (partials.get(nodeId) ?? '') + data.text);
       else if (type === 'llm.start' || type === 'llm.message' || type === 'step.finished') partials.delete(nodeId);
     }
+    // Un modelo emite decenas de fragmentos por segundo. Enviarlos uno a uno multiplica los mensajes SSE, las
+    // serializaciones y los repintados del navegador; se agrupan en ventanas cortas, imperceptibles a la vista.
+    if (transient && nodeId && (type === 'llm.delta' || type === 'llm.thinking') && typeof data.text === 'string') {
+      let entry = this.deltas.get(runId);
+      if (!entry) {
+        entry = { timer: setTimeout(() => this.flushDeltas(runId), DELTA_WINDOW_MS), pending: new Map() };
+        this.deltas.set(runId, entry);
+      }
+      const key = `${nodeId}|${type}|${data.depth ?? 0}|${data.item ?? ''}|${data.agentId ?? ''}`;
+      const pending = entry.pending.get(key);
+      if (pending) pending.data.text += data.text;
+      else entry.pending.set(key, { type, nodeId, data: { ...data } });
+      return;
+    }
+    // Cualquier otro evento va detrás del texto que ya se había generado: el orden se conserva.
+    this.flushDeltas(runId);
     const event: RunEvent = transient
       ? { seq: null, runId, ts: nowIso(), type, nodeId, data }
       : this.deps.store.appendEvent(runId, type, nodeId, data);
     this.emitter.emit(`run:${runId}`, event);
+  }
+
+  private flushDeltas(runId: string): void {
+    const entry = this.deltas.get(runId);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    this.deltas.delete(runId);
+    const ts = nowIso();
+    for (const { type, nodeId, data } of entry.pending.values()) {
+      this.emitter.emit(`run:${runId}`, { seq: null, runId, ts, type, nodeId, data } satisfies RunEvent);
+    }
   }
 
   private publishRun(runId: string): void {
@@ -157,6 +196,9 @@ export class RunManager {
     this.deps.store.clearInterrupted([original.id]);
     const seeded = new Map<string, string>();
     if (mode === 'failed') {
+      // Con los pasos reutilizados viaja también lo que guardaron en la memoria compartida: un paso posterior
+      // que la consulte debe encontrar lo mismo que habría encontrado en la ejecución original.
+      this.deps.store.copyMemory(original.id, run.id);
       for (const step of original.steps) {
         if (step.status !== 'completed' || step.output === null) continue;
         seeded.set(step.nodeId, step.output);
@@ -269,17 +311,12 @@ export class RunManager {
     // Apagado del servidor: la ejecución no se cierra aquí. Queda «en curso» y `shutdown` la marca como
     // interrumpida, igual que si el proceso hubiera muerto de golpe, para que se pueda reanudar al volver.
     if (signal.reason instanceof ShutdownSignal) {
+      this.flushDeltas(runId);
       store.updateRun(runId, { usage: result.usage });
       return;
     }
     this.log.info({ runId, status: result.status, usage: result.usage }, 'Ejecución terminada');
-    store.updateRun(runId, {
-      status: result.status,
-      output: result.output,
-      error: result.error,
-      usage: result.usage,
-      finishedAt: nowIso(),
-    });
+    store.finishRun(runId, { status: result.status as 'completed' | 'failed' | 'cancelled', output: result.output, error: result.error, usage: result.usage });
     this.emit(runId, 'run.finished', null, { status: result.status, output: result.output, error: result.error, usage: result.usage });
     this.publishRun(runId);
   }
@@ -294,7 +331,7 @@ export class RunManager {
       for (const step of this.deps.store.listSteps(runId)) {
         if (step.status === 'pending') this.deps.store.updateStep(runId, step.nodeId, { status: 'cancelled', finishedAt: now });
       }
-      this.deps.store.updateRun(runId, { status: 'cancelled', error: 'Ejecución cancelada antes de empezar.', finishedAt: now });
+      this.deps.store.finishRun(runId, { status: 'cancelled', error: 'Ejecución cancelada antes de empezar.', finishedAt: now });
       this.emit(runId, 'run.finished', null, { status: 'cancelled', error: 'Ejecución cancelada antes de empezar.' });
       this.deps.store.releaseRun(runId);
       this.publishRun(runId);

@@ -140,10 +140,13 @@ reales y un commit local.
   *Hecho el 2026-11-11 (detalle en `PROGRESS.md`, «Hito 5 · Fase 1»). Lo que se movió a otra fase: cifrar las
   cabeceras con credenciales de las herramientas HTTP (F5), `parseList` y el adaptador OpenAI (F3), las
   expresiones regulares cuadráticas de `web_fetch` y el resto de rendimiento (F2).*
-- [ ] **F2 · Datos y rendimiento.** Índices y columnas ligeras en los listados; estadísticas incrementales o
+- [x] **F2 · Datos y rendimiento.** Índices y columnas ligeras en los listados; estadísticas incrementales o
   cacheadas; retención acotada, por lotes y con `VACUUM`; `synchronous=NORMAL`; SSE con contrapresión; copia de
   seguridad y restauración de `data/` desde la interfaz; memoria compartida persistida; prueba de carga
   reproducible con cifras medidas antes y después.
+  *Hecho el 2026-11-11 (detalle y cifras en `PROGRESS.md`, «Hito 5 · Fase 2»). Queda para más adelante: un tope
+  global de llamadas simultáneas al modelo y de la cola, un único canal SSE compartido entre pestañas, deduplicar
+  las instantáneas y un grupo de procesos precalentados para `run_javascript`.*
 - [ ] **F3 · Motor.** Registro de tipos de nodo con esquemas en `shared/`; identidad de paso por ruta;
   subworkflows; «para cada» con cuerpo de subworkflow o de herramienta, política por elemento y reutilización de
   elementos completados al reintentar; nodo de aprobación humana (ejecución en espera que sobrevive a un

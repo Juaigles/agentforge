@@ -46,6 +46,10 @@ export const GLOSSARY = {
     term: 'Cola',
     definition: 'Fila de espera: cuando se alcanza el máximo de ejecuciones simultáneas, las nuevas aguardan aquí su turno.',
   },
+  'copia-seguridad': {
+    term: 'Copia de seguridad',
+    definition: 'Un único archivo con todo lo que AgentForge guarda: agentes, workflows, historial, claves cifradas y archivos. Sirve para volver atrás o mudarse de equipo.',
+  },
   contenedor: {
     term: 'Contenedor',
     definition: 'Caja cerrada que crea Docker o Podman para ejecutar un programa separado del resto del equipo: sin red, sin tus archivos y con memoria limitada.',

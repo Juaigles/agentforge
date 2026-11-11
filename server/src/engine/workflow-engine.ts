@@ -97,6 +97,37 @@ export async function evaluateCondition(left: string, operator: string, right: s
   }
 }
 
+/**
+ * Memoria compartida de una ejecución. Es un Map normal para las herramientas, pero cada cambio se guarda en
+ * la base de datos: así reanudar tras un apagado o reintentar desde el fallo conserva lo que ya se había anotado.
+ */
+export class RunMemory extends Map<string, string> {
+  private readonly persist: { save: (key: string, value: string) => void; remove: (key?: string) => void } | null = null;
+
+  constructor(store: Store, runId: string) {
+    super();
+    for (const [key, value] of store.listMemory(runId)) super.set(key, value);
+    this.persist = { save: (key, value) => store.saveMemory(runId, key, value), remove: (key) => store.deleteMemory(runId, key) };
+  }
+
+  override set(key: string, value: string): this {
+    super.set(key, value);
+    this.persist?.save(key, value);
+    return this;
+  }
+
+  override delete(key: string): boolean {
+    const existed = super.delete(key);
+    if (existed) this.persist?.remove(key);
+    return existed;
+  }
+
+  override clear(): void {
+    super.clear();
+    this.persist?.remove();
+  }
+}
+
 export class WorkflowExecution {
   private readonly nodes: WorkflowNode[];
   private readonly nodeById = new Map<string, WorkflowNode>();
@@ -105,7 +136,7 @@ export class WorkflowExecution {
   private readonly status = new Map<string, StepStatus>();
   private readonly outputs = new Map<string, string>();
   private readonly errors = new Map<string, string>();
-  private readonly memory = new Map<string, string>();
+  private readonly memory: Map<string, string>;
   private readonly budget: Budget;
   private readonly deadline: AbortSignal;
   private readonly failFast = new AbortController();
@@ -133,6 +164,7 @@ export class WorkflowExecution {
       this.status.set(nodeId, 'completed');
       this.outputs.set(nodeId, output);
     }
+    this.memory = new RunMemory(deps.store, run.id);
     this.budget = { llmCalls: 0, maxLlmCalls: this.settings.maxLlmCalls };
     this.deadline = AbortSignal.timeout(this.settings.maxDurationMs);
     this.signal = AbortSignal.any([external, this.deadline, this.failFast.signal]);

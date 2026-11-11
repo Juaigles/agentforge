@@ -1,6 +1,6 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-11 (hito 5, fase 1: fiabilidad y seguridad del servidor; ver «Hito 5» más abajo)._
+_Última actualización: 2026-11-11 (hito 5, fases 1 y 2; ver «Hito 5» más abajo)._
 
 ## Estado real
 
@@ -204,6 +204,62 @@ cuatro baterías en verde, verificación real y un commit.
 **Defectos encontrados al implementar** (además de los de la auditoría): `import()` dentro del entorno aislado
 entregaba un error del proceso anfitrión; el mensaje de un parámetro de consulta no válido salía en inglés.
 
+### Fase 2 · Datos y rendimiento — HECHA (2026-11-11)
+
+Primero se escribió la prueba de carga (`npm run loadtest`) y se midió el commit de partida; después se
+corrigieron los cuellos de botella y se volvió a medir. Cifras con **50 000 ejecuciones** (base de 891 MB),
+servidor real, esta máquina. «Bloqueo» es lo que se para el resto del servidor mientras atiende la operación.
+
+| Operación | Antes (`8bef427`) | Después | |
+|---|---|---|---|
+| Estadísticas del panel | 1 120 ms (bloqueo 1 103 ms) | 3,1 ms | ×360 |
+| Lista filtrada por estado | 204 ms | 2,2 ms | ×93 |
+| Lista por workflow / por agente | 110 / 108 ms | 0,6 / 1,4 ms | |
+| Página profunda (posición 45 000) | 313 ms | 0,9 ms | ×350 |
+| Ejecuciones interrumpidas | 189 ms | 0,3 ms | |
+| Búsqueda (término frecuente / inexistente) | 117 / 321 ms | 4,7 / 0,3 ms | |
+| Tamaño de la respuesta de una lista de 200 | 522 KB | 186 KB | |
+| Inserción de eventos | 2 317 por segundo | 34 540 por segundo | ×15 |
+| Retención sin nada que borrar (por ejecución terminada) | 656 ms | 1 ms | |
+| Retención que borra la mitad del historial | un bloqueo de 4,5 s | tandas de ≤ 0,21 s | |
+| Archivo tras borrar la mitad | no encoge (893 MB) | 1 239 → 805 MB | |
+
+Con 10 000 ejecuciones la proporción es la misma (estadísticas de 223 a 1,7 ms). Las ejecuciones concurrentes
+contra un modelo simulado no cambian de ritmo (≈ 250 por minuto con 10 a la vez): su límite es el modelo.
+
+- **Estadísticas incrementales.** El panel leía la tabla de ejecuciones entera tres veces por petición y la
+  pedía tras cada paso. Ahora hay tablas de agregados que se actualizan al terminar cada ejecución, cada paso y
+  cada llamada a herramienta. Son **acumuladas**: no bajan al borrar ejecuciones. La serie diaria usa la fecha
+  local (antes, la fecha UTC).
+- **Índices y paginación.** Índices para los filtros reales y para la retención; la página se localiza
+  recorriendo solo un índice y después se leen sus filas.
+- **Listados ligeros.** Los resúmenes llevan los 300 primeros caracteres de la entrada y del resultado; el
+  texto completo, solo en el detalle.
+- **Búsqueda de texto completo** en el nombre, la entrada y el resultado (o el error), por subcadenas, sin
+  distinguir mayúsculas ni tildes.
+- **La salida ya no se guarda tres veces**: los eventos persistidos no repiten la salida del paso ni la de la
+  ejecución (el evento en directo sí la lleva).
+- **Retención por tandas** de 100 ejecuciones, cediendo el control entre ellas, y **compactación incremental**:
+  el archivo encoge solo, sin reescribirlo.
+- **Fragmentos del modelo agrupados** en ventanas de 33 ms, y Markdown pintado como mucho unas 8 veces por
+  segundo: menos mensajes y menos trabajo del navegador en respuestas largas.
+- **SSE**: el historial se reproduce por tandas sin perder ni duplicar lo que ocurre mientras tanto, y a un
+  cliente que no lee se le corta en lugar de acumularle memoria.
+- **`web_fetch`**: la conversión de HTML a texto es de coste lineal; antes, una página con miles de bloques
+  sin cerrar podía congelar el servidor durante minutos.
+- **Memoria compartida persistida**: reintentar desde el fallo o reanudar conserva lo que los pasos ya
+  hechos guardaron con `memory_set`.
+- **Copias de seguridad desde Ajustes**: crear (con ejecuciones en curso), descargar, añadir desde un
+  archivo, restaurar y borrar. Una copia es un único archivo `.afbackup` con la base de datos, la clave maestra
+  y el espacio de trabajo. Restaurar valida la copia, la deja preparada y la aplica **al reiniciar**; lo que
+  había se conserva en `data/replaced-<fecha>/`.
+- **Migración v4** comprobada sobre los datos reales de esta instalación (16 ejecuciones): estadísticas e índice
+  de búsqueda reconstruidos y copia previa `agentforge.db.v3.bak`.
+
+**Defectos encontrados al implementar:** la lista de ejecuciones se encogía sola al refrescar con más de 200
+filas cargadas; al preparar una restauración quedaba abierto el archivo de la copia (en Windows, bloqueado); la
+sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
+
 ## Pendiente y limitaciones
 
 - **Sin multiusuario.** Una única clave de acceso opcional (obligatoria fuera de este equipo); no hay cuentas ni permisos.
@@ -224,8 +280,21 @@ entregaba un error del proceso anfitrión; el mensaje de un parámetro de consul
 - **La importación no trae herramientas HTTP personalizadas ni proveedores**: solo avisa de las que faltan. Los
   agentes se enlazan por nombre, así que dos agentes distintos con el mismo nombre se confunden.
 - **Sin MCP**: las herramientas son las integradas y las HTTP personalizadas.
-- **La retención viene desactivada** (0 = sin límite): hasta que se configure, el historial crece. Tras borrar no
-  se compacta el archivo de la base de datos (`VACUUM`); SQLite reutiliza el espacio, pero el archivo no encoge.
+- **La retención viene desactivada** (0 = sin límite): hasta que se configure, el historial crece.
+- **Las estadísticas del panel son acumuladas**: tokens, llamadas, actividad diaria y rankings no bajan al borrar
+  ejecuciones. Los recuentos por estado y la tasa de éxito sí reflejan el historial que queda.
+- **La búsqueda examina las 2 000 coincidencias más recientes** (la lista avisa cuando hay más) y solo indexa
+  los primeros 2 000 caracteres de la entrada y del resultado. Con menos de tres caracteres busca solo en el nombre.
+- **El índice de búsqueda ocupa sitio**: con el historial de la prueba de carga la base pasó de 891 a 1 239 MB.
+- **Restaurar una copia exige reiniciar el servidor** (no se sustituye la base de datos en caliente). Una copia
+  contiene la clave maestra: quien tenga el archivo puede leer las API keys.
+- **La primera vez que se abre un historial grande con esta versión el arranque es lento** (23 s con 50 000
+  ejecuciones: copia previa, índices nuevos y compactación). Solo ocurre una vez.
+- **La retención borra en segundo plano**: con 50 000 ejecuciones tardó 21 s en borrar la mitad, en tandas que
+  paran el servidor hasta 0,2 s cada una.
+- **El texto del modelo llega con hasta 33 ms de retraso** añadido (los fragmentos se agrupan).
+- **Sin tope global de llamadas simultáneas al modelo ni de la cola de ejecuciones**; cada pestaña mantiene su
+  propia conexión en vivo (con muchas pestañas el navegador agota sus 6 conexiones por servidor).
 - **La reanudación tras un apagado la decide el usuario** (aviso en la interfaz); no hay reanudación automática
   desatendida. Un paso que estaba a medias se repite entero: el texto parcial del modelo no se recupera.
 - **Fijación de DNS**: probada contra un servidor DNS local real (UDP, protocolo de cable). El producto resuelve con
@@ -238,12 +307,12 @@ entregaba un error del proceso anfitrión; el mensaje de un parámetro de consul
 - **Paralelismo real limitado por el proveedor**: Ollama atiende las peticiones a un mismo modelo según
   `OLLAMA_NUM_PARALLEL`; el motor las lanza en paralelo igualmente.
 - **La suite e2e solo se ejecuta en Chromium** y con el modelo simulado; no hay CI configurado (se lanza a mano).
+- **Las instantáneas no se deduplican**: cada ejecución guarda su copia del workflow y de sus agentes.
 - **El texto parcial de un paso cancelado no se persiste**: se ve en la sesión en la que se canceló, pero no al
   volver a abrir la ejecución más tarde.
 - **Glosario**: «primera aparición por sección» se ha aplicado a mano; el test no puede comprobar que no falte
   ningún término por marcar, solo que lo marcado es coherente. Los textos que llegan del servidor (descripciones de
   herramientas, mensajes de error) y los de las opciones de un desplegable no llevan tooltip.
-- Las estadísticas diarias se agrupan por fecha UTC.
 
 ## Próximos pasos sugeridos
 

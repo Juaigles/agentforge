@@ -12,6 +12,8 @@ import { useRuns } from '@/stores/runs';
 import { useUi } from '@/stores/ui';
 
 const PAGE = 30;
+/** Máximo de filas que el servidor entrega en una petición. */
+const MAX_REFRESH = 200;
 const STATUSES: Array<{ value: RunStatus | ''; label: string }> = [
   { value: '', label: 'Todas' },
   { value: 'running', label: 'En curso' },
@@ -27,6 +29,8 @@ const now = useNow();
 
 const items = ref<RunSummary[]>([]);
 const total = ref(0);
+/** La búsqueda encontró más coincidencias de las que examina: `total` es solo la parte examinada. */
+const capped = ref(false);
 const status = ref<RunStatus | ''>('');
 const kind = ref<RunKind | ''>('');
 const search = ref('');
@@ -45,11 +49,13 @@ async function load(reset = true): Promise<void> {
       kind: kind.value,
       search: search.value.trim(),
       // Al refrescar se conserva todo lo ya cargado para no perder la posición.
-      limit: reset ? Math.max(PAGE, items.value.length) : PAGE,
+      // (El servidor entrega 200 como máximo: pedir más haría que la lista se encogiera sola al refrescar.)
+      limit: reset ? Math.min(MAX_REFRESH, Math.max(PAGE, items.value.length)) : PAGE,
       offset: reset ? 0 : items.value.length,
     });
     items.value = reset ? res.items : [...items.value, ...res.items];
     total.value = res.total;
+    capped.value = Boolean(res.capped);
     error.value = null;
   } catch (err) {
     error.value = errorText(err);
@@ -153,7 +159,7 @@ async function clearFinished(): Promise<void> {
       </select>
       <div class="search grow">
         <Search aria-hidden="true" />
-        <input v-model="search" class="input" type="search" placeholder="Buscar por nombre o entrada…" aria-label="Buscar ejecuciones" />
+        <input v-model="search" class="input" type="search" placeholder="Buscar por nombre, entrada o resultado…" aria-label="Buscar ejecuciones" />
       </div>
     </div>
 
@@ -212,7 +218,7 @@ async function clearFinished(): Promise<void> {
     </section>
 
     <div v-if="items.length" class="row between" style="margin-top: 12px">
-      <span class="small muted">Mostrando {{ items.length }} de {{ total }}</span>
+      <span class="small muted" role="status">Mostrando {{ items.length }} de {{ capped ? 'más de ' : '' }}{{ total }}{{ capped ? ' (las coincidencias más recientes)' : '' }}</span>
       <button v-if="items.length < total" class="btn" type="button" :disabled="loadingMore" @click="load(false)">{{ loadingMore ? 'Cargando…' : 'Cargar más' }}</button>
     </div>
   </div>

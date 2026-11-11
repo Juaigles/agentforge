@@ -15,7 +15,8 @@
     "test": "npm run test -w server && npm run test -w web",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web && tsc --noEmit -p e2e",
     "test:e2e": "npm run build && playwright test",
-    "test:e2e:ui": "npm run build && playwright test --ui"
+    "test:e2e:ui": "npm run build && playwright test --ui",
+    "loadtest": "node scripts/loadtest.mjs"
   },
   "engines": {
     "node": ">=22.13"

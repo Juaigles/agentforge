@@ -1,5 +1,5 @@
 // Capa de persistencia: todos los accesos a SQLite pasan por aquí.
-import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
+import type { DatabaseSync, SQLInputValue, StatementSync } from 'node:sqlite';
 import {
   DEFAULT_SETTINGS,
   DEFAULT_WORKFLOW_SETTINGS,
@@ -29,7 +29,7 @@ import {
 } from '../../../shared/types';
 import type { SecretBox } from '../crypto/secrets';
 import { ConfigError } from '../errors';
-import { newId, nowIso } from '../util';
+import { localDate, newId, nowIso } from '../util';
 
 type Row = Record<string, any>;
 
@@ -87,8 +87,24 @@ const STEP_COLUMNS: Record<keyof StepPatch, string> = {
   finishedAt: 'finished_at',
 };
 
-const RUN_SUMMARY_COLS =
-  'id, kind, workflow_id, agent_id, name, status, input, output, error, usage, retry_of, interrupted, scheduled, created_at, started_at, finished_at';
+/** Caracteres de la entrada y del resultado que viajan en un resumen (las listas solo pintan una línea). */
+export const SUMMARY_PREVIEW_CHARS = 300;
+
+// Los resúmenes llevan solo el principio de la entrada, el resultado y el error: una lista de 200 ejecuciones
+// con salidas grandes no debe transportar megabytes que nadie va a leer. El texto completo está en getRun().
+const RUN_SUMMARY_COLS = `id, kind, workflow_id, agent_id, name, status, substr(input, 1, ${SUMMARY_PREVIEW_CHARS}) AS input,
+  substr(output, 1, ${SUMMARY_PREVIEW_CHARS}) AS output, substr(error, 1, 1000) AS error, usage, retry_of, interrupted, scheduled,
+  created_at, started_at, finished_at`;
+
+/** Coincidencias más recientes que examina una búsqueda de texto (ver listRuns). */
+export const SEARCH_WINDOW = 2000;
+
+/** Campos que ya están guardados en otra tabla y no se repiten en el evento persistido (ver appendEvent). */
+const EVENT_FIELDS_NOT_PERSISTED: Partial<Record<RunEventType, string[]>> = {
+  'step.finished': ['output'],
+  'step.reused': ['output'],
+  'run.finished': ['output'],
+};
 
 function toSql(value: unknown): SQLInputValue {
   if (value === undefined || value === null) return null;
@@ -108,20 +124,31 @@ function parseJson<T>(text: unknown, fallback: T): T {
 
 export class Store {
   private readonly eventSeq = new Map<string, number>();
+  /** Sentencias ya preparadas, por su texto: el almacén repite siempre las mismas pocas consultas. */
+  private readonly statements = new Map<string, StatementSync>();
 
   constructor(
     readonly db: DatabaseSync,
     private readonly secrets: SecretBox,
   ) {}
 
+  private prepare(sql: string): StatementSync {
+    let statement = this.statements.get(sql);
+    if (!statement) {
+      statement = this.db.prepare(sql);
+      // Las consultas con columnas variables (UPDATE parciales) son pocas, pero se acota por si acaso.
+      if (this.statements.size < 500) this.statements.set(sql, statement);
+    }
+    return statement;
+  }
   private all(sql: string, ...params: unknown[]): Row[] {
-    return this.db.prepare(sql).all(...params.map(toSql)) as Row[];
+    return this.prepare(sql).all(...params.map(toSql)) as Row[];
   }
   private get(sql: string, ...params: unknown[]): Row | undefined {
-    return this.db.prepare(sql).get(...params.map(toSql)) as Row | undefined;
+    return this.prepare(sql).get(...params.map(toSql)) as Row | undefined;
   }
   private exec(sql: string, ...params: unknown[]): number {
-    return Number(this.db.prepare(sql).run(...params.map(toSql)).changes);
+    return Number(this.prepare(sql).run(...params.map(toSql)).changes);
   }
 
   /** Ejecuta `fn` dentro de una transacción. */
@@ -598,28 +625,57 @@ export class Store {
     return this.all('SELECT * FROM run_steps WHERE run_id = ? ORDER BY position', runId).map((r) => this.mapStep(r));
   }
 
-  listRuns(filter: RunFilter = {}): { items: RunSummary[]; total: number } {
+  /**
+   * Lista de ejecuciones, de la más reciente a la más antigua.
+   *
+   * Sin búsqueda, la página se localiza recorriendo solo un índice (estado, workflow, agente o fecha) y después
+   * se leen las filas de esa página: una página profunda no obliga a leer todas las anteriores.
+   *
+   * Con búsqueda se consultan como mucho las SEARCH_WINDOW coincidencias más recientes del índice de texto
+   * completo; si hay más, `capped` es true y `total` es el número de las que se han examinado.
+   */
+  listRuns(filter: RunFilter = {}): { items: RunSummary[]; total: number; capped?: boolean } {
     const where: string[] = [];
     const params: unknown[] = [];
     if (filter.status) (where.push('status = ?'), params.push(filter.status));
     if (filter.kind) (where.push('kind = ?'), params.push(filter.kind));
     if (filter.workflowId) (where.push('workflow_id = ?'), params.push(filter.workflowId));
     if (filter.agentId) (where.push('agent_id = ?'), params.push(filter.agentId));
-    if (filter.search) {
-      where.push('(name LIKE ? OR input LIKE ?)');
-      params.push(`%${filter.search}%`, `%${filter.search}%`);
+    const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
+    const offset = Math.max(filter.offset ?? 0, 0);
+    const search = filter.search?.trim();
+    let capped = false;
+
+    if (search && [...search].length >= 3) {
+      // Índice de texto completo por trigramas: encuentra subcadenas en el nombre, la entrada y el resultado
+      // (o el error), sin distinguir mayúsculas ni tildes. Las coincidencias salen de más reciente a más antigua
+      // (el identificador interno crece con el orden de creación), así que basta con leer las primeras.
+      const matches = this.all(
+        'SELECT rowid FROM runs_fts WHERE runs_fts MATCH ? ORDER BY rowid DESC LIMIT ?',
+        `"${search.replace(/"/g, '""')}"`,
+        SEARCH_WINDOW + 1,
+      ).map((r) => Number(r.rowid));
+      capped = matches.length > SEARCH_WINDOW;
+      if (capped) matches.length = SEARCH_WINDOW;
+      if (!matches.length) return { items: [], total: 0 };
+      // Los identificadores son números enteros que acaba de devolver la propia base: se insertan tal cual.
+      where.push(`rowid IN (${matches.join(',')})`);
+    } else if (search) {
+      // Con menos de tres caracteres no hay trigramas: se busca solo en el nombre.
+      where.push("name LIKE ? ESCAPE '\\'");
+      params.push(`%${search.replace(/[\\%_]/g, '\\$&')}%`);
     }
     const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = Number(this.get(`SELECT COUNT(*) AS n FROM runs ${clause}`, ...params)!.n);
-    const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
-    const offset = Math.max(filter.offset ?? 0, 0);
     const items = this.all(
-      `SELECT ${RUN_SUMMARY_COLS} FROM runs ${clause} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+      `SELECT ${RUN_SUMMARY_COLS} FROM runs
+       WHERE id IN (SELECT id FROM runs ${clause} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?)
+       ORDER BY created_at DESC, id DESC`,
       ...params,
       limit,
       offset,
     ).map((r) => this.mapRunSummary(r));
-    return { items, total };
+    return capped ? { items, total, capped } : { items, total };
   }
 
   updateRun(id: string, patch: RunPatch): void {
@@ -634,6 +690,17 @@ export class Store {
     if (!keys.length) return;
     const sets = keys.map((k) => `${STEP_COLUMNS[k]} = ?`).join(', ');
     this.exec(`UPDATE run_steps SET ${sets} WHERE run_id = ? AND node_id = ?`, ...keys.map((k) => patch[k]), runId, nodeId);
+    // Uso acumulado por agente (panel): cada paso de agente que termina, bien o mal, cuenta una vez.
+    if (patch.status === 'completed' || patch.status === 'failed') {
+      this.exec(
+        `INSERT INTO stats_agent (agent_id, steps, completion_tokens)
+           SELECT agent_id, 1, ? FROM run_steps WHERE run_id = ? AND node_id = ? AND agent_id IS NOT NULL
+         ON CONFLICT(agent_id) DO UPDATE SET steps = steps + 1, completion_tokens = completion_tokens + excluded.completion_tokens`,
+        patch.usage?.completionTokens ?? 0,
+        runId,
+        nodeId,
+      );
+    }
   }
 
   deleteRun(id: string): boolean {
@@ -643,7 +710,7 @@ export class Store {
 
   /** Borra todas las ejecuciones terminadas (no las interrumpidas que siguen pendientes de reanudar). Devuelve cuántas. */
   deleteFinishedRuns(): number {
-    return this.exec("DELETE FROM runs WHERE status IN ('completed','failed','cancelled') AND interrupted = 0");
+    return this.exec('DELETE FROM runs WHERE ended_at IS NOT NULL AND interrupted = 0');
   }
 
   /**
@@ -659,13 +726,9 @@ export class Store {
         now,
         id,
       );
-      this.exec(
-        "UPDATE runs SET status='failed', error=?, finished_at=?, interrupted=1 WHERE id=?",
-        message,
-        now,
-        id,
-      );
+      this.finishRun(id, { status: 'failed', error: message, finishedAt: now, interrupted: true });
       this.appendEvent(id, 'run.finished', null, { status: 'failed', error: message });
+      this.eventSeq.delete(id);
     }
     return stale.length;
   }
@@ -684,26 +747,110 @@ export class Store {
   }
 
   /**
+   * Cierra una ejecución: guarda su estado final y la suma a las estadísticas acumuladas (una sola vez).
+   * Todo lo que termina una ejecución pasa por aquí: fin normal, cancelación en cola y apagado del servidor.
+   */
+  finishRun(
+    id: string,
+    final: { status: Exclude<RunStatus, 'queued' | 'running'>; output?: string | null; error?: string | null; usage?: Usage; finishedAt?: string; interrupted?: boolean },
+  ): void {
+    this.transaction(() => {
+      const row = this.get('SELECT created_at, started_at, ended_at, usage FROM runs WHERE id = ?', id);
+      if (!row) return;
+      const finishedAt = final.finishedAt ?? nowIso();
+      const usage = final.usage ?? parseJson<Usage>(row.usage, { ...ZERO_USAGE });
+      this.exec(
+        `UPDATE runs SET status = ?, error = ?, usage = ?, finished_at = ?, ended_at = ?, interrupted = ?
+           ${final.output !== undefined ? ', output = ?' : ''} WHERE id = ?`,
+        ...[final.status, final.error ?? null, usage, finishedAt, finishedAt, Boolean(final.interrupted)],
+        ...(final.output !== undefined ? [final.output] : []),
+        id,
+      );
+      if (row.ended_at) return; // ya estaba cerrada: no se cuenta dos veces
+      const durationMs = row.started_at ? Math.max(0, Date.parse(finishedAt) - Date.parse(row.started_at)) : 0;
+      this.exec(
+        `INSERT INTO stats_daily (date, status, runs, prompt_tokens, completion_tokens, llm_calls, tool_calls, duration_ms)
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?)
+         ON CONFLICT(date, status) DO UPDATE SET runs = runs + 1, prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+           completion_tokens = completion_tokens + excluded.completion_tokens, llm_calls = llm_calls + excluded.llm_calls,
+           tool_calls = tool_calls + excluded.tool_calls, duration_ms = duration_ms + excluded.duration_ms`,
+        // Por día LOCAL de creación, igual que el gráfico del panel.
+        localDate(new Date(row.created_at)),
+        final.status,
+        usage.promptTokens,
+        usage.completionTokens,
+        usage.llmCalls,
+        usage.toolCalls,
+        durationMs,
+      );
+    });
+  }
+
+  /**
    * Retención del historial: borra las ejecuciones terminadas (con sus pasos y eventos) más antiguas que
    * `days` días y, si se supera `maxRuns`, las más antiguas que sobren. Las que están en curso o pendientes
    * de reanudar no se tocan. Devuelve cuántas se han borrado.
+   *
+   * Con `batch` borra como mucho ese número por criterio y pasada: quien llama repite hasta que devuelva menos,
+   * cediendo el control entre pasadas, para que un historial grande no congele el servidor.
    */
-  pruneRuns(policy: { days: number; maxRuns: number }, now = Date.now()): number {
-    const finished = "status IN ('completed','failed','cancelled') AND interrupted = 0";
+  pruneRuns(policy: { days: number; maxRuns: number }, now = Date.now(), batch = Number.MAX_SAFE_INTEGER): number {
+    // Las dos consultas recorren el índice parcial idx_runs_ended (ended_at, id), de más antigua a más reciente.
+    const finished = 'ended_at IS NOT NULL AND interrupted = 0';
     let deleted = 0;
     if (policy.days > 0) {
       const cutoff = new Date(now - policy.days * 86_400_000).toISOString();
-      deleted += this.exec(`DELETE FROM runs WHERE ${finished} AND COALESCE(finished_at, created_at) < ?`, cutoff);
-    }
-    if (policy.maxRuns > 0) {
       deleted += this.exec(
-        `DELETE FROM runs WHERE ${finished} AND id NOT IN (
-           SELECT id FROM runs WHERE ${finished} ORDER BY COALESCE(finished_at, created_at) DESC, id DESC LIMIT ?
-         )`,
-        policy.maxRuns,
+        `DELETE FROM runs WHERE id IN (SELECT id FROM runs WHERE ${finished} AND ended_at < ? ORDER BY ended_at, id LIMIT ?)`,
+        cutoff,
+        batch,
       );
     }
+    if (policy.maxRuns > 0) {
+      // La ejecución número maxRuns+1 (de la más reciente a la más antigua) y todas las anteriores sobran.
+      const first = this.get(`SELECT ended_at, id FROM runs WHERE ${finished} ORDER BY ended_at DESC, id DESC LIMIT 1 OFFSET ?`, policy.maxRuns);
+      if (first) {
+        deleted += this.exec(
+          `DELETE FROM runs WHERE id IN (
+             SELECT id FROM runs WHERE ${finished} AND (ended_at, id) <= (?, ?) ORDER BY ended_at, id LIMIT ?
+           )`,
+          first.ended_at,
+          first.id,
+          batch,
+        );
+      }
+    }
     return deleted;
+  }
+
+  /**
+   * Devuelve al sistema de archivos hasta `pages` páginas libres (compactación incremental) y, si ya no quedan,
+   * recorta el diario. Devuelve las páginas libres que quedan por devolver.
+   */
+  compact(pages = 2000): number {
+    this.db.exec(`PRAGMA incremental_vacuum(${Math.max(1, Math.floor(pages))})`);
+    const free = Number((this.db.prepare('PRAGMA freelist_count').get() as { freelist_count: number }).freelist_count);
+    if (free === 0) this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    return free;
+  }
+
+  // ---------- Memoria compartida de una ejecución ----------
+  listMemory(runId: string): Array<[string, string]> {
+    return this.all('SELECT key, value FROM run_memory WHERE run_id = ? ORDER BY key', runId).map((r) => [r.key, r.value]);
+  }
+
+  saveMemory(runId: string, key: string, value: string): void {
+    this.exec('INSERT INTO run_memory (run_id, key, value) VALUES (?, ?, ?) ON CONFLICT(run_id, key) DO UPDATE SET value = excluded.value', runId, key, value);
+  }
+
+  deleteMemory(runId: string, key?: string): void {
+    if (key === undefined) this.exec('DELETE FROM run_memory WHERE run_id = ?', runId);
+    else this.exec('DELETE FROM run_memory WHERE run_id = ? AND key = ?', runId, key);
+  }
+
+  /** Copia la memoria de una ejecución a otra (reintentar desde el fallo, reanudar). */
+  copyMemory(fromRunId: string, toRunId: string): void {
+    this.exec('INSERT OR REPLACE INTO run_memory (run_id, key, value) SELECT ?, key, value FROM run_memory WHERE run_id = ?', toRunId, fromRunId);
   }
 
   // ---------- Eventos ----------
@@ -715,6 +862,10 @@ export class Store {
     const seq = last + 1;
     this.eventSeq.set(runId, seq);
     const ts = nowIso();
+    // La salida de un paso o de la ejecución ya está en run_steps / runs: en el evento guardado no se repite
+    // (el evento que se emite en directo sí la lleva). Así la misma salida no se almacena tres veces.
+    const omit = EVENT_FIELDS_NOT_PERSISTED[type];
+    const stored = omit && omit.some((field) => field in data) ? Object.fromEntries(Object.entries(data).filter(([k]) => !omit.includes(k))) : data;
     this.exec(
       'INSERT INTO run_events (run_id, seq, ts, type, node_id, data) VALUES (?,?,?,?,?,?)',
       runId,
@@ -722,13 +873,17 @@ export class Store {
       ts,
       type,
       nodeId,
-      data,
+      stored,
     );
+    if (type === 'tool.call' && typeof data.name === 'string' && data.name) {
+      this.exec('INSERT INTO stats_tool (name, calls) VALUES (?, 1) ON CONFLICT(name) DO UPDATE SET calls = calls + 1', data.name);
+    }
     return { seq, runId, ts, type, nodeId, data };
   }
 
-  listEvents(runId: string, afterSeq = 0): RunEvent[] {
-    return this.all('SELECT * FROM run_events WHERE run_id = ? AND seq > ? ORDER BY seq', runId, afterSeq).map((r) => ({
+  /** Eventos persistidos de una ejecución a partir de `afterSeq`; con `limit`, como mucho ese número. */
+  listEvents(runId: string, afterSeq = 0, limit = -1): RunEvent[] {
+    return this.all('SELECT * FROM run_events WHERE run_id = ? AND seq > ? ORDER BY seq LIMIT ?', runId, afterSeq, limit).map((r) => ({
       seq: r.seq,
       runId: r.run_id,
       ts: r.ts,
@@ -763,51 +918,42 @@ export class Store {
   }
 
   // ---------- Estadísticas ----------
-  stats(days = 14) {
+  /**
+   * Cifras del panel. Los recuentos por estado salen de un índice; los totales, la serie diaria, la duración
+   * media y los rankings salen de tablas de agregados que se actualizan al terminar cada ejecución, cada paso
+   * y cada llamada a herramienta, así que el coste no depende del tamaño del historial.
+   * Los agregados son acumulados: no bajan al borrar ejecuciones.
+   */
+  stats(days = 14, now = Date.now()) {
     const count = (table: string) => Number(this.get(`SELECT COUNT(*) AS n FROM ${table}`)!.n);
     const runsByStatus: Record<RunStatus, number> = { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0 };
     for (const r of this.all('SELECT status, COUNT(*) AS n FROM runs GROUP BY status')) {
       runsByStatus[r.status as RunStatus] = Number(r.n);
     }
     const totals = this.get(
-      `SELECT COALESCE(SUM(json_extract(usage,'$.promptTokens')),0) AS p,
-              COALESCE(SUM(json_extract(usage,'$.completionTokens')),0) AS c,
-              COALESCE(SUM(json_extract(usage,'$.llmCalls')),0) AS l,
-              COALESCE(SUM(json_extract(usage,'$.toolCalls')),0) AS t
-       FROM runs`,
+      `SELECT COALESCE(SUM(prompt_tokens),0) AS p, COALESCE(SUM(completion_tokens),0) AS c,
+              COALESCE(SUM(llm_calls),0) AS l, COALESCE(SUM(tool_calls),0) AS t FROM stats_daily`,
     )!;
-    const avg = this.get(
-      `SELECT AVG((julianday(finished_at) - julianday(started_at)) * 86400000.0) AS ms
-       FROM runs WHERE status = 'completed' AND started_at IS NOT NULL AND finished_at IS NOT NULL`,
-    )!;
+    const completed = this.get("SELECT COALESCE(SUM(runs),0) AS n, COALESCE(SUM(duration_ms),0) AS ms FROM stats_daily WHERE status = 'completed'")!;
 
-    const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+    // Serie de los últimos `days` días, por fecha LOCAL (el día cambia a medianoche del servidor, no en UTC).
     const dailyMap = new Map<string, { date: string; completed: number; failed: number; cancelled: number }>();
     for (let i = days - 1; i >= 0; i--) {
-      const date = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+      const date = localDate(new Date(now - i * 86_400_000));
       dailyMap.set(date, { date, completed: 0, failed: 0, cancelled: 0 });
     }
-    for (const r of this.all(
-      `SELECT substr(created_at, 1, 10) AS d, status, COUNT(*) AS n FROM runs
-       WHERE substr(created_at, 1, 10) >= ? AND status IN ('completed','failed','cancelled') GROUP BY d, status`,
-      since,
-    )) {
-      const day = dailyMap.get(r.d);
-      if (day) day[r.status as 'completed' | 'failed' | 'cancelled'] = Number(r.n);
+    const since = localDate(new Date(now - (days - 1) * 86_400_000));
+    for (const r of this.all('SELECT date, status, runs FROM stats_daily WHERE date >= ?', since)) {
+      const day = dailyMap.get(r.date);
+      if (day && r.status in day) day[r.status as 'completed' | 'failed' | 'cancelled'] = Number(r.runs);
     }
 
     const topAgents = this.all(
-      `SELECT s.agent_id AS id, COALESCE(a.name, '(eliminado)') AS name, COUNT(*) AS steps,
-              COALESCE(SUM(json_extract(s.usage,'$.completionTokens')),0) AS tokens
-       FROM run_steps s LEFT JOIN agents a ON a.id = s.agent_id
-       WHERE s.agent_id IS NOT NULL AND s.status IN ('completed','failed')
-       GROUP BY s.agent_id ORDER BY steps DESC LIMIT 5`,
+      `SELECT s.agent_id AS id, COALESCE(a.name, '(eliminado)') AS name, s.steps AS steps, s.completion_tokens AS tokens
+       FROM stats_agent s LEFT JOIN agents a ON a.id = s.agent_id ORDER BY s.steps DESC, s.agent_id LIMIT 5`,
     ).map((r) => ({ agentId: r.id, name: r.name, steps: Number(r.steps), completionTokens: Number(r.tokens) }));
 
-    const topTools = this.all(
-      `SELECT json_extract(data,'$.name') AS name, COUNT(*) AS calls FROM run_events
-       WHERE type = 'tool.call' GROUP BY name ORDER BY calls DESC LIMIT 6`,
-    ).map((r) => ({ name: String(r.name), calls: Number(r.calls) }));
+    const topTools = this.all('SELECT name, calls FROM stats_tool ORDER BY calls DESC, name LIMIT 6').map((r) => ({ name: String(r.name), calls: Number(r.calls) }));
 
     const finished = runsByStatus.completed + runsByStatus.failed;
     return {
@@ -820,7 +966,7 @@ export class Store {
       },
       runsByStatus,
       successRate: finished ? runsByStatus.completed / finished : null,
-      avgDurationMs: avg.ms === null || avg.ms === undefined ? null : Math.round(Number(avg.ms)),
+      avgDurationMs: Number(completed.n) ? Math.round(Number(completed.ms) / Number(completed.n)) : null,
       tokens: { prompt: Number(totals.p), completion: Number(totals.c) },
       llmCalls: Number(totals.l),
       toolCalls: Number(totals.t),

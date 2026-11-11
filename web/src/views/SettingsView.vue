@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import type { DashboardStats, Provider, ProviderTestResult, SandboxStatus, Settings } from '@shared/types';
+import type { BackupInfo, BackupState, DashboardStats, Provider, ProviderTestResult, SandboxStatus, Settings } from '@shared/types';
 import {
+  Archive,
   CircleAlert,
   Cpu,
   Database,
+  Download,
+  History,
   KeyRound,
   LoaderCircle,
   Pencil,
@@ -13,12 +16,13 @@ import {
   Server,
   ShieldAlert,
   Trash2,
+  Upload,
 } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 import ProviderModal from '@/components/ProviderModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
-import { formatBytes, formatDuration, formatNumber, formatUptime, plural } from '@/lib/format';
+import { formatBytes, formatDateTime, formatDuration, formatNumber, formatUptime, plural } from '@/lib/format';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 
@@ -42,6 +46,7 @@ async function load(): Promise<void> {
     retentionRunsDraft.value = s.retentionMaxRuns;
     void catalog.refreshHealth();
     if (s.allowCodeExecution) void loadSandbox();
+    void loadBackups();
   } catch (err) {
     loadError.value = errorText(err);
   } finally {
@@ -255,6 +260,108 @@ const ENGINE_LABEL = { docker: 'Docker', podman: 'Podman' } as const;
 async function chooseSandbox(backend: Settings['codeSandbox']): Promise<void> {
   await updateSetting('codeSandbox', backend, backend === 'container' ? 'El código se ejecutará en un contenedor sin red.' : 'El código se ejecutará en un proceso aislado.');
   void loadSandbox(true);
+}
+
+// ---------- Copias de seguridad ----------
+const backups = ref<BackupState | null>(null);
+const backupBusy = ref<string | null>(null);
+const uploadInput = ref<HTMLInputElement | null>(null);
+
+async function loadBackups(): Promise<void> {
+  try {
+    backups.value = await api.backups.state();
+  } catch (err) {
+    ui.error(errorText(err));
+  }
+}
+
+async function createBackup(): Promise<void> {
+  backupBusy.value = 'create';
+  try {
+    const backup = await api.backups.create();
+    ui.success(`Copia de seguridad creada (${formatBytes(backup.sizeBytes)}).`);
+    await loadBackups();
+  } catch (err) {
+    ui.error(errorText(err));
+  } finally {
+    backupBusy.value = null;
+  }
+}
+
+async function uploadBackup(ev: Event): Promise<void> {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  backupBusy.value = 'upload';
+  try {
+    await api.backups.upload(file);
+    ui.success('Copia de seguridad añadida. Ya puedes restaurarla.');
+    await loadBackups();
+  } catch (err) {
+    ui.error(errorText(err));
+  } finally {
+    backupBusy.value = null;
+  }
+}
+
+function backupSummary(backup: BackupInfo): string {
+  const c = backup.manifest?.counts;
+  if (!c) return 'No se puede leer: el archivo está dañado';
+  return `${plural(c.agents, 'agente', 'agentes')}, ${plural(c.workflows, 'workflow', 'workflows')}, ${plural(c.runs, 'ejecución', 'ejecuciones')}, ${plural(c.workspaceFiles, 'archivo', 'archivos')}`;
+}
+
+async function restoreBackup(backup: BackupInfo): Promise<void> {
+  const ok = await ui.confirm({
+    title: 'Restaurar esta copia',
+    message: `Al reiniciar AgentForge, todos los datos actuales (agentes, workflows, historial, claves y archivos) se sustituirán por los de la copia del ${formatDateTime(backup.createdAt)}. Los datos actuales no se borran: se guardan aparte en la carpeta de datos. Hasta que reinicies no cambia nada y puedes cancelarlo.`,
+    confirmLabel: 'Preparar restauración',
+    danger: true,
+  });
+  if (!ok) return;
+  backupBusy.value = backup.name;
+  try {
+    await api.backups.restore(backup.name);
+    ui.success('Restauración preparada. Reinicia AgentForge para aplicarla.');
+    await loadBackups();
+  } catch (err) {
+    ui.error(errorText(err));
+  } finally {
+    backupBusy.value = null;
+  }
+}
+
+async function cancelRestore(): Promise<void> {
+  backupBusy.value = 'cancel';
+  try {
+    await api.backups.cancelRestore();
+    ui.success('Restauración cancelada. Los datos actuales se conservan.');
+    await loadBackups();
+  } catch (err) {
+    ui.error(errorText(err));
+  } finally {
+    backupBusy.value = null;
+  }
+}
+
+async function removeBackup(backup: BackupInfo): Promise<void> {
+  const ok = await ui.confirm({
+    title: 'Eliminar copia de seguridad',
+    message: `Se eliminará el archivo de la copia del ${formatDateTime(backup.createdAt)}. No se puede deshacer.`,
+    confirmLabel: 'Eliminar copia',
+    danger: true,
+  });
+  if (!ok) return;
+  backupBusy.value = backup.name;
+  try {
+    await api.backups.remove(backup.name);
+    ui.success('Copia de seguridad eliminada.');
+    await loadBackups();
+  } catch (err) {
+    ui.error(errorText(err));
+  } finally {
+    backupBusy.value = null;
+  }
 }
 
 // ---------- Datos ----------
@@ -517,6 +624,74 @@ async function clearFinished(): Promise<void> {
         </div>
       </section>
 
+      <!-- Copias de seguridad -->
+      <section class="card" aria-labelledby="sec-backups">
+        <div class="card-head backups-head">
+          <h2 id="sec-backups"><Archive style="width: 16px; height: 16px" /> Copias de seguridad</h2>
+          <div class="row" style="gap: 8px; flex-wrap: wrap">
+            <input ref="uploadInput" type="file" accept=".afbackup" class="sr-only" aria-label="Archivo de copia de seguridad" tabindex="-1" @change="uploadBackup" />
+            <button class="btn btn-sm" type="button" :disabled="backupBusy !== null" @click="uploadInput?.click()">
+              <LoaderCircle v-if="backupBusy === 'upload'" class="spin" /><Upload v-else /> Añadir desde archivo
+            </button>
+            <button class="btn btn-primary btn-sm" type="button" :disabled="backupBusy !== null" @click="createBackup">
+              <LoaderCircle v-if="backupBusy === 'create'" class="spin" /><Plus v-else /> Crear copia
+            </button>
+          </div>
+        </div>
+        <div class="card-pad col" style="gap: 12px">
+          <p class="muted small" style="margin: 0">
+            Una <Term id="copia-seguridad">copia de seguridad</Term> guarda en un solo archivo la <Term id="base-datos">base de datos</Term>, la clave con la que se
+            cifran las API keys y los archivos del espacio de trabajo. Se puede crear con ejecuciones en curso. Guárdala en un lugar seguro: quien tenga el
+            archivo puede leer tus claves.
+          </p>
+          <div v-if="backups?.pending" class="callout warning" role="status">
+            <History />
+            <span class="grow">
+              <strong>Restauración preparada.</strong> Al reiniciar AgentForge, los datos se sustituirán por los de la copia del
+              {{ formatDateTime(backups.pending.manifest.createdAt) }}. Hasta entonces no cambia nada.
+            </span>
+            <button class="btn btn-sm" type="button" :disabled="backupBusy !== null" @click="cancelRestore">Cancelar restauración</button>
+          </div>
+          <div v-else-if="backups?.lastRestore" class="callout" role="status">
+            <History />
+            <span class="restore-note">
+              Se restauró la copia del {{ formatDateTime(backups.lastRestore.manifest.createdAt) }} el {{ formatDateTime(backups.lastRestore.appliedAt) }}. Los datos que había antes
+              están en <code>{{ backups.lastRestore.replacedDir }}</code>.
+            </span>
+          </div>
+          <div v-if="!backups" class="skeleton" style="height: 44px" />
+          <p v-else-if="!backups.backups.length" class="muted" style="margin: 0">Todavía no hay ninguna copia de seguridad.</p>
+          <ul v-else class="backup-list" aria-label="Copias de seguridad guardadas">
+            <li v-for="backup in backups.backups" :key="backup.name" class="backup">
+              <div class="grow" style="min-width: 0">
+                <div class="backup-title">
+                  {{ formatDateTime(backup.createdAt) }}
+                  <span v-if="backup.name.includes('importada')" class="badge neutral">añadida</span>
+                  <span class="muted small num">{{ formatBytes(backup.sizeBytes) }}</span>
+                </div>
+                <div class="muted small">{{ backupSummary(backup) }}</div>
+              </div>
+              <div class="row" style="gap: 6px; flex-wrap: wrap">
+                <a class="btn btn-sm" :href="api.backups.downloadUrl(backup.name)" :download="backup.name"><Download /> Descargar</a>
+                <button class="btn btn-sm" type="button" :disabled="backupBusy !== null || !backup.manifest" @click="restoreBackup(backup)">
+                  <LoaderCircle v-if="backupBusy === backup.name" class="spin" /><History v-else /> Restaurar
+                </button>
+                <button
+                  class="btn btn-ghost btn-sm btn-icon"
+                  type="button"
+                  :aria-label="`Eliminar la copia del ${formatDateTime(backup.createdAt)}`"
+                  title="Eliminar"
+                  :disabled="backupBusy !== null"
+                  @click="removeBackup(backup)"
+                >
+                  <Trash2 />
+                </button>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </section>
+
       <div class="two">
         <!-- 3. Datos -->
         <section class="card" aria-labelledby="sec-data">
@@ -613,6 +788,40 @@ async function clearFinished(): Promise<void> {
 </template>
 
 <style scoped>
+/* En pantallas estrechas los dos botones bajan a su propia línea en lugar de empujar la página. */
+.backups-head {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* La ruta de la carpeta puede ser muy larga: se parte donde haga falta en lugar de ensanchar la página. */
+.restore-note {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.backup-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.backup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.backup-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
 .sandbox {
   margin-top: 12px;
   display: flex;

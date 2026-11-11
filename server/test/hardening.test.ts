@@ -270,7 +270,7 @@ describe('retención del historial', () => {
     const def = workflow([node('entrada', 'input'), node('a', 'agent', { agentId: agent.id, prompt: '{{input}}' })], edges('entrada>a'));
     const run = await runWorkflow(ctx, { ...def, name }, 'x');
     const when = new Date(Date.now() - daysAgo * DAY).toISOString();
-    ctx.db.prepare('UPDATE runs SET created_at = ?, finished_at = ? WHERE id = ?').run(when, when, run.id);
+    ctx.db.prepare('UPDATE runs SET created_at = ?, finished_at = ?, ended_at = ? WHERE id = ?').run(when, when, when, run.id);
     return run.id;
   }
   const names = () => ctx.store.listRuns({ limit: 200 }).items.map((r) => r.name).sort();
@@ -290,7 +290,7 @@ describe('retención del historial', () => {
     await finishedRun('de hoy', 0);
     // Una ejecución antigua pero todavía «en curso» y otra pendiente de reanudar no deben tocarse.
     const active = await finishedRun('antigua en curso', 90);
-    ctx.db.prepare("UPDATE runs SET status = 'running', finished_at = NULL WHERE id = ?").run(active);
+    ctx.db.prepare("UPDATE runs SET status = 'running', finished_at = NULL, ended_at = NULL WHERE id = ?").run(active);
     const interrupted = await finishedRun('antigua interrumpida', 90);
     ctx.db.prepare("UPDATE runs SET status = 'failed', interrupted = 1 WHERE id = ?").run(interrupted);
     expect(ctx.store.listEvents(old).length).toBeGreaterThan(0);

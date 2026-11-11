@@ -32,8 +32,12 @@ export function useRunStream(runId: Ref<string | null>) {
         run.value = fresh;
         for (const s of fresh.steps) {
           const step = live.value.steps[s.nodeId];
-          if (step && s.input !== null) step.input = s.input;
+          if (!step) continue;
+          if (s.input !== null) step.input = s.input;
+          // La salida de un paso ya terminado puede no haber llegado por el flujo (los eventos del historial no la repiten).
+          if (s.output !== null && step.output === null && step.status === s.status) step.output = s.output;
         }
+        if (fresh.output !== null && live.value.output === null && live.value.status === fresh.status) live.value.output = fresh.output;
         // Si el servidor ya la da por terminada, su versión es la definitiva.
         if (!isActiveStatus(fresh.status) && isActiveStatus(live.value.status)) {
           const next = fromRun(fresh, live.value.events);
@@ -71,7 +75,11 @@ export function useRunStream(runId: Ref<string | null>) {
       }
       // En curso: se parte de cero y se reproducen todos los eventos (historial + directo) por SSE.
       const state = reactive(blankFromRun(fetched)) as RunLive;
-      for (const s of fetched.steps) if (s.input !== null) state.steps[s.nodeId].input = s.input;
+      for (const s of fetched.steps) {
+        if (s.input !== null) state.steps[s.nodeId].input = s.input;
+        // Los pasos que ya habían terminado conservan su salida: el historial de eventos no la vuelve a traer.
+        if (s.output !== null) state.steps[s.nodeId].output = s.output;
+      }
       live.value = state;
       source = new EventSource(`/api/runs/${id}/stream?after=0`);
       source.addEventListener('run-event', (msg) => {

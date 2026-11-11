@@ -90,7 +90,8 @@ export function applyEvent(state: RunLive, ev: RunEvent): void {
       break;
     case 'run.finished':
       state.status = d.status;
-      state.output = d.output ?? null;
+      // El evento en directo trae la salida; el guardado en el historial no (está en la propia ejecución).
+      if ('output' in d) state.output = d.output ?? null;
       state.error = d.error ?? null;
       state.finishedAt = ev.ts;
       if (d.usage) state.finalUsage = d.usage;
@@ -125,7 +126,7 @@ export function applyEvent(state: RunLive, ev: RunEvent): void {
     case 'step.reused':
       if (!step) break;
       step.status = 'completed';
-      step.output = d.output ?? null;
+      if ('output' in d) step.output = d.output ?? null;
       break;
     case 'llm.start':
       if (step && topLevel) {

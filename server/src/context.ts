@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { applyPendingRestore, type PendingRestore } from './backup';
 import type { AppConfig } from './config';
 import { SecretBox } from './crypto/secrets';
 import { openDatabase } from './db/database';
@@ -27,6 +28,8 @@ export interface AppContext {
   log: Logger;
   /** Ejecuciones que estaban a medias en el arranque y se han marcado como interrumpidas. */
   interruptedRuns: number;
+  /** Copia de seguridad que se ha restaurado en este arranque, si la había preparada. */
+  restored: (PendingRestore & { replacedDir: string }) | null;
   /** Aplica la política de retención del historial configurada en Ajustes. Devuelve cuántas ejecuciones borra. */
   applyRetention(): number;
   /** Detiene las ejecuciones dejándolas reanudables (ver RunManager.shutdown). Devuelve cuántas se interrumpen. */
@@ -81,6 +84,8 @@ function acquireInstanceLock(dataDir: string): () => void {
 
 export function createContext(config: AppConfig, overrides: ContextOverrides = {}): AppContext {
   const releaseLock = overrides.inMemory ? () => undefined : acquireInstanceLock(config.dataDir);
+  // Una restauración preparada desde la interfaz se aplica aquí, antes de abrir la base de datos.
+  const restored = overrides.inMemory ? null : applyPendingRestore(config);
   fs.mkdirSync(config.workspaceDir, { recursive: true });
   const db = openDatabase(overrides.inMemory ? ':memory:' : config.dbFile);
   const secrets = overrides.inMemory ? SecretBox.ephemeral() : SecretBox.fromKeyFile(path.join(config.dataDir, 'secret.key'));
@@ -88,10 +93,53 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
   const interruptedRuns = store.markInterruptedRuns();
   const tools = new ToolRegistry(store);
   const llm = overrides.llm ?? defaultLlmFactory;
-  const applyRetention = (): number => {
+  // Retención por lotes: la primera tanda se borra en el momento (así el ajuste tiene efecto inmediato) y, si
+  // queda más, se sigue en segundo plano cediendo el control entre tandas, para que borrar un historial grande
+  // no congele el servidor. Al acabar, el espacio liberado se devuelve al sistema de archivos poco a poco.
+  const RETENTION_BATCH = 100;
+  let closed = false;
+  let pruning = false;
+  let compacting = false;
+  const compactLater = (): void => {
+    if (compacting || closed) return;
+    compacting = true;
+    const step = (): void => {
+      if (closed || !db.isOpen) return void (compacting = false);
+      try {
+        if (store.compact(2000) > 0) return void setTimeout(step, 10).unref();
+      } catch (err) {
+        ctx.log.warn({ err }, 'No se pudo compactar la base de datos');
+      }
+      compacting = false;
+    };
+    setTimeout(step, 50).unref();
+  };
+  const pruneBatch = (): number => {
     const { retentionDays, retentionMaxRuns } = store.getSettings();
     if (!retentionDays && !retentionMaxRuns) return 0;
-    return store.pruneRuns({ days: retentionDays, maxRuns: retentionMaxRuns });
+    return store.pruneRuns({ days: retentionDays, maxRuns: retentionMaxRuns }, Date.now(), RETENTION_BATCH);
+  };
+  const applyRetention = (): number => {
+    const deleted = pruneBatch();
+    if (deleted >= RETENTION_BATCH && !pruning) {
+      pruning = true;
+      let total = deleted;
+      const next = (): void => {
+        if (closed || !db.isOpen) return void (pruning = false);
+        try {
+          const more = pruneBatch();
+          total += more;
+          if (more >= RETENTION_BATCH) return void setTimeout(next, 5).unref();
+          ctx.log.info({ deleted: total }, 'Retención del historial aplicada');
+        } catch (err) {
+          ctx.log.warn({ err }, 'No se pudo completar la retención del historial');
+        }
+        pruning = false;
+        compactLater();
+      };
+      setTimeout(next, 5).unref();
+    } else if (deleted) compactLater();
+    return deleted;
   };
   const runs = new RunManager({
     store,
@@ -129,8 +177,10 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
     startedAt: Date.now(),
     log: silentLogger,
     interruptedRuns,
+    restored,
     applyRetention,
     async stopRuns() {
+      closed = true;
       clearInterval(retentionTimer);
       scheduler.stop();
       return runs.shutdown(config.shutdownGraceMs);

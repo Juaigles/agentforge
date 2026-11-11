@@ -642,15 +642,48 @@ describe('persistencia entre reinicios', () => {
     const run = await waitRun((await post(`/api/agents/${agent.id}/run`, { input: 'antes de migrar' })).json().id);
     await shutdown();
 
-    // Se devuelve el archivo al esquema v1 (sin la columna `interrupted` ni su índice).
+    // Se devuelve el archivo al esquema v1: se deshace, de la más reciente a la más antigua, cada migración.
     const raw = new DatabaseSync(path.join(dataDir, 'agentforge.db'));
-    raw.exec('DROP TABLE schedules; ALTER TABLE runs DROP COLUMN scheduled; DROP INDEX idx_runs_finished; ALTER TABLE runs DROP COLUMN interrupted; PRAGMA user_version = 1;');
+    raw.exec(`
+      -- v4
+      DROP TRIGGER runs_fts_insert; DROP TRIGGER runs_fts_update; DROP TRIGGER runs_fts_delete;
+      DROP TABLE runs_fts; DROP TABLE stats_daily; DROP TABLE stats_agent; DROP TABLE stats_tool; DROP TABLE run_memory;
+      DROP INDEX idx_runs_status_created; DROP INDEX idx_runs_workflow_created; DROP INDEX idx_runs_agent_created;
+      DROP INDEX idx_runs_interrupted; DROP INDEX idx_runs_ended;
+      ALTER TABLE runs DROP COLUMN ended_at;
+      CREATE INDEX idx_runs_status ON runs(status);
+      CREATE INDEX idx_events_type ON run_events(type);
+      -- v3
+      DROP TABLE schedules; ALTER TABLE runs DROP COLUMN scheduled;
+      -- v2
+      ALTER TABLE runs DROP COLUMN interrupted;
+      PRAGMA user_version = 1;
+    `);
     raw.close();
 
     await boot(undefined, dataDir);
-    expect((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(3);
+    expect((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(4);
     expect((await get(`/api/runs/${run.id}`)).json()).toMatchObject({ status: 'completed', output: 'eco(antes de migrar)', interrupted: false });
     expect((await get('/api/runs/interrupted')).json()).toEqual([]);
+    // Antes de migrar se guardó una copia de la versión anterior.
+    expect(fs.existsSync(path.join(dataDir, 'agentforge.db.v1.bak'))).toBe(true);
+
+    // La migración v4 reconstruye a partir de los datos existentes lo que antes se calculaba al vuelo:
+    // el instante de fin (retención), los agregados del panel y el índice de búsqueda.
+    expect(ctx.db.prepare('SELECT ended_at IS NOT NULL AS ended FROM runs WHERE id = ?').get(run.id)).toEqual({ ended: 1 });
+    const stats = (await get('/api/stats')).json();
+    expect(stats.runsByStatus.completed).toBe(1);
+    expect(stats.llmCalls).toBe(1);
+    expect(stats.tokens).toEqual({ prompt: 10, completion: 5 });
+    expect(stats.daily.reduce((n: number, d: { completed: number }) => n + d.completed, 0)).toBe(1);
+    expect(stats.topAgents).toEqual([{ agentId: agent.id, name: agent.name, steps: 1, completionTokens: 5 }]);
+    expect((await get('/api/runs?search=antes de migrar')).json().total).toBe(1);
+    expect((await get('/api/runs?search=eco(antes')).json().total).toBe(1);
+    expect((await get('/api/runs?search=no-aparece')).json().total).toBe(0);
+    // Y la base migrada sigue funcionando: una ejecución nueva se suma a lo reconstruido.
+    await waitRun((await post(`/api/agents/${agent.id}/run`, { input: 'después de migrar' })).json().id);
+    expect((await get('/api/stats')).json()).toMatchObject({ llmCalls: 2, runsByStatus: { completed: 2 } });
+    expect((ctx.db.prepare('PRAGMA auto_vacuum').get() as { auto_vacuum: number }).auto_vacuum).toBe(2);
   });
 });
 
@@ -662,7 +695,7 @@ describe('retención configurable desde la API', () => {
     for (const input of ['uno', 'dos', 'tres']) ids.push((await waitRun((await post(`/api/agents/${agent.id}/run`, { input })).json().id)).id);
     // La primera «terminó» hace 10 días.
     const old = new Date(Date.now() - 10 * 86_400_000).toISOString();
-    ctx.db.prepare('UPDATE runs SET created_at = ?, finished_at = ? WHERE id = ?').run(old, old, ids[0]);
+    ctx.db.prepare('UPDATE runs SET created_at = ?, finished_at = ?, ended_at = ? WHERE id = ?').run(old, old, old, ids[0]);
 
     expect((await put('/api/settings', { retentionDays: -1 })).statusCode).toBe(400);
     expect((await put('/api/settings', { retentionMaxRuns: 1.5 })).statusCode).toBe(400);

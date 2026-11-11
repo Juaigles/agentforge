@@ -6,12 +6,12 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 ## 1. Tests automatizados
 
 Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
-Resultados del 2026-11-11 (hito 5, tras la fase 1):
+Resultados del 2026-11-11 (hito 5, tras la fase 2):
 
 ```
-servidor     Test Files  12 passed (12)   Tests  274 passed | 1 skipped (275)
+servidor     Test Files  13 passed (13)   Tests  295 passed | 1 skipped (296)
 frontend     Test Files  7 passed (7)     Tests   40 passed (40)
-end-to-end   45 passed (2.4m)
+end-to-end   46 passed (2.5m)
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
 npm audit    found 0 vulnerabilities
 ```
@@ -34,6 +34,7 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `server/test/schedule-import.test.ts` | Programación (cálculo de citas, alta/validación, disparo, apagado largo, sin solapes, workflow roto, «ejecutar ahora», reinicio, temporizador real) y exportar/importar (contenido, alta de agentes, reutilización, avisos, archivos no válidos) | Solo el proveedor LLM; el reloj se pasa como argumento a `tick()` |
 | `server/test/lifecycle.test.ts` | **Apagado ordenado** (en curso y en cola → interrumpidas y reanudables; plazo), respuestas comprimidas cortadas o canceladas, herramienta que ignora la cancelación, configuración de nodos fuera de rango, reintentos solo de errores transitorios, expresiones regulares catastróficas (con el bucle de eventos vivo), versión de esquema superior, copia previa a migrar, migración fallida, API key indescifrable, instancia única, validación de la configuración | Solo el proveedor LLM; servidores HTTP y procesos reales |
 | `server/test/security.test.ts` | Claves ligadas a su origen (se comprueba qué cabecera llega a cada servidor), `Host` con `0.0.0.0`, clave de acceso y sesión, peticiones de otra web, límite de tasa, cabeceras y CSP, bloqueo de la propia API, redirecciones a otro origen, direcciones privadas disfrazadas, plantillas del cuerpo, cuotas, consultas no válidas, sondas de salud, **`run_javascript` sin red** (proceso real con sus argumentos y su preludio intentando conectar, resolver nombres y usar `fetch`), contenedor, y **fijación de DNS contra un servidor DNS real** | El proveedor LLM (salvo donde se usan los adaptadores reales); servidores HTTP, DNS y procesos reales |
+| `server/test/data.test.ts` | Estadísticas incrementales y acumuladas (día local), paginación estable, resúmenes recortados, búsqueda de texto completo (subcadenas, tildes, caracteres especiales, ventana de 2 000), eventos sin salida duplicada, retención por tandas con el archivo encogiendo de verdad, memoria compartida tras reintentar, fragmentos agrupados y en orden, reproducción SSE de 2 300 eventos por HTTP real (también con `Last-Event-ID` y con la ejecución en marcha), HTML a texto en tiempo lineal con entradas hostiles, y copias de seguridad (crear, descargar, restaurar al reiniciar, cancelar, subir, nombres maliciosos) | Solo el proveedor LLM; base de datos en disco y HTTP reales |
 | `server/test/static.test.ts` | Servido del frontend: fallback de la SPA, caché, 404 de assets, archivos nuevos sin reiniciar | Ninguno |
 | `server/test/ollama.integration.test.ts` | **Modelo real**: chat nativo, adaptador OpenAI vía `/v1`, agente con herramienta por ambos adaptadores, workflow paralelo de 3 agentes | **Ninguno** (se omite si no hay Ollama) |
 | `web/src/lib/run-state.test.ts` | Reductor de eventos del monitor en vivo, emparejado de llamadas a herramientas, formato | Ninguno |
@@ -43,7 +44,7 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
 | `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
 | `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
-| `e2e/*.spec.ts` (45 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
+| `e2e/*.spec.ts` (46 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
 Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
 puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
@@ -74,6 +75,63 @@ puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de
 | Nodo «para cada» | `workflow-builder.spec.ts`, `foreach.test.ts` | Configurado en el lienzo; lista de 6 con tope 5 → falla sin llamar al modelo; lista de 3 → 3 peticiones, una por elemento, y avance en vivo |
 | Exportar / importar | `automation.spec.ts`, `schedule-import.test.ts` | Se descarga el archivo real, se borran workflow y agente, se sube el archivo y el workflow importado se ejecuta; archivos no válidos rechazados sin crear nada |
 | Ejecución programada | `automation.spec.ts`, `schedule-import.test.ts` | Alta, pausa y baja desde la interfaz; «Ejecutar ahora»; y una ejecución que aparece sola al cumplirse **un minuto real** |
+
+### 1.2 Prueba de carga (`npm run loadtest`)
+
+`node scripts/loadtest.mjs --runs 10000,50000`: siembra una base temporal con ejecuciones sintéticas (semilla
+fija, 18 KB por ejecución con sus 6 pasos y 20 eventos), arranca el servidor real sobre ella y mide por HTTP. Un
+sondeador pide `/api/health` cada 20 ms: su latencia máxima es el tiempo que el servidor ha estado bloqueado.
+Medido el 2026-11-11 en esta máquina (Windows 11, Node 24.19, SSD); «antes» es el commit `8bef427`.
+
+| 50 000 ejecuciones | Antes: p50 / bloqueo máx | Después: p50 / bloqueo máx |
+|---|---|---|
+| `GET /api/stats` | 1 119,8 / 1 103,1 ms | 3,1 / 0,7 ms |
+| Lista, 30 filas | 2,3 / 2,0 ms | 0,7 / 0,5 ms |
+| Lista, 200 filas (tamaño) | 6,3 ms (522 KB) | 2,3 ms (186 KB) |
+| Lista, estado = completadas | 204 / 183,6 ms | 2,2 / 0,7 ms |
+| Lista, por workflow | 109,8 / 86,4 ms | 0,6 / 0,7 ms |
+| Lista, por agente | 107,7 / 87,2 ms | 1,4 / 1,3 ms |
+| Lista, página profunda (posición 45 000) | 313,4 / 291 ms | 0,9 / 0,6 ms |
+| Interrumpidas | 188,6 / 161,2 ms | 0,3 / 0,6 ms |
+| Búsqueda, término frecuente | 117,3 / 98,1 ms | 4,7 / 4,8 ms |
+| Búsqueda, término inexistente | 321,4 / 320,9 ms | 0,3 / 0,6 ms |
+| Inserción de eventos de 500 bytes | 2 317 por segundo | 34 540 por segundo |
+| Retención sin nada que borrar | 656,3 / 646,9 ms | 1,0 / 0,3 ms |
+| Retención que borra la mitad | 4 572 ms, bloqueo 4 541 ms | 21 284 ms en segundo plano, bloqueo máx 213 ms |
+| Archivo tras borrar la mitad | 893 → 893 MB | 1 239 → 805 MB |
+| 40 ejecuciones, 3 / 10 a la vez | 70 / 255 por minuto | 68 / 247 por minuto |
+| 200 clientes SSE, retraso del texto p50 / máx | 3 / 10 ms | 33 / 56 ms |
+| Memoria del servidor con 200 clientes SSE | 126 MB | 198 MB |
+| Arranque (la primera vez migra el esquema) | 0,7 s | 23,4 s (una sola vez) |
+
+| 10 000 ejecuciones | Antes | Después |
+|---|---|---|
+| `GET /api/stats` | 223,4 ms | 1,7 ms |
+| Lista, estado = completadas | 41,6 ms | 0,8 ms |
+| Página profunda (posición 9 000) | 55,7 ms | 1,0 ms |
+| Búsqueda, término frecuente / inexistente | 24,3 / 59 ms | 4,4 / 0,4 ms |
+| Inserción de eventos | 2 480 por segundo | 29 753 por segundo |
+| Retención que borra la mitad | bloqueo 794 ms | bloqueo máx 117 ms, 250 → 160 MB |
+
+Lo que empeora, a sabiendas: el texto del modelo llega con unos 30 ms más de retraso (los fragmentos se agrupan
+en ventanas de 33 ms), el servidor usa más memoria (caché de SQLite de 32 MB), el índice de búsqueda agranda la
+base, y borrar medio historial tarda más en total porque se hace por tandas sin bloquear. El bloqueo máximo
+durante esa retención (213 ms) queda por encima del objetivo de 100 ms.
+
+Comprobado con el servidor real y Ollama tras la fase 2 del hito 5 (2026-11-11, `qwen3.5:4b-q4_K_M`):
+
+- **Migración de los datos reales** (16 ejecuciones, esquema v3 → v4): `/api/health/ready` → «esquema v4»; quedó
+  `data/agentforge.db.v3.bak`; las estadísticas reconstruidas daban 39 llamadas al modelo, 7 a herramientas,
+  15 233 + 7 776 tokens y el ranking Investigador (10 pasos), Analista (9), Redactor (8).
+- **Ejecución nueva**: «Informe de investigación multiagente» con «Cómo afecta el teletrabajo a la productividad
+  de un equipo pequeño» → **Completado** en 11 s, 4 llamadas al modelo, 2 332 tokens; las estadísticas pasaron al
+  instante a 43 llamadas y 2 completadas hoy. Sus 26 eventos guardados no repiten la salida de ningún paso y el
+  monitor (navegador, sin errores de consola) muestra el informe completo de 2 174 caracteres.
+- **Búsqueda en el contenido**: «teletrabajo» (entrada), «PRODUCTIVIDAD de un equipo» (sin distinguir
+  mayúsculas) y «Equipos Pequeños» (texto del resultado) encuentran esa ejecución; el resumen de la lista lleva
+  300 caracteres del resultado.
+- **Copia de seguridad** de los datos reales: 121 758 bytes, con 6 agentes, 3 workflows, 16 ejecuciones y 1
+  archivo; aparece en Ajustes → Copias de seguridad con su botón «Restaurar».
 
 Comprobado con el servidor real y Ollama tras la fase 1 del hito 5 (2026-11-11, `qwen3.5:4b-q4_K_M`):
 
@@ -192,7 +250,11 @@ de una ejecución anterior al reinicio.
 - **Redirección de https a http**: el rechazo está en el código pero no tiene test (haría falta un servidor TLS).
 - **Clave de acceso detrás de un proxy inverso** y con `HOST=0.0.0.0` en una red real: probado con peticiones
   inyectadas y con un servidor en 127.0.0.1, no desde otro equipo.
-- **Retención con historiales grandes** (decenas de miles de ejecuciones): no medido el tiempo de borrado.
+- **Restauración sobre los datos reales**: la copia de los datos reales se creó y se listó, pero no se ha
+  restaurado sobre `data/` (sí en la suite e2e y en los tests, con datos temporales).
+- **Historiales de más de 50 000 ejecuciones** o con salidas grandes (la siembra usa salidas de 2 KB).
+- **Navegador con respuestas muy largas**: el límite de pintado de Markdown no se ha medido con una respuesta de
+  cientos de KB en un navegador real.
 - **Programación diaria a una hora**: probado el cálculo de la cita y su disparo adelantando el reloj; no se ha
   esperado a una hora real ni se ha probado un cambio de hora (horario de verano).
 - **Importación entre dos instalaciones físicas distintas**: probada entre dos bases de datos distintas en los
@@ -202,4 +264,5 @@ de una ejecución anterior al reinicio.
   un modelo real (eso lo cubren `ollama.integration.test.ts` y las comprobaciones manuales).
 - El arrastre con ratón del lienzo se prueba con ratón sintético de Playwright; no se ha probado con pantalla
   táctil real ni con trackpad.
-- Cargas altas (cientos de ejecuciones simultáneas o historiales de millones de eventos).
+- Cargas altas: cientos de ejecuciones simultáneas o millones de eventos. La prueba de carga llega a 40
+  ejecuciones (10 a la vez), 200 clientes SSE y 1 000 000 de eventos sembrados.

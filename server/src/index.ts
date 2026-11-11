@@ -11,6 +11,7 @@ async function main(): Promise<void> {
     ctx = createContext(config);
     const app = await buildApp(ctx);
     const { log } = app;
+    if (ctx.restored) log.warn({ backup: ctx.restored.name, replaced: ctx.restored.replacedDir }, 'Se ha restaurado una copia de seguridad; los datos anteriores se han conservado aparte');
     if (ctx.interruptedRuns) log.warn({ interrupted: ctx.interruptedRuns }, 'Hay ejecuciones interrumpidas por el cierre anterior; la interfaz ofrece reanudarlas');
     if (config.seed && (await seedIfEmpty(ctx))) log.info('Base de datos vacía: se han creado los datos de ejemplo');
 

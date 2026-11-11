@@ -31,6 +31,7 @@ npm run dev        # API (recarga con tsx watch) + Vite en http://localhost:5173
 npm test           # tests del servidor y del frontend (unidad, API y componentes)
 npm run test:e2e   # tests end-to-end en Chromium (Playwright) contra el servidor real
 npm run typecheck  # tsc + vue-tsc + tipos de la suite e2e
+npm run loadtest -- --runs 10000,50000   # prueba de carga con el servidor real (no toca data/)
 ```
 
 La suite end-to-end necesita el navegador de Playwright (`npx playwright install chromium`, solo la primera
@@ -67,6 +68,17 @@ Todos los datos viven en `data/` (`agentforge.db`, `secret.key`, `workspace/`). 
 aplicación como recién instalada. Solo puede usarla un servidor a la vez (`agentforge.lock`). Antes de actualizar
 el esquema de la base de datos se guarda una copia (`agentforge.db.v<N>.bak`).
 
+### Copias de seguridad
+
+En *Ajustes → Copias de seguridad* se crea, descarga, añade desde un archivo, restaura y borra. Una copia es un
+único archivo `.afbackup` (en `data/backups/`) con la base de datos, la clave maestra y el espacio de trabajo; se
+puede crear con ejecuciones en curso. **Restaurar** valida la copia y la deja preparada: los datos se sustituyen
+al **reiniciar** el servidor, y lo que había se conserva en `data/replaced-<fecha>/`. Guarda las copias en un
+lugar seguro: contienen la clave con la que se descifran las API keys.
+
+Copiar a mano la carpeta `data/` también sirve, pero **con el servidor parado** (con él en marcha, parte de los
+datos está en el diario `agentforge.db-wal`).
+
 ### Parar el servidor
 
 Ctrl+C (o `SIGTERM`) hace un apagado ordenado: las ejecuciones en curso quedan **interrumpidas**, no canceladas,
@@ -90,7 +102,7 @@ proceso muere de golpe. Un segundo Ctrl+C fuerza la salida. Sondas para un orque
   condicionales, reintentos con backoff, timeout por nodo, duración máxima, límite de llamadas al modelo,
   política de error (detener/continuar), cancelación, cola global, delegación entre agentes y memoria
   compartida por ejecución.
-- **Ejecuciones**: historial con filtros, monitor en vivo (grafo con estados, streaming de tokens,
+- **Ejecuciones**: historial con filtros y búsqueda en el contenido (nombre, entrada y resultado), monitor en vivo (grafo con estados, streaming de tokens,
   registro de actividad con llamadas a herramientas), cancelar, repetir y **reintentar desde el fallo**
   reutilizando los pasos completados. Si el servidor se apaga con ejecuciones a medias, al volver la interfaz
   ofrece **reanudarlas** (o descartarlas) desde cualquier pantalla.

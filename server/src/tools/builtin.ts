@@ -5,7 +5,7 @@ import type { WorkspaceFile } from '../../../shared/types';
 import { ToolError } from '../errors';
 import { truncate } from '../util';
 import { evaluateExpression } from './calc';
-import { htmlToText, safeFetch } from './net';
+import { htmlTitle, htmlToText, safeFetch } from './net';
 import { runJavaScript } from './sandbox';
 import type { ToolDefinition } from './types';
 
@@ -163,8 +163,8 @@ const webFetch: ToolDefinition = {
   async execute({ url, max_chars }, ctx) {
     const res = await safeFetch(url, { signal: ctx.signal, allowPrivate: ctx.settings.allowPrivateNetwork, maxBytes: 1_500_000 });
     if (res.status >= 400) throw new ToolError(`La página respondió ${res.status} ${res.statusText}.`);
-    const isHtml = (res.headers['content-type'] ?? '').includes('html') || /^\s*<(!doctype|html)/i.test(res.text);
-    const title = isHtml ? (/<title[^>]*>([\s\S]*?)<\/title>/i.exec(res.text)?.[1]?.trim() ?? null) : null;
+    const isHtml = (res.headers['content-type'] ?? '').includes('html') || /^\s{0,200}<(!doctype|html)/i.test(res.text.slice(0, 400));
+    const title = isHtml ? htmlTitle(res.text) : null;
     const text = isHtml ? htmlToText(res.text) : res.text;
     return { url: res.url, title, content: truncate(text, Math.min(Math.max(Number(max_chars) || 6000, 200), 30_000)) };
   },

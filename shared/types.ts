@@ -244,6 +244,10 @@ export interface RunSnapshot {
   agents: Record<string, Agent>;
 }
 
+/**
+ * Resumen de una ejecución (listas, panel, avisos en vivo). `input`, `output` y `error` llevan solo el principio
+ * del texto; el contenido completo está en `Run` (GET /api/runs/:id).
+ */
 export interface RunSummary {
   id: string;
   kind: RunKind;
@@ -455,4 +459,36 @@ export interface AuthStatus {
   /** ¿El servidor exige clave de acceso? */
   required: boolean;
   authenticated: boolean;
+}
+
+// ---------- Copias de seguridad ----------
+export interface BackupManifest {
+  format: 'agentforge.backup';
+  version: 1;
+  createdAt: string;
+  appVersion: string;
+  schemaVersion: number;
+  counts: { agents: number; workflows: number; runs: number; workspaceFiles: number };
+}
+
+export interface BackupInfo {
+  name: string;
+  sizeBytes: number;
+  createdAt: string;
+  /** null si el archivo no se puede leer (copia dañada). */
+  manifest: BackupManifest | null;
+}
+
+export interface PendingRestore {
+  name: string;
+  preparedAt: string;
+  manifest: BackupManifest;
+}
+
+export interface BackupState {
+  backups: BackupInfo[];
+  /** Restauración ya validada que se aplicará al reiniciar el servidor. */
+  pending: PendingRestore | null;
+  /** Última restauración aplicada en un arranque. */
+  lastRestore: (PendingRestore & { appliedAt: string; replacedDir: string }) | null;
 }

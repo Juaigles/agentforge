@@ -10,11 +10,23 @@ import {
   type DashboardStats,
   type ProviderHealth,
   type ProviderTestResult,
+  type BackupState,
   type RunEvent,
   type Workflow,
   type WorkflowExport,
   type WorkflowImportResult,
 } from '../../../shared/types';
+import {
+  backupFile,
+  cancelRestore,
+  createBackup,
+  deleteBackup,
+  lastRestore,
+  listBackups,
+  pendingRestore,
+  prepareRestore,
+  receiveBackup,
+} from '../backup';
 import type { AppContext } from '../context';
 import { SCHEMA_VERSION } from '../db/database';
 import { nextOccurrence } from '../engine/scheduler';
@@ -42,6 +54,10 @@ import {
 
 export const APP_VERSION = '0.1.0';
 const HEALTH_TTL_MS = 10_000;
+/** Bytes pendientes de enviar a partir de los cuales se corta a un cliente SSE que no lee. */
+const MAX_SSE_BUFFER_BYTES = 8 * 1024 * 1024;
+/** Eventos del historial que se envían por tanda al conectar (entre tandas se cede el control). */
+const SSE_REPLAY_BATCH = 500;
 
 const idOf = (req: FastifyRequest): string => (req.params as { id: string }).id;
 
@@ -62,13 +78,28 @@ function openSse(req: FastifyRequest, reply: FastifyReply) {
   raw.write('retry: 2000\n\n');
   const heartbeat = setInterval(() => raw.write(': ping\n\n'), 15_000);
   const cleanups: Array<() => void> = [() => clearInterval(heartbeat)];
-  req.raw.on('close', () => cleanups.forEach((fn) => fn()));
+  let closed = false;
+  req.raw.on('close', () => {
+    closed = true;
+    cleanups.forEach((fn) => fn());
+  });
   return {
+    get closed() {
+      return closed;
+    },
     send(event: string, data: unknown, id?: number | null) {
+      if (closed) return;
+      // Contrapresión: a un cliente que no lee (pestaña dormida, red lenta) no se le acumula memoria sin límite.
+      // Se le corta; EventSource reconecta solo y retoma desde el último evento que recibió (Last-Event-ID).
+      if (raw.writableLength > MAX_SSE_BUFFER_BYTES) {
+        raw.destroy();
+        return;
+      }
       raw.write(`${id != null ? `id: ${id}\n` : ''}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     },
     onClose(fn: () => void) {
-      cleanups.push(fn);
+      if (closed) fn();
+      else cleanups.push(fn);
     },
   };
 }
@@ -212,6 +243,54 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     ctx.applyRetention();
     return settings;
   });
+
+  // ---------- Copias de seguridad ----------
+  // Una copia subida llega como flujo de bytes: no se analiza ni se guarda en memoria.
+  app.addContentTypeParser('application/octet-stream', (_req, _payload, done) => done(null));
+
+  app.get('/api/backups', async (): Promise<BackupState> => ({
+    backups: await listBackups(ctx.config),
+    pending: pendingRestore(ctx.config),
+    lastRestore: lastRestore(ctx.config),
+  }));
+
+  /** Crea una copia completa (base de datos, clave maestra y espacio de trabajo). No hace falta parar nada. */
+  app.post('/api/backups', async (_req, reply) => {
+    const backup = await createBackup(ctx.config, ctx.db, APP_VERSION);
+    ctx.log.info({ backup: backup.name, bytes: backup.sizeBytes }, 'Copia de seguridad creada');
+    return reply.status(201).send(backup);
+  });
+
+  app.post('/api/backups/upload', { bodyLimit: Number.MAX_SAFE_INTEGER }, async (req, reply) => {
+    if (!String(req.headers['content-type'] ?? '').startsWith('application/octet-stream')) {
+      throw new HttpError(415, 'Envía el archivo de la copia como application/octet-stream.');
+    }
+    return reply.status(201).send(await receiveBackup(ctx.config, req.raw));
+  });
+
+  app.get('/api/backups/:name/download', async (req, reply) => {
+    const name = (req.params as { name: string }).name;
+    const file = backupFile(ctx.config, name);
+    return reply
+      .header('Content-Type', 'application/octet-stream')
+      .header('Content-Disposition', `attachment; filename="${name}"`)
+      .header('Content-Length', fs.statSync(file).size)
+      .send(fs.createReadStream(file));
+  });
+
+  app.delete('/api/backups/:name', async (req, reply) => {
+    await deleteBackup(ctx.config, (req.params as { name: string }).name);
+    return reply.status(204).send();
+  });
+
+  /** Valida la copia y la deja preparada: los datos se sustituyen en el próximo arranque del servidor. */
+  app.post('/api/backups/:name/restore', async (req, reply) => {
+    const pending = await prepareRestore(ctx.config, (req.params as { name: string }).name);
+    ctx.log.warn({ backup: pending.name }, 'Restauración preparada: se aplicará al reiniciar el servidor');
+    return reply.status(202).send(pending);
+  });
+
+  app.delete('/api/backups/restore/pending', async () => ({ cancelled: await cancelRestore(ctx.config) }));
 
   // ---------- Proveedores ----------
   app.get('/api/providers', async () => store.listProviders());
@@ -598,12 +677,25 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     const after = Number(req.headers['last-event-id'] ?? (req.query as { after?: string }).after ?? 0) || 0;
     const sse = openSse(req, reply);
     const send = (ev: RunEvent) => sse.send('run-event', ev, ev.seq);
-    // Historial + suscripción ocurren en el mismo tick (SQLite es síncrono): no se pierde ni duplica nada.
-    for (const ev of store.listEvents(runId, after)) send(ev);
+    // El historial se reproduce por tandas, cediendo el control entre ellas: conectar a una ejecución con miles
+    // de eventos no congela el servidor. La suscripción se abre ANTES y lo que llega mientras tanto se guarda,
+    // para no perder nada; al terminar se entrega lo que no estuviera ya en el historial enviado.
+    let replaying = true;
+    const buffered: RunEvent[] = [];
+    sse.onClose(runs.subscribe(runId, (ev) => (replaying ? buffered.push(ev) : send(ev))));
+    let last = after;
+    for (;;) {
+      const batch = store.listEvents(runId, last, SSE_REPLAY_BATCH);
+      for (const ev of batch) send(ev);
+      if (batch.length) last = batch[batch.length - 1].seq!;
+      if (batch.length < SSE_REPLAY_BATCH || sse.closed) break;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
     for (const p of runs.partials(runId)) {
       send({ seq: null, runId, ts: new Date().toISOString(), type: 'llm.snapshot', nodeId: p.nodeId, data: { text: p.text } });
     }
-    sse.onClose(runs.subscribe(runId, send));
+    for (const ev of buffered) if (ev.seq === null || ev.seq > last) send(ev);
+    replaying = false;
   });
 
   /** Cambios de estado de todas las ejecuciones (listas y dashboard en vivo). */
