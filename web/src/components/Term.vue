@@ -72,14 +72,20 @@ function onLeave(ev: MouseEvent): void {
 function onBlur(ev: FocusEvent): void {
   if (!inside(ev.relatedTarget)) hide();
 }
+/** Con qué se pulsó el término la última vez (`touch`, `mouse`, `pen`); vacío si no hubo puntero (teclado). */
+let lastPointer = '';
+function onPointerDown(ev: PointerEvent): void {
+  lastPointer = ev.pointerType ?? '';
+}
 function onClick(ev: MouseEvent, navigate: (e?: MouseEvent) => void): void {
   if (anchor.value?.closest('[role="dialog"], form')) {
     ev.preventDefault();
     if (!open.value) void show(window.matchMedia('(hover: none)').matches);
     return;
   }
-  // Táctil: el primer toque muestra la definición; el segundo va al glosario.
-  const touch = window.matchMedia('(hover: none)').matches;
+  // Táctil: el primer toque muestra la definición; el segundo va al glosario. Cuenta el dedo con el que se ha
+  // tocado, no solo el tipo de pantalla: un portátil táctil o un móvil con ratón dicen que tienen «hover».
+  const touch = lastPointer === 'touch' || (!lastPointer && window.matchMedia('(hover: none)').matches);
   if (touch && !(open.value && viaTouch.value)) {
     ev.preventDefault();
     void show(true);
@@ -102,6 +108,7 @@ onBeforeUnmount(hide);
       @mouseleave="onLeave"
       @focus="show()"
       @blur="onBlur"
+      @pointerdown="onPointerDown"
       @click="onClick($event, navigate)"
       ><slot>{{ entry.term }}</slot></a
     >

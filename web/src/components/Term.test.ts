@@ -118,6 +118,27 @@ describe('Term', () => {
     expect(tip()).toBeNull();
   });
 
+  it('un toque con el dedo cuenta como táctil aunque la pantalla diga que tiene ratón (portátil táctil); el ratón no', async () => {
+    setTouchDevice(false);
+    const router = await mountTerm();
+    const link = wrapper.get('a.term');
+    const press = async (pointerType: string) => {
+      link.element.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerType }));
+      await link.trigger('click', { button: 0 });
+      await flushPromises();
+    };
+
+    await press('touch');
+    expect(router.currentRoute.value.fullPath).toBe('/');
+    expect(tip()?.textContent).toContain('Toca otra vez para ir al glosario');
+    await press('touch');
+    expect(router.currentRoute.value.fullPath).toBe('/glosario#g-agente');
+
+    await router.push('/');
+    await press('mouse');
+    expect(router.currentRoute.value.fullPath).toBe('/glosario#g-agente');
+  });
+
   it('no deja listeners ni tooltips huérfanos al desmontarse abierto', async () => {
     await mountTerm();
     await wrapper.get('a.term').trigger('mouseenter');
