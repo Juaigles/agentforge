@@ -44,6 +44,7 @@ export default {
     label: 'Vistas de la ejecución',
     result: 'Resultado',
     activity: 'Actividad',
+    activityPartial: 'Entradas cargadas; hay más anteriores',
     input: 'Entrada',
   },
   result: {

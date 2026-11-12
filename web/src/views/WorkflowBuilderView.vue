@@ -43,7 +43,9 @@ import Term from '@/components/Term.vue';
 import { locale, t, tn } from '@/i18n';
 import { announce, localizeFlow } from '@/lib/a11y';
 import { api, errorText } from '@/lib/api';
+import { toolDescription, toolParamDescription, toolTitle } from '@/lib/tool-text';
 import { autoLayout, cloneNodes, connectionOptions, newWorkflowNodes, useHistory } from '@/lib/builder';
+import { adoptRoute } from '@/lib/editor-mount';
 import {
   edgeTexts,
   fromFlow,
@@ -209,7 +211,8 @@ async function load(): Promise<void> {
     }
     loading.value = false;
     await nextTick();
-    saved.value = workflowId.value ? serialized.value : '';
+    // También en uno nuevo: mientras no se toque no hay cambios que perder («Guardar» sigue disponible para crearlo).
+    saved.value = serialized.value;
     history.reset(serialized.value);
   } catch (err) {
     loadError.value = errorText(err);
@@ -643,7 +646,7 @@ function onToolChange(): void {
   if (!data) return;
   data.config.args = {};
   const tool = catalog.toolByName.get(data.config.tool);
-  if (tool && (!data.label || data.label === NODE_LABEL.tool)) data.label = tool.title;
+  if (tool && (!data.label || data.label === NODE_LABEL.tool)) data.label = toolTitle(tool);
 }
 function onAgentChange(): void {
   const data = selectedData.value;
@@ -685,7 +688,8 @@ async function save(): Promise<boolean> {
     catalog.setWorkflow(wf);
     saved.value = serialized.value;
     ui.success(t('builder.toast.saved'));
-    if (!workflowId.value) await router.replace(`/workflows/${wf.id}`);
+    // Primer guardado: la pantalla sigue montada (deshacer, selección, lienzo y foco intactos) y pasa a su dirección definitiva.
+    if (!workflowId.value) await adoptRoute(router, `/workflows/${wf.id}`);
     return true;
   } catch (err) {
     ui.error(errorText(err));
@@ -1119,7 +1123,7 @@ onBeforeRouteLeave(async (to) => {
                 <select id="in-tool" v-model="selectedData.config.tool" class="select" @change="selectedData.config.args = {}">
                   <option value="" disabled>{{ t('builder.select') }}</option>
                   <option v-for="tl in catalog.tools.filter((x) => x.enabled && x.name !== 'delegate_task')" :key="tl.name" :value="tl.name">
-                    {{ tl.title }} ({{ tl.name }})
+                    {{ toolTitle(tl) }} ({{ tl.name }})
                   </option>
                 </select>
                 <i18n-t keypath="builder.foreach.toolHint" tag="span" class="hint" scope="global">
@@ -1280,10 +1284,10 @@ onBeforeRouteLeave(async (to) => {
               <select id="in-tool" v-model="selectedData.config.tool" class="select" @change="onToolChange">
                 <option value="" disabled>{{ t('builder.select') }}</option>
                 <option v-for="tl in catalog.tools.filter((x) => x.enabled && x.name !== 'delegate_task')" :key="tl.name" :value="tl.name">
-                  {{ tl.title }} ({{ tl.name }})
+                  {{ toolTitle(tl) }} ({{ tl.name }})
                 </option>
               </select>
-              <span v-if="selectedTool" class="hint">{{ selectedTool.description }}</span>
+              <span v-if="selectedTool" class="hint">{{ toolDescription(selectedTool) }}</span>
             </div>
           </template>
 
@@ -1325,11 +1329,11 @@ onBeforeRouteLeave(async (to) => {
                   :rows="['content', 'body', 'code', 'value', 'task'].includes(String(name)) ? 5 : 1"
                   :data-tpl="`arg:${name}`"
                   :value="argText(String(name))"
-                  :placeholder="prop.description"
+                  :placeholder="toolParamDescription(selectedTool, String(name), prop)"
                   style="min-height: 34px"
                   @input="setArg(String(name), ($event.target as HTMLTextAreaElement).value)"
                 />
-                <span class="hint">{{ prop.description }}</span>
+                <span class="hint">{{ toolParamDescription(selectedTool, String(name), prop) }}</span>
               </div>
             </template>
           </template>

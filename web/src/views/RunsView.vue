@@ -7,8 +7,10 @@ import StatusBadge from '@/components/StatusBadge.vue';
 import Term from '@/components/Term.vue';
 import { t, tn } from '@/i18n';
 import { api, errorText } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import { elapsedMs, formatCompact, formatDateTime, formatDuration, isActiveStatus, relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
+import { useCatalog } from '@/stores/catalog';
 import { useRuns } from '@/stores/runs';
 import { useUi } from '@/stores/ui';
 
@@ -26,6 +28,7 @@ const STATUSES: Array<{ value: RunStatus | ''; labelKey: string }> = [
 const route = useRoute();
 const router = useRouter();
 const runsStore = useRuns();
+const catalog = useCatalog();
 const ui = useUi();
 const now = useNow();
 
@@ -33,20 +36,38 @@ const items = ref<RunSummary[]>([]);
 const total = ref(0);
 /** La búsqueda encontró más coincidencias de las que examina: `total` es solo la parte examinada. */
 const capped = ref(false);
-// Los filtros viven en la URL (?estado=&tipo=&q=): se conservan al abrir una ejecución y volver, al recargar
-// y al compartir o guardar el enlace.
+// Los filtros viven en la URL (?estado=&tipo=&workflow=&agente=&desde=&hasta=&q=): se conservan al abrir una
+// ejecución y volver, al recargar y al compartir o guardar el enlace.
 const queryText = (value: unknown): string => (typeof value === 'string' ? value : '');
 const fromQuery = <T extends string>(value: unknown, allowed: readonly T[]): T | '' => (allowed.includes(queryText(value) as T) ? (queryText(value) as T) : '');
+/** Día `AAAA-MM-DD` (el valor de un campo de fecha) como fecha local; null si no es un día real. */
+function localDay(value: string, endOfDay = false): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [year, month, day] = match.slice(1).map(Number);
+  const date = endOfDay ? new Date(year, month - 1, day, 23, 59, 59, 999) : new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null;
+}
+const dayFromQuery = (value: unknown): string => (localDay(queryText(value)) ? queryText(value) : '');
 const listPath = route.path;
 const STATUS_VALUES = ['running', 'completed', 'failed', 'cancelled'] as const;
 const KIND_VALUES = ['workflow', 'agent'] as const;
 const status = ref<RunStatus | ''>(fromQuery(route.query.estado, STATUS_VALUES));
 const kind = ref<RunKind | ''>(fromQuery(route.query.tipo, KIND_VALUES));
+const workflowId = ref(queryText(route.query.workflow));
+const agentId = ref(queryText(route.query.agente));
+/** Intervalo de fechas de inicio, en días del calendario local (ambos incluidos). */
+const dateFrom = ref(dayFromQuery(route.query.desde));
+const dateTo = ref(dayFromQuery(route.query.hasta));
 const search = ref(queryText(route.query.q));
 function syncUrl(): void {
   const query: Record<string, string> = {};
   if (status.value) query.estado = status.value;
   if (kind.value) query.tipo = kind.value;
+  if (workflowId.value) query.workflow = workflowId.value;
+  if (agentId.value) query.agente = agentId.value;
+  if (dateFrom.value) query.desde = dateFrom.value;
+  if (dateTo.value) query.hasta = dateTo.value;
   if (search.value.trim()) query.q = search.value.trim();
   // `replace`: escribir en el buscador no llena el historial del navegador de pasos intermedios.
   void router.replace({ query });
@@ -65,8 +86,14 @@ async function load(reset = true): Promise<void> {
   else loadingMore.value = true;
   try {
     const res = await api.runs.list({
-      status: status.value,
+      // «En curso» es todo lo que no ha terminado: también lo que espera en la cola o a una aprobación.
+      status: status.value === 'running' ? 'active' : status.value,
       kind: kind.value,
+      workflowId: workflowId.value,
+      agentId: agentId.value,
+      // El día elegido es el del calendario local: va de sus 00:00 a sus 23:59:59,999.
+      from: localDay(dateFrom.value)?.toISOString(),
+      to: localDay(dateTo.value, true)?.toISOString(),
       search: search.value.trim(),
       // Al refrescar se conserva todo lo ya cargado para no perder la posición.
       // (El servidor entrega 200 como máximo: pedir más haría que la lista se encogiera sola al refrescar.)
@@ -94,7 +121,20 @@ function resetAndLoad(): void {
   void load();
 }
 onMounted(load);
-watch([status, kind], () => {
+// Los nombres de los workflows y agentes de los filtros salen del catálogo.
+onMounted(() => void catalog.ensure());
+// Una ejecución es de un workflow o de un agente: elegir uno quita el otro filtro y el tipo que lo contradiga.
+watch(workflowId, (id) => {
+  if (!id) return;
+  agentId.value = '';
+  if (kind.value === 'agent') kind.value = '';
+});
+watch(agentId, (id) => {
+  if (!id) return;
+  workflowId.value = '';
+  if (kind.value === 'workflow') kind.value = '';
+});
+watch([status, kind, workflowId, agentId, dateFrom, dateTo], () => {
   syncUrl();
   resetAndLoad();
 });
@@ -107,10 +147,13 @@ watch(
     const nextStatus = fromQuery(query.estado, STATUS_VALUES);
     const nextKind = fromQuery(query.tipo, KIND_VALUES);
     const nextSearch = queryText(query.q);
-    // La búsqueda se compara recortada: la URL guarda el texto sin espacios y no debe pisar lo que se está escribiendo.
-    if (nextStatus === status.value && nextKind === kind.value && nextSearch === search.value.trim()) return;
     status.value = nextStatus;
     kind.value = nextKind;
+    workflowId.value = queryText(query.workflow);
+    agentId.value = queryText(query.agente);
+    dateFrom.value = dayFromQuery(query.desde);
+    dateTo.value = dayFromQuery(query.hasta);
+    // La búsqueda se compara recortada: la URL guarda el texto sin espacios y no debe pisar lo que se está escribiendo.
     if (nextSearch !== search.value.trim()) search.value = nextSearch;
   },
 );
@@ -134,7 +177,23 @@ onBeforeUnmount(() => {
   if (liveTimer) clearTimeout(liveTimer);
 });
 
-const filtered = computed(() => !!(status.value || kind.value || search.value.trim()));
+const filtered = computed(() => !!(status.value || kind.value || workflowId.value || agentId.value || dateFrom.value || dateTo.value || search.value.trim()));
+function clearFilters(): void {
+  status.value = '';
+  kind.value = '';
+  workflowId.value = '';
+  agentId.value = '';
+  dateFrom.value = '';
+  dateTo.value = '';
+  search.value = '';
+}
+/** Opciones de un filtro por origen; si la URL trae uno que ya no existe, se ofrece igualmente para poder verlo y quitarlo. */
+function sourceOptions(list: Array<{ id: string; name: string }>, current: string, missingLabel: string): Array<{ id: string; name: string }> {
+  const options = list.map(({ id, name }) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  return current && catalog.loaded && !options.some((o) => o.id === current) ? [...options, { id: current, name: missingLabel }] : options;
+}
+const workflowOptions = computed(() => sourceOptions(catalog.workflows, workflowId.value, t('runs.filters.workflowDeleted')));
+const agentOptions = computed(() => sourceOptions(catalog.agents, agentId.value, t('runs.filters.agentDeleted')));
 const hasFinished = computed(() => items.value.some((r) => !isActiveStatus(r.status)));
 
 async function cancel(run: RunSummary): Promise<void> {
@@ -219,6 +278,25 @@ async function clearFinished(): Promise<void> {
         <option value="workflow">{{ t('runs.filters.kindWorkflows') }}</option>
         <option value="agent">{{ t('runs.filters.kindAgents') }}</option>
       </select>
+      <select v-model="workflowId" class="select source" :aria-label="t('runs.filters.workflowLabel')">
+        <option value="">{{ t('runs.filters.workflowAll') }}</option>
+        <option v-for="w in workflowOptions" :key="w.id" :value="w.id">{{ w.name }}</option>
+      </select>
+      <select v-model="agentId" class="select source" :aria-label="t('runs.filters.agentLabel')">
+        <option value="">{{ t('runs.filters.agentAll') }}</option>
+        <option v-for="a in agentOptions" :key="a.id" :value="a.id">{{ a.name }}</option>
+      </select>
+      <fieldset class="dates">
+        <legend class="sr-only">{{ t('runs.filters.datesLabel') }}</legend>
+        <label>
+          <span class="small muted">{{ t('runs.filters.dateFrom') }}</span>
+          <input v-model="dateFrom" class="input" type="date" :max="dateTo || undefined" />
+        </label>
+        <label>
+          <span class="small muted">{{ t('runs.filters.dateTo') }}</span>
+          <input v-model="dateTo" class="input" type="date" :min="dateFrom || undefined" />
+        </label>
+      </fieldset>
       <div class="search grow">
         <Search aria-hidden="true" />
         <input v-model="search" class="input" type="search" :placeholder="t('runs.filters.searchPlaceholder')" :aria-label="t('runs.filters.searchLabel')" />
@@ -272,7 +350,7 @@ async function clearFinished(): Promise<void> {
               <td><StatusBadge :status="run.status" /></td>
               <td>
                 <div class="truncate cell-text">{{ run.input || '—' }}</div>
-                <div v-if="run.error" class="truncate cell-text tiny" style="color: var(--danger)">{{ run.error }}</div>
+                <div v-if="run.error" class="truncate cell-text tiny" style="color: var(--danger)">{{ serverText(run.error, run.errorI18n) }}</div>
                 <div v-else-if="run.output" class="truncate cell-text tiny faint">{{ run.output }}</div>
               </td>
               <td class="right num">{{ formatDuration(elapsedMs(run.startedAt, run.finishedAt, now)) }}</td>
@@ -309,7 +387,7 @@ async function clearFinished(): Promise<void> {
         <Activity />
         <template v-if="filtered">
           <h3>{{ t('runs.empty.noMatch') }}</h3>
-          <button class="btn" type="button" @click="((status = ''), (kind = ''), (search = ''))">{{ t('runs.empty.clearFilters') }}</button>
+          <button class="btn" type="button" @click="clearFilters">{{ t('runs.empty.clearFilters') }}</button>
         </template>
         <template v-else>
           <h3>{{ t('runs.empty.none') }}</h3>
@@ -342,6 +420,28 @@ async function clearFinished(): Promise<void> {
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 14px;
+}
+.source {
+  width: auto;
+  max-width: 220px;
+}
+.dates {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.dates label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dates .input {
+  width: auto;
 }
 .search {
   position: relative;

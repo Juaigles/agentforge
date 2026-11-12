@@ -1,6 +1,8 @@
 // Cliente tipado de la API de AgentForge.
 import { ref } from 'vue';
+import type { ServerMessage } from '@shared/server-messages';
 import { locale, t } from '@/i18n';
+import { serverText } from './server-messages-en';
 import type {
   Agent,
   AgentInput,
@@ -65,14 +67,28 @@ export class ApiError extends Error {
 export const authRequired = ref(false);
 
 /**
- * Texto de un error de la API en el idioma de la interfaz. El servidor escribe sus mensajes en español; en otro
- * idioma se muestra el texto genérico del código cuando existe y, si no, el mensaje original.
+ * Texto de un error de la API en el idioma de la interfaz. El servidor escribe sus mensajes en español y los
+ * acompaña de `i18n` (el código y los parámetros del texto): en otro idioma se traduce a partir de ellos. Una
+ * respuesta sin `i18n` (un proxy, un servidor anterior) se muestra con el texto genérico de su clase de error
+ * cuando existe y, si no, con el mensaje original.
  */
-function localizedError(message: unknown, code: string | undefined): string | undefined {
-  const original = typeof message === 'string' && message ? message : undefined;
-  if (locale.value === 'es' || !code || !GENERIC_CODES.has(code)) return original;
+function localizedError(body: { error?: unknown; i18n?: unknown } | null, code: string | undefined): string | undefined {
+  const original = typeof body?.error === 'string' && body.error ? body.error : undefined;
+  if (locale.value === 'es') return original;
+  const i18n = body?.i18n as ServerMessage | undefined;
+  if (i18n && typeof i18n.code === 'string') return serverText(original, i18n) || original;
+  if (!code || !GENERIC_CODES.has(code)) return original;
   // En una validación se conserva el detalle del servidor (qué campo y por qué), tras el texto genérico.
   return code === 'validation' && original ? `${t('app.errors.validation')} (${original})` : t(`app.errors.${code}`);
+}
+
+/** Problemas campo a campo de una validación, con su texto en el idioma de la interfaz. */
+function localizedIssues(issues: unknown): Array<{ path: string; message: string }> {
+  if (!Array.isArray(issues)) return [];
+  return issues.map((issue: { path: string; message: string; code?: string; params?: ServerMessage['params'] }) => ({
+    path: issue.path,
+    message: serverText(issue.message, issue.code ? { code: issue.code, params: issue.params } : null),
+  }));
 }
 const GENERIC_CODES = new Set([
   'not_found',
@@ -110,7 +126,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (!res.ok) {
     const code = typeof json?.code === 'string' ? json.code : undefined;
     const fallback = res.status >= 500 ? t('app.errors.server') : t('app.errors.status', { status: res.status });
-    throw new ApiError(localizedError(json?.error, code) ?? fallback, res.status, json?.issues ?? [], json?.details, code);
+    throw new ApiError(localizedError(json, code) ?? fallback, res.status, localizedIssues(json?.issues), json?.details, code);
   }
   return json as T;
 }
@@ -121,10 +137,14 @@ const put = <T>(path: string, body: unknown) => request<T>('PUT', path, body);
 const del = <T = void>(path: string) => request<T>('DELETE', path);
 
 export interface RunQuery {
-  status?: RunStatus | '';
+  /** Un estado, o `active` para todas las que no han terminado (en cola, en curso o en espera). */
+  status?: RunStatus | 'active' | '';
   kind?: RunKind | '';
   workflowId?: string;
   agentId?: string;
+  /** Intervalo de fechas de creación (instantes ISO 8601), ambos extremos incluidos. */
+  from?: string;
+  to?: string;
   search?: string;
   limit?: number;
   offset?: number;
@@ -135,6 +155,8 @@ export interface ToolInvokeResult {
   durationMs: number;
   result?: string;
   error?: string;
+  /** Código y parámetros de `error`, para mostrarlo en otro idioma. */
+  errorI18n?: ServerMessage;
 }
 
 export const api = {
@@ -173,7 +195,8 @@ export const api = {
         throw new ApiError(t('app.errors.network'), 0, [], undefined, 'network');
       }
       const json = await res.json().catch(() => null);
-      if (!res.ok) throw new ApiError(json?.error ?? `Error ${res.status}`, res.status);
+      if (!res.ok)
+        throw new ApiError(localizedError(json, json?.code) ?? t('app.errors.status', { status: res.status }), res.status, [], undefined, json?.code);
       return json as BackupInfo;
     },
   },
@@ -257,7 +280,12 @@ export const api = {
       return get<{ items: RunSummary[]; total: number; capped?: boolean }>(`/api/runs?${params}`);
     },
     get: (id: string) => get<Run>(`/api/runs/${id}`),
-    events: (id: string, after = 0) => get<RunEvent[]>(`/api/runs/${id}/events?after=${after}`),
+    /** Eventos guardados, por páginas: `after` y `before` son cursores por `seq`; con `before`, la página es la inmediatamente anterior. */
+    events: (id: string, page: { after?: number; before?: number; limit?: number } = {}) => {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(page)) if (v !== undefined) params.set(k, String(v));
+      return get<RunEvent[]>(`/api/runs/${id}/events?${params}`);
+    },
     /** Subejecuciones (subworkflows) que lanzó esta ejecución. */
     children: (id: string) => get<RunSummary[]>(`/api/runs/${id}/children`),
     /** Resultado de cada elemento de un nodo «para cada». */

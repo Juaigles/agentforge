@@ -23,6 +23,7 @@ import { randomBytes } from 'node:crypto';
 import net from 'node:net';
 import os from 'node:os';
 import type { Settings } from '../../../shared/types';
+import { msg, refOf, type CodedMessage, type ServerMessage } from '../../../shared/server-messages';
 import { ToolError } from '../errors';
 
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -165,7 +166,7 @@ export async function runJavaScript(
   code: string,
   opts: { timeoutMs?: number; signal?: AbortSignal; backend?: Settings['codeSandbox'] } = {},
 ): Promise<SandboxResult> {
-  if (code.length > MAX_CODE_CHARS) throw new ToolError(`El código es demasiado largo (máximo ${MAX_CODE_CHARS} caracteres).`);
+  if (code.length > MAX_CODE_CHARS) throw new ToolError(msg('codeTooLong', { max: MAX_CODE_CHARS }));
   if (opts.signal?.aborted) throw opts.signal.reason;
   const timeoutMs = opts.timeoutMs ?? 5000;
   await acquire(opts.signal);
@@ -180,7 +181,7 @@ export async function runJavaScript(
 function collect(
   child: ChildProcessWithoutNullStreams,
   input: { code: string; timeoutMs: number },
-  opts: { graceMs: number; signal?: AbortSignal; memoryMb: number; onKill?: () => void; startError: (stderr: string) => string | null },
+  opts: { graceMs: number; signal?: AbortSignal; memoryMb: number; onKill?: () => void; startError: (stderr: string) => CodedMessage | null },
 ): Promise<SandboxResult> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -199,22 +200,19 @@ function collect(
     };
     const onAbort = () => finish(() => reject(opts.signal!.reason));
     // Margen para el arranque; el límite fino lo aplica vm dentro del proceso aislado.
-    const timer = setTimeout(
-      () => finish(() => reject(new ToolError(`El código superó el tiempo máximo (${input.timeoutMs} ms).`))),
-      input.timeoutMs + opts.graceMs,
-    );
+    const timer = setTimeout(() => finish(() => reject(new ToolError(msg('codeTimeout', { ms: input.timeoutMs })))), input.timeoutMs + opts.graceMs);
     opts.signal?.addEventListener('abort', onAbort, { once: true });
 
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       stdout += chunk;
-      if (stdout.length > MAX_OUTPUT_BYTES) finish(() => reject(new ToolError('El resultado del código es demasiado grande.')));
+      if (stdout.length > MAX_OUTPUT_BYTES) finish(() => reject(new ToolError(msg('codeOutputTooLarge'))));
     });
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
       if (stderr.length < 4000) stderr += chunk;
     });
-    child.on('error', (err) => finish(() => reject(new ToolError(`No se pudo iniciar el entorno aislado: ${err.message}`))));
+    child.on('error', (err) => finish(() => reject(new ToolError(msg('sandboxStartFailed', { detail: err.message })))));
     child.on('close', () =>
       finish(() => {
         let message: { ok: boolean; output?: string; error?: string };
@@ -224,16 +222,12 @@ function collect(
           const startProblem = opts.startError(stderr);
           if (startProblem) return reject(new ToolError(startProblem));
           const oom = /heap out of memory|Allocation failed/i.test(stderr);
-          return reject(
-            new ToolError(
-              oom ? `El código superó el límite de memoria (${opts.memoryMb} MB).` : 'El código terminó sin devolver resultado (¿límite de memoria?).',
-            ),
-          );
+          return reject(new ToolError(oom ? msg('codeOutOfMemory', { mb: opts.memoryMb }) : msg('codeNoResult')));
         }
-        if (!message.ok) return reject(new ToolError(`Error al ejecutar el código: ${message.error}`));
+        if (!message.ok) return reject(new ToolError(msg('codeError', { detail: String(message.error) })));
         const output = JSON.parse(message.output!) as { result?: unknown; logs?: string[]; pending?: boolean; thrown?: string };
-        if (output.pending) return reject(new ToolError('El código devolvió una promesa que no llega a resolverse (no hay temporizadores ni red).'));
-        if (output.thrown !== undefined) return reject(new ToolError(`Error al ejecutar el código: ${output.thrown}`));
+        if (output.pending) return reject(new ToolError(msg('codePendingPromise')));
+        if (output.thrown !== undefined) return reject(new ToolError(msg('codeError', { detail: String(output.thrown) })));
         resolve({ result: output.result, logs: output.logs ?? [] });
       }),
     );
@@ -284,12 +278,12 @@ function exec(command: string, args: string[], timeoutMs: number): Promise<{ cod
   });
 }
 
-let engineCache: { at: number; value: ContainerEngine | null; error: string | null } | null = null;
+let engineCache: { at: number; value: ContainerEngine | null; error: CodedMessage | null } | null = null;
 
 /** Busca un motor de contenedores en marcha (Docker o Podman). El resultado se recuerda 30 s. */
-export async function detectContainerEngine(force = false): Promise<{ value: ContainerEngine | null; error: string | null }> {
+export async function detectContainerEngine(force = false): Promise<{ value: ContainerEngine | null; error: CodedMessage | null }> {
   if (!force && engineCache && Date.now() - engineCache.at < 30_000) return engineCache;
-  let error: string | null = null;
+  let error: CodedMessage | null = null;
   let value: ContainerEngine | null = null;
   for (const engine of ['docker', 'podman'] as const) {
     const res = await exec(engine, ['version', '--format', engine === 'docker' ? '{{.Server.Version}}' : '{{.Version}}'], 6000);
@@ -298,10 +292,9 @@ export async function detectContainerEngine(force = false): Promise<{ value: Con
       error = null;
       break;
     }
-    if (res.code !== null)
-      error ??= `${engine === 'docker' ? 'Docker' : 'Podman'} está instalado pero su servicio no responde. Arráncalo e inténtalo de nuevo.`;
+    if (res.code !== null) error ??= msg('containerEngineDown', { engine: engine === 'docker' ? 'Docker' : 'Podman' });
   }
-  if (!value) error ??= 'No se ha encontrado Docker ni Podman en este equipo.';
+  if (!value) error ??= msg('containerEngineMissing');
   engineCache = { at: Date.now(), value, error };
   return engineCache;
 }
@@ -352,7 +345,7 @@ export function containerRunArgs(name: string, image = SANDBOX_IMAGE): string[] 
 
 async function runInContainer(code: string, timeoutMs: number, signal?: AbortSignal): Promise<SandboxResult> {
   const { value: found, error } = await detectContainerEngine();
-  if (!found) throw new ToolError(`El entorno aislado en contenedor no está disponible: ${error} Puedes volver al aislamiento por proceso en Ajustes.`);
+  if (!found) throw new ToolError(msg('containerSandboxUnavailable', { detail: error ?? '' }));
   const name = `agentforge-sbx-${randomBytes(6).toString('hex')}`;
   const child = spawn(found.engine, containerRunArgs(name), { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   return collect(
@@ -367,9 +360,9 @@ async function runInContainer(code: string, timeoutMs: number, signal?: AbortSig
       onKill: () => void exec(found.engine, ['kill', name], 10_000),
       startError: (stderr) =>
         /No such image|image not known|pull access denied|not found locally|Unable to find image/i.test(stderr)
-          ? `Falta la imagen ${SANDBOX_IMAGE} del entorno aislado. Descárgala una vez con: ${found.engine} pull ${SANDBOX_IMAGE}`
+          ? msg('sandboxImageMissing', { image: SANDBOX_IMAGE, engine: found.engine })
           : stderr.trim() && !/heap out of memory|Allocation failed/i.test(stderr)
-            ? `El contenedor no pudo arrancar: ${stderr.trim().slice(0, 400)}`
+            ? msg('containerStartFailed', { detail: stderr.trim().slice(0, 400) })
             : null,
     },
   );
@@ -427,8 +420,9 @@ export interface SandboxStatus {
     version: string | null;
     image: string;
     imagePresent: boolean;
-    /** Por qué no está disponible, si no lo está. */
+    /** Por qué no está disponible, si no lo está (y el código de ese texto, para mostrarlo en otro idioma). */
     error: string | null;
+    errorI18n?: ServerMessage | null;
   };
 }
 
@@ -439,6 +433,7 @@ export async function sandboxStatus(force = false): Promise<SandboxStatus> {
   processProbe ??= probeProcessNetworkBlocked();
   const [networkBlocked, found] = await Promise.all([processProbe, detectContainerEngine(force)]);
   const imagePresent = found.value ? await containerImagePresent(found.value.engine) : false;
+  const problem = found.value ? (imagePresent ? null : msg('containerImageMissing', { image: SANDBOX_IMAGE, engine: found.value.engine })) : found.error;
   return {
     process: { networkBlocked, method: hasNetPermission() ? 'permission' : 'lockdown', nodeVersion: process.version },
     container: {
@@ -447,11 +442,8 @@ export async function sandboxStatus(force = false): Promise<SandboxStatus> {
       version: found.value?.version ?? null,
       image: SANDBOX_IMAGE,
       imagePresent,
-      error: found.value
-        ? imagePresent
-          ? null
-          : `Falta la imagen ${SANDBOX_IMAGE}. Descárgala una vez con: ${found.value.engine} pull ${SANDBOX_IMAGE}`
-        : found.error,
+      error: problem?.message ?? null,
+      errorI18n: problem ? refOf(problem) : null,
     },
   };
 }

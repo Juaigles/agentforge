@@ -4,6 +4,8 @@ export default {
   task: 'Tarea',
   taskPlaceholder: 'Escribe una tarea para comprobar cómo responde el agente…',
   starting: 'Lanzando…',
+  saveAndRun: 'Guardar y ejecutar',
+  savesFirst: 'Lo que hay sin guardar se guarda antes de ejecutar.',
   shortcut: 'Ctrl + Intro',
   tokens: 'tokens',
   reasoning: 'Razonando…',

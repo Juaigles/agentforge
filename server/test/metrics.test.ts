@@ -182,7 +182,7 @@ describe('códigos de error', () => {
     const { app } = await boot();
     const host = await app.inject({ method: 'GET', url: '/api/agents', headers: { host: 'malo.example' } });
     expect(host.statusCode).toBe(403);
-    expect(host.json()).toEqual({ error: 'Host no permitido.', code: 'forbidden_host' });
+    expect(host.json()).toEqual({ error: 'Host no permitido.', code: 'forbidden_host', i18n: { code: 'forbiddenHost' } });
     const cross = await app.inject({ method: 'GET', url: '/api/agents', headers: { 'sec-fetch-site': 'cross-site' } });
     expect(cross.statusCode).toBe(403);
     expect(cross.json()).toMatchObject({ code: 'cross_site' });

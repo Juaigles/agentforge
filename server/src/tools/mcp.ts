@@ -10,7 +10,8 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { JsonSchema, McpServer, McpStatus } from '../../../shared/types';
 import type { Store, StoredMcpServer } from '../db/store';
-import { ToolError } from '../errors';
+import { msg, refOf, type ServerMessage } from '../../../shared/server-messages';
+import { errorI18n, textParam, ToolError } from '../errors';
 import { errorMessage, silentLogger, truncate, type Logger } from '../util';
 import type { ToolDefinition } from './types';
 
@@ -27,6 +28,8 @@ interface Connection {
   client: Client | null;
   status: McpStatus;
   error: string | null;
+  /** Código y parámetros de `error` cuando el texto es nuestro (lo que dice el servidor MCP o su programa no los tiene). */
+  errorI18n: ServerMessage | null;
   tools: McpToolSnapshot[];
   /** Conexión en curso (para no abrir dos a la vez). */
   connecting: Promise<void> | null;
@@ -107,6 +110,7 @@ export class McpManager {
       client: null,
       status: server.enabled ? 'connecting' : 'disabled',
       error: null,
+      errorI18n: null,
       tools: previous?.tools ?? this.store.getMcpTools<McpToolSnapshot>(server.id),
       connecting: null,
       stderr: '',
@@ -153,11 +157,14 @@ export class McpManager {
       .then(() => {
         connection.status = 'connected';
         connection.error = null;
+        connection.errorI18n = null;
       })
       .catch((err) => {
         const detail = connection.stderr.trim().split('\n').slice(-3).join(' · ');
         connection.status = 'error';
         connection.error = truncate(`${errorMessage(err)}${detail ? ` — ${detail}` : ''}`, 600);
+        // Con lo que escribió el programa detrás, el texto ya no es solo nuestro: se muestra tal cual.
+        connection.errorI18n = detail ? null : (errorI18n(err) ?? null);
         this.log.warn({ mcp: connection.server.name, err: connection.error }, 'No se pudo conectar con un servidor MCP');
         throw err;
       })
@@ -214,7 +221,7 @@ export class McpManager {
           this.setTools(connection, tools);
         })(),
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error(`No respondió en ${Math.round(timeoutMs / 1000)} s.`)), timeoutMs);
+          timer = setTimeout(() => reject(new ToolError(msg('mcpNoResponse', { seconds: Math.round(timeoutMs / 1000) }))), timeoutMs);
         }),
       ]);
     } catch (err) {
@@ -231,7 +238,9 @@ export class McpManager {
       if (connection.client !== client) return;
       connection.client = null;
       connection.status = 'error';
-      connection.error = 'Se perdió la conexión. Se volverá a intentar cuando un agente use una de sus herramientas.';
+      const lost = msg('mcpConnectionLost');
+      connection.error = lost.message;
+      connection.errorI18n = refOf(lost);
     };
     connection.client = client;
   }
@@ -261,6 +270,7 @@ export class McpManager {
       enabled: server.enabled,
       status: connection.status,
       error: connection.error,
+      errorI18n: connection.error ? connection.errorI18n : null,
       tools: connection.tools.map((t) => ({ name: t.name, description: t.description })),
       createdAt: server.createdAt,
       updatedAt: server.updatedAt,
@@ -319,12 +329,17 @@ export class McpManager {
       execute: async (args, ctx) => {
         // Se usa siempre la conexión vigente del servidor (puede haberse recreado desde que se resolvió la herramienta).
         const current = this.connections.get(connection.server.id);
-        if (!current || !current.server.enabled) throw new ToolError(`El servidor MCP «${connection.server.name}» ya no está disponible.`);
+        if (!current || !current.server.enabled) throw new ToolError(msg('mcpUnavailable', { name: connection.server.name }));
         if (!current.client) {
           try {
             await this.connect(current);
           } catch {
-            throw new ToolError(`No se pudo conectar con el servidor MCP «${current.server.name}»: ${current.error ?? 'error desconocido'}`);
+            throw new ToolError(
+              msg('mcpConnectFailed', {
+                name: current.server.name,
+                detail: current.error ? textParam(current.error, current.errorI18n) : msg('mcpUnknownError'),
+              }),
+            );
           }
         }
         let result: { content?: unknown; structuredContent?: unknown; isError?: boolean };
@@ -335,10 +350,10 @@ export class McpManager {
           );
         } catch (err) {
           if (ctx.signal.aborted) throw ctx.signal.reason;
-          throw new ToolError(`El servidor MCP «${current.server.name}» falló: ${errorMessage(err)}`);
+          throw new ToolError(msg('mcpCallFailed', { name: current.server.name, detail: errorMessage(err) }));
         }
         const text = mcpResultText(result);
-        if (result.isError) throw new ToolError(text || 'La herramienta devolvió un error sin detalle.');
+        if (result.isError) throw new ToolError(text ? msg('mcpToolError', { detail: text }) : msg('mcpToolErrorNoDetail'));
         return text;
       },
     };

@@ -5,6 +5,8 @@ import { CircleAlert, CircleCheck, LoaderCircle, Play } from 'lucide-vue-next';
 import { computed, reactive, ref } from 'vue';
 import { t } from '@/i18n';
 import { api, errorText, type ToolInvokeResult } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
+import { toolParamDescription, toolTitle } from '@/lib/tool-text';
 import { formatDuration } from '@/lib/format';
 import AppModal from './AppModal.vue';
 import Term from './Term.vue';
@@ -121,7 +123,7 @@ const TYPE_KEY: Record<JsonSchemaProp['type'], string> = {
 </script>
 
 <template>
-  <AppModal :title="t('toolTest.title', { title: tool.title })" :width="640" @close="emit('close')">
+  <AppModal :title="t('toolTest.title', { title: toolTitle(tool) })" :width="640" @close="emit('close')">
     <form class="col" style="gap: 14px" @submit.prevent="run">
       <i18n-t keypath="toolTest.intro" tag="p" class="muted small" scope="global">
         <template #tool
@@ -144,7 +146,7 @@ const TYPE_KEY: Record<JsonSchemaProp['type'], string> = {
           <input :id="`tt-${f.name}`" v-model="flags[f.name]" type="checkbox" />
           <span>
             <code>{{ f.name }}</code>
-            <span v-if="f.prop.description" class="hint" style="display: block">{{ f.prop.description }}</span>
+            <span v-if="f.prop.description" class="hint" style="display: block">{{ toolParamDescription(tool, f.name, f.prop) }}</span>
           </span>
         </label>
         <select v-else-if="f.kind === 'enum'" :id="`tt-${f.name}`" v-model="texts[f.name]" class="select" :aria-invalid="!!fieldErrors[f.name]">
@@ -174,7 +176,7 @@ const TYPE_KEY: Record<JsonSchemaProp['type'], string> = {
         />
         <input v-else :id="`tt-${f.name}`" v-model="texts[f.name]" class="input" type="text" autocomplete="off" :aria-invalid="!!fieldErrors[f.name]" />
 
-        <span v-if="f.kind !== 'boolean' && f.prop.description" class="hint">{{ f.prop.description }}</span>
+        <span v-if="f.kind !== 'boolean' && f.prop.description" class="hint">{{ toolParamDescription(tool, f.name, f.prop) }}</span>
         <span v-if="fieldErrors[f.name]" class="error" role="alert">{{ fieldErrors[f.name] }}</span>
       </div>
 
@@ -190,7 +192,9 @@ const TYPE_KEY: Record<JsonSchemaProp['type'], string> = {
           </span>
           <span class="tiny faint num">{{ formatDuration(result.durationMs) }}</span>
         </div>
-        <pre class="codeblock" :class="{ bad: !result.ok }">{{ result.ok ? result.result || t('toolTest.result.empty') : result.error }}</pre>
+        <pre class="codeblock" :class="{ bad: !result.ok }">{{
+          result.ok ? result.result || t('toolTest.result.empty') : serverText(result.error, result.errorI18n)
+        }}</pre>
       </section>
     </form>
 

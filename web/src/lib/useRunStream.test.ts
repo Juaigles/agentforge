@@ -36,6 +36,8 @@ class TestEventSource extends NodeEventSource {
 /** Proveedor lento: las entradas con «lento» emiten un fragmento y esperan a `release()` (o a que se cancele). */
 async function script(req: Parameters<Parameters<typeof startApi>[0] & object>[0]) {
   const input = userText(req);
+  // Un agente con herramientas pide primero la calculadora; la respuesta (y la espera) llegan con su resultado.
+  if (req.tools?.length && req.messages.at(-1)?.role !== 'tool') return { toolCalls: [{ id: 'c1', name: 'calculator', arguments: { expression: '1+1' } }] };
   if (input.includes('lento')) {
     req.onDelta?.('parte uno ');
     await Promise.race([gate, new Promise<void>((res) => req.signal?.addEventListener('abort', () => res()))]);
@@ -58,7 +60,10 @@ interface Stream {
   error: string | null;
   loading: boolean;
   isActive: boolean;
+  hasOlder: boolean;
+  loadingOlder: boolean;
   reload(): Promise<void>;
+  loadOlder(): Promise<void>;
 }
 const stream = () => wrapper!.vm as unknown as Stream;
 const subscribers = (runId: string) => (api.ctx.runs as unknown as { emitter: EventEmitter }).emitter.listenerCount(`run:${runId}`);
@@ -102,8 +107,13 @@ describe('useRunStream: ejecuciones terminadas', () => {
     expect(live!.steps.a.input).toBe('Resume: Ana');
     expect(live!.steps.a.output).toBe('final Resume: Ana');
     expect(live!.output).toBe('final Resume: Ana');
-    expect(live!.events.map((e) => e.type)).toEqual(expect.arrayContaining(['run.started', 'step.started', 'step.finished', 'run.finished']));
-    expect(live!.lastSeq).toBe(live!.events.at(-1)!.seq);
+    expect(live!.activity.items.map((i) => i.kind === 'marker' && i.text)).toEqual(
+      expect.arrayContaining(['Ejecución iniciada', 'Paso iniciado', 'Paso completado', 'Ejecución completada']),
+    );
+    expect(live!.lastSeq).toBe(api.ctx.store.lastEventSeq(run.id));
+    // Una ejecución corta cabe en la primera página: no queda nada anterior por cargar.
+    expect(live!.activity.firstSeq).toBe(1);
+    expect(stream().hasOlder).toBe(false);
     expect(stream().run?.id).toBe(run.id);
     expect(stream().isActive).toBe(false);
     expect(stream().loading).toBe(false);
@@ -122,7 +132,9 @@ describe('useRunStream: ejecuciones en curso', () => {
     // Desde el primer instante se parte de «en cola» o «en curso», nunca de un estado terminado.
     expect(['queued', 'running']).toContain(stream().live!.status);
     expect(stream().isActive).toBe(true);
-    expect(opened).toEqual([`/api/runs/${run.id}/stream?after=0`]);
+    // El flujo se abre a partir del último evento que ya recoge el estado recibido, no desde el principio.
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toMatch(new RegExp(`^/api/runs/${run.id}/stream\\?after=\\d+$`));
 
     await until(() => stream().live!.steps.a.streamText.includes('parte uno'));
     expect(stream().live!.status).toBe('running');
@@ -199,6 +211,105 @@ describe('useRunStream: ejecuciones en curso', () => {
     // El estado que se quedó atrás no se movió: ni run.finished ni el refresco de datos le llegaron.
     expect(live!.status).toBe('running');
     expect(live!.output).toBeNull();
+  });
+});
+
+describe('useRunStream: ejecuciones largas', () => {
+  /** Peticiones REST que hace la interfaz mientras dura el test. */
+  function recordRequests(): { urls: string[]; restore(): void } {
+    const inner = globalThis.fetch;
+    const urls: string[] = [];
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      urls.push(String(input));
+      return inner(input, init);
+    }) as typeof fetch;
+    return { urls, restore: () => (globalThis.fetch = inner) };
+  }
+
+  it('de una ejecución terminada con cientos de eventos solo trae la última página; lo anterior, a petición', async () => {
+    const run = startWorkflow('Ana');
+    await api.ctx.runs.waitFor(run.id);
+    // Se alarga el historial por la misma vía que el motor (el almacén): 450 eventos en total.
+    for (let seq = api.ctx.store.lastEventSeq(run.id) + 1; seq <= 450; seq++) {
+      api.ctx.store.appendEvent(run.id, 'llm.message', 'a', { agent: `M${seq}`, content: 'x' });
+    }
+    const requests = recordRequests();
+    try {
+      open(run.id);
+      await until(() => stream().live !== null);
+      const { live } = stream();
+      expect(requests.urls).toEqual([`/api/runs/${run.id}`, `/api/runs/${run.id}/events?before=451&limit=200`]);
+      // El estado de los pasos es el del servidor, no el resultado de reproducir eventos.
+      expect(live!.status).toBe('completed');
+      expect(live!.steps.a).toMatchObject({ status: 'completed', output: 'final Resume: Ana' });
+      expect(live!.lastSeq).toBe(450);
+      expect(live!.activity.items).toHaveLength(200);
+      expect(live!.activity.firstSeq).toBe(251);
+      expect(stream().hasOlder).toBe(true);
+
+      await stream().loadOlder();
+      expect(requests.urls.at(-1)).toBe(`/api/runs/${run.id}/events?before=251&limit=200`);
+      expect(live!.activity.items).toHaveLength(400);
+      expect(live!.activity.firstSeq).toBe(51);
+      expect(stream().hasOlder).toBe(true);
+
+      await stream().loadOlder();
+      expect(requests.urls.at(-1)).toBe(`/api/runs/${run.id}/events?before=51&limit=200`);
+      expect(live!.activity.firstSeq).toBe(1);
+      expect(stream().hasOlder).toBe(false);
+      expect(stream().loadingOlder).toBe(false);
+      // Entero y en orden: los eventos sin entrada propia (p. ej. `llm.start`) no cuentan.
+      const keys = live!.activity.items.map((i) => Number(i.key.slice(1)));
+      expect(keys).toEqual([...keys].sort((x, y) => x - y));
+      expect(keys.at(-1)).toBe(450);
+      expect(live!.activity.items[0]).toMatchObject({ kind: 'marker', text: 'Ejecución iniciada' });
+
+      // Sin nada más antiguo, pedirlo otra vez no hace ninguna petición.
+      const count = requests.urls.length;
+      await stream().loadOlder();
+      expect(requests.urls).toHaveLength(count);
+      expect(opened).toEqual([]);
+    } finally {
+      requests.restore();
+    }
+  });
+
+  it('abrir una ejecución a medias parte del estado del servidor (pasos, consumo) y sigue el flujo desde su último evento', async () => {
+    const agent = addAgent(api.ctx, { tools: ['calculator'] });
+    const wf = api.ctx.store.createWorkflow(
+      workflow([node('in', 'input'), node('a', 'agent', { agentId: agent.id, prompt: 'lento {{input}}' }), node('out', 'output')], edges('in>a', 'a>out')),
+    );
+    const run = api.ctx.runs.startWorkflowRun(wf, 'Ana');
+    // El agente ya ha usado la calculadora y espera la segunda respuesta del modelo.
+    await until(() => api.ctx.store.listEvents(run.id).some((e) => e.type === 'tool.result'));
+    await new Promise((r) => setTimeout(r, 50));
+    const seen = api.ctx.store.lastEventSeq(run.id);
+
+    open(run.id);
+    await until(() => stream().live !== null);
+    // Nada más cargar, sin esperar a ningún evento: el paso de entrada terminado y el agente en curso con su consumo.
+    const { live } = stream();
+    expect(live!.status).toBe('running');
+    expect(live!.steps.in).toMatchObject({ status: 'completed', output: 'Ana' });
+    expect(live!.steps.a).toMatchObject({ status: 'running', attempt: 1, input: 'lento Ana' });
+    expect(live!.steps.a.usage).toEqual({ promptTokens: 10, completionTokens: 5, llmCalls: 1, toolCalls: 1 });
+    expect(live!.steps.out.status).toBe('pending');
+    expect(live!.lastSeq).toBe(seen);
+    expect(opened).toEqual([`/api/runs/${run.id}/stream?after=${seen}`]);
+    // El registro de actividad trae lo ya ocurrido, con la llamada emparejada con su resultado.
+    expect(live!.activity.items.find((i) => i.kind === 'tool')).toMatchObject({ name: 'calculator', pending: false, ok: true });
+    // Y el texto que el modelo llevaba escrito llega con la conexión.
+    await until(() => stream().live!.steps.a.streamText.includes('parte uno'));
+
+    release();
+    await until(() => stream().live!.status === 'completed' && stream().live!.output !== null);
+    expect(stream().live!.steps.a.usage).toEqual({ promptTokens: 20, completionTokens: 10, llmCalls: 2, toolCalls: 1 });
+    expect(stream().live!.steps.out.status).toBe('completed');
+    expect(stream().live!.output).toBe('final lento Ana');
+    // Cada evento guardado se aplicó una sola vez: el registro no repite entradas.
+    const keys = stream().live!.activity.items.map((i) => i.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(stream().live!.lastSeq).toBe(api.ctx.store.lastEventSeq(run.id));
   });
 });
 
@@ -297,6 +408,8 @@ describe('useRunStream: cortes de conexión', () => {
       expect(stream().isActive).toBe(false);
       expect(stream().live!.output).toBe('final lento A');
       expect(stream().run!.status).toBe('completed');
+      // Lo ocurrido con el flujo cortado también llega al registro de actividad.
+      await until(() => stream().live!.activity.items.some((i) => i.kind === 'marker' && i.text === 'Ejecución completada'));
     } finally {
       for (const s of sockets) s.destroy();
       proxy.close();

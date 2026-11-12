@@ -35,6 +35,7 @@ import {
 import { nodeSubworkflowId, nodeUsesAgent } from '../../../shared/graph';
 import { isSecretHeaderName } from '../../../shared/types';
 import type { SecretBox } from '../crypto/secrets';
+import { msg, refOf, type CodedMessage, type ServerMessage } from '../../../shared/server-messages';
 import { ConfigError } from '../errors';
 import { localDate, newId, nowIso } from '../util';
 
@@ -44,11 +45,18 @@ export interface ProviderWithSecret extends Provider {
   apiKey: string | null;
 }
 
+/** Estados de una ejecución que no ha terminado (filtro «en curso» del historial). */
+export const ACTIVE_STATUSES = ['queued', 'running', 'waiting'] as const satisfies readonly RunStatus[];
+
 export interface RunFilter {
-  status?: RunStatus;
+  /** Un estado concreto, o `active` para las que no han terminado (en cola, en curso o en espera). */
+  status?: RunStatus | 'active';
   kind?: RunKind;
   workflowId?: string;
   agentId?: string;
+  /** Intervalo de fechas de creación, ambos extremos incluidos (instantes ISO 8601 en UTC, como los guardados). */
+  from?: string;
+  to?: string;
   search?: string;
   limit?: number;
   offset?: number;
@@ -58,6 +66,8 @@ export interface RunPatch {
   status?: RunStatus;
   output?: string | null;
   error?: string | null;
+  /** Código y parámetros del texto de `error` (si se cambia `error` sin indicarlo, se borra). */
+  errorI18n?: ServerMessage | null;
   usage?: Usage;
   startedAt?: string | null;
   finishedAt?: string | null;
@@ -69,6 +79,8 @@ export interface StepPatch {
   input?: string | null;
   output?: string | null;
   error?: string | null;
+  /** Código y parámetros del texto de `error` (si se cambia `error` sin indicarlo, se borra). */
+  errorI18n?: ServerMessage | null;
   usage?: Usage;
   startedAt?: string | null;
   finishedAt?: string | null;
@@ -79,6 +91,7 @@ const RUN_COLUMNS: Record<keyof RunPatch, string> = {
   status: 'status',
   output: 'output',
   error: 'error',
+  errorI18n: 'error_i18n',
   usage: 'usage',
   startedAt: 'started_at',
   finishedAt: 'finished_at',
@@ -90,6 +103,7 @@ const STEP_COLUMNS: Record<keyof StepPatch, string> = {
   input: 'input',
   output: 'output',
   error: 'error',
+  errorI18n: 'error_i18n',
   usage: 'usage',
   startedAt: 'started_at',
   finishedAt: 'finished_at',
@@ -102,7 +116,7 @@ export const SUMMARY_PREVIEW_CHARS = 300;
 // Los resúmenes llevan solo el principio de la entrada, el resultado y el error: una lista de 200 ejecuciones
 // con salidas grandes no debe transportar megabytes que nadie va a leer. El texto completo está en getRun().
 const RUN_SUMMARY_COLS = `id, kind, workflow_id, agent_id, name, status, substr(input, 1, ${SUMMARY_PREVIEW_CHARS}) AS input,
-  substr(output, 1, ${SUMMARY_PREVIEW_CHARS}) AS output, substr(error, 1, 1000) AS error, usage, retry_of, interrupted, scheduled, trigger_kind,
+  substr(output, 1, ${SUMMARY_PREVIEW_CHARS}) AS output, substr(error, 1, 1000) AS error, error_i18n, usage, retry_of, interrupted, scheduled, trigger_kind,
   parent_run_id, parent_node_id, created_at, started_at, finished_at`;
 
 /** Valores de `runs.interrupted`: pendiente de que el usuario decida, o que se reanuda sola al arrancar. */
@@ -123,6 +137,11 @@ function toSql(value: unknown): SQLInputValue {
   if (typeof value === 'boolean') return value ? 1 : 0;
   if (typeof value === 'object') return JSON.stringify(value);
   return value as SQLInputValue;
+}
+
+/** La referencia para traducir un error acompaña siempre a su texto: si el texto cambia sin ella, se borra. */
+function withErrorI18n<T extends { error?: string | null; errorI18n?: ServerMessage | null }>(patch: T): T {
+  return 'error' in patch && !('errorI18n' in patch) ? { ...patch, errorI18n: null } : patch;
 }
 
 function parseJson<T>(text: unknown, fallback: T): T {
@@ -263,7 +282,7 @@ export class Store {
         apiKey = this.secrets.decrypt(r.api_key_enc);
       } catch {
         // La clave maestra (secret.key) no es la que cifró este secreto: se perdió, se cambió o se restauró otra.
-        throw new ConfigError(`No se pudo descifrar la API key de «${r.name}». Vuelve a introducirla en Ajustes → Proveedores.`);
+        throw new ConfigError(msg('apiKeyUndecryptable', { name: r.name }));
       }
     }
     return { ...this.mapProvider(r), apiKey };
@@ -610,6 +629,7 @@ export class Store {
       lastRunAt: r.last_run_at ?? null,
       lastRunId: r.last_run_id ?? null,
       lastError: r.last_error ?? null,
+      lastErrorI18n: r.last_error ? parseJson<ServerMessage | null>(r.last_error_i18n, null) : null,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };
@@ -663,7 +683,7 @@ export class Store {
 
   updateTrigger(id: string, input: TriggerInput, nextRunAt: string | null): Trigger | null {
     const changes = this.exec(
-      `UPDATE triggers SET kind=?, name=?, interval_minutes=?, time=?, weekdays=?, cron=?, timezone=?, input=?, enabled=?, next_run_at=?, last_error=NULL, updated_at=?
+      `UPDATE triggers SET kind=?, name=?, interval_minutes=?, time=?, weekdays=?, cron=?, timezone=?, input=?, enabled=?, next_run_at=?, last_error=NULL, last_error_i18n=NULL, updated_at=?
        WHERE id=?`,
       ...this.triggerColumns(input),
       nextRunAt,
@@ -673,8 +693,16 @@ export class Store {
     return changes ? this.getTrigger(id) : null;
   }
 
-  updateTriggerState(id: string, patch: Partial<Pick<Trigger, 'nextRunAt' | 'lastRunAt' | 'lastRunId' | 'lastError'>>): void {
-    const columns = { nextRunAt: 'next_run_at', lastRunAt: 'last_run_at', lastRunId: 'last_run_id', lastError: 'last_error' } as const;
+  updateTriggerState(id: string, change: Partial<Pick<Trigger, 'nextRunAt' | 'lastRunAt' | 'lastRunId' | 'lastError' | 'lastErrorI18n'>>): void {
+    const columns = {
+      nextRunAt: 'next_run_at',
+      lastRunAt: 'last_run_at',
+      lastRunId: 'last_run_id',
+      lastError: 'last_error',
+      lastErrorI18n: 'last_error_i18n',
+    } as const;
+    // La referencia para traducir acompaña siempre al texto: si cambia el texto sin ella, se borra.
+    const patch = 'lastError' in change && !('lastErrorI18n' in change) ? { ...change, lastErrorI18n: null } : change;
     const keys = Object.keys(patch) as Array<keyof typeof columns>;
     if (!keys.length) return;
     this.exec(`UPDATE triggers SET ${keys.map((k) => `${columns[k]} = ?`).join(', ')} WHERE id = ?`, ...keys.map((k) => patch[k]), id);
@@ -804,6 +832,7 @@ export class Store {
       input: r.input,
       output: r.output ?? null,
       error: r.error ?? null,
+      errorI18n: r.error ? parseJson<ServerMessage | null>(r.error_i18n, null) : null,
       usage: parseJson<Usage>(r.usage, { ...ZERO_USAGE }),
       retryOf: r.retry_of ?? null,
       interrupted: Boolean(r.interrupted),
@@ -829,6 +858,7 @@ export class Store {
       input: r.input ?? null,
       output: r.output ?? null,
       error: r.error ?? null,
+      errorI18n: r.error ? parseJson<ServerMessage | null>(r.error_i18n, null) : null,
       usage: parseJson<Usage>(r.usage, { ...ZERO_USAGE }),
       startedAt: r.started_at ?? null,
       finishedAt: r.finished_at ?? null,
@@ -905,7 +935,14 @@ export class Store {
         agents: {},
       }),
       steps: this.listSteps(id),
+      lastSeq: this.lastEventSeq(id),
     };
+  }
+
+  /** Número de secuencia del último evento guardado de una ejecución (0 si no tiene). */
+  lastEventSeq(runId: string): number {
+    // La clave primaria (run_id, seq) resuelve el máximo sin recorrer los eventos.
+    return this.eventSeq.get(runId) ?? Number(this.get('SELECT COALESCE(MAX(seq), 0) AS s FROM run_events WHERE run_id = ?', runId)!.s);
   }
 
   listSteps(runId: string): RunStep[] {
@@ -929,10 +966,22 @@ export class Store {
       where.push(`${column} = ?`);
       params.push(value);
     };
-    equals('status', filter.status);
+    // «En curso» en el historial es todo lo que no ha terminado: también lo que espera en la cola o a una persona.
+    if (filter.status === 'active') where.push(`status IN (${ACTIVE_STATUSES.map((s) => `'${s}'`).join(',')})`);
+    else equals('status', filter.status);
     equals('kind', filter.kind);
     equals('workflow_id', filter.workflowId);
     equals('agent_id', filter.agentId);
+    // Las fechas son texto ISO en UTC: se comparan como texto y son la segunda columna de los índices por estado,
+    // workflow y agente (y la primera del general), así que el intervalo se resuelve dentro del índice.
+    if (filter.from) {
+      where.push('created_at >= ?');
+      params.push(filter.from);
+    }
+    if (filter.to) {
+      where.push('created_at <= ?');
+      params.push(filter.to);
+    }
     const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
     const offset = Math.max(filter.offset ?? 0, 0);
     const search = filter.search?.trim();
@@ -988,14 +1037,16 @@ export class Store {
     );
   }
 
-  updateRun(id: string, patch: RunPatch): void {
+  updateRun(id: string, change: RunPatch): void {
+    const patch = withErrorI18n(change);
     const keys = Object.keys(patch) as Array<keyof RunPatch>;
     if (!keys.length) return;
     const sets = keys.map((k) => `${RUN_COLUMNS[k]} = ?`).join(', ');
     this.exec(`UPDATE runs SET ${sets} WHERE id = ?`, ...keys.map((k) => patch[k]), id);
   }
 
-  updateStep(runId: string, nodeId: string, patch: StepPatch): void {
+  updateStep(runId: string, nodeId: string, change: StepPatch): void {
+    const patch = withErrorI18n(change);
     const keys = Object.keys(patch) as Array<keyof StepPatch>;
     if (!keys.length) return;
     const sets = keys.map((k) => `${STEP_COLUMNS[k]} = ?`).join(', ');
@@ -1027,7 +1078,9 @@ export class Store {
    * Las ejecuciones que quedaron a medias se marcan como fallidas e interrumpidas (reanudables). Se llama al
    * arrancar (por si el proceso murió de golpe) y al apagar ordenadamente.
    */
-  markInterruptedRuns(message = 'Ejecución interrumpida por un reinicio del servidor.'): number {
+  markInterruptedRuns(reason: CodedMessage = msg('runInterruptedByRestart')): number {
+    const message = reason.message;
+    const errorI18n = refOf(reason);
     const now = nowIso();
     const stale = this.all("SELECT id, status, parent_run_id FROM runs WHERE status IN ('queued','running','waiting')");
     for (const { id, status, parent_run_id } of stale) {
@@ -1036,8 +1089,8 @@ export class Store {
       // Una subejecución no se reanuda por separado: lo hace la ejecución que la lanzó, que repite ese nodo.
       // Una ejecución que solo esperaba una aprobación no tenía trabajo a medias: se reanuda sola al arrancar.
       const interrupted = parent_run_id ? INTERRUPTED.no : status === 'waiting' ? INTERRUPTED.autoResume : INTERRUPTED.pending;
-      this.finishRun(id, { status: 'failed', error: message, finishedAt: now, interrupted });
-      this.appendEvent(id, 'run.finished', null, { status: 'failed', error: message });
+      this.finishRun(id, { status: 'failed', error: message, errorI18n, finishedAt: now, interrupted });
+      this.appendEvent(id, 'run.finished', null, { status: 'failed', error: message, errorI18n });
       this.eventSeq.delete(id);
     }
     return stale.length;
@@ -1074,6 +1127,7 @@ export class Store {
       status: 'completed' | 'failed' | 'cancelled';
       output?: string | null;
       error?: string | null;
+      errorI18n?: ServerMessage | null;
       usage?: Usage;
       finishedAt?: string;
       interrupted?: number;
@@ -1085,9 +1139,9 @@ export class Store {
       const finishedAt = final.finishedAt ?? nowIso();
       const usage = final.usage ?? parseJson<Usage>(row.usage, { ...ZERO_USAGE });
       this.exec(
-        `UPDATE runs SET status = ?, error = ?, usage = ?, finished_at = ?, ended_at = ?, interrupted = ?
+        `UPDATE runs SET status = ?, error = ?, error_i18n = ?, usage = ?, finished_at = ?, ended_at = ?, interrupted = ?
            ${final.output !== undefined ? ', output = ?' : ''} WHERE id = ?`,
-        ...[final.status, final.error ?? null, usage, finishedAt, finishedAt, final.interrupted ?? 0],
+        ...[final.status, final.error ?? null, final.error ? (final.errorI18n ?? null) : null, usage, finishedAt, finishedAt, final.interrupted ?? 0],
         ...(final.output !== undefined ? [final.output] : []),
         id,
       );
@@ -1161,19 +1215,23 @@ export class Store {
 
   // ---------- Elementos de un «para cada» ----------
   listStepItems(runId: string, nodeId: string): RunStepItem[] {
-    return this.all('SELECT idx, item, status, output, error FROM run_step_items WHERE run_id = ? AND node_id = ? ORDER BY idx', runId, nodeId).map((r) => ({
-      index: Number(r.idx),
-      item: r.item,
-      status: r.status,
-      output: r.output ?? null,
-      error: r.error ?? null,
-    }));
+    return this.all('SELECT idx, item, status, output, error, error_i18n FROM run_step_items WHERE run_id = ? AND node_id = ? ORDER BY idx', runId, nodeId).map(
+      (r) => ({
+        index: Number(r.idx),
+        item: r.item,
+        status: r.status,
+        output: r.output ?? null,
+        error: r.error ?? null,
+        errorI18n: r.error ? parseJson<ServerMessage | null>(r.error_i18n, null) : null,
+      }),
+    );
   }
 
   saveStepItem(runId: string, nodeId: string, item: RunStepItem): void {
     this.exec(
-      `INSERT INTO run_step_items (run_id, node_id, idx, item, status, output, error) VALUES (?,?,?,?,?,?,?)
-       ON CONFLICT(run_id, node_id, idx) DO UPDATE SET item = excluded.item, status = excluded.status, output = excluded.output, error = excluded.error`,
+      `INSERT INTO run_step_items (run_id, node_id, idx, item, status, output, error, error_i18n) VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT(run_id, node_id, idx) DO UPDATE SET item = excluded.item, status = excluded.status, output = excluded.output,
+         error = excluded.error, error_i18n = excluded.error_i18n`,
       runId,
       nodeId,
       item.index,
@@ -1181,6 +1239,7 @@ export class Store {
       item.status,
       item.output,
       item.error,
+      item.error ? (item.errorI18n ?? null) : null,
     );
   }
 
@@ -1282,9 +1341,17 @@ export class Store {
     return { seq, runId, ts, type, nodeId, data };
   }
 
-  /** Eventos persistidos de una ejecución a partir de `afterSeq`; con `limit`, como mucho ese número. */
-  listEvents(runId: string, afterSeq = 0, limit = -1): RunEvent[] {
-    return this.all('SELECT * FROM run_events WHERE run_id = ? AND seq > ? ORDER BY seq LIMIT ?', runId, afterSeq, limit).map((r) => ({
+  /**
+   * Eventos persistidos de una ejecución, siempre por orden de secuencia: los posteriores a `afterSeq` y, si se
+   * indica `beforeSeq`, anteriores a él. Con `limit` se devuelven como mucho ese número: los primeros del tramo o,
+   * cuando hay `beforeSeq`, los últimos (la página inmediatamente anterior a ese cursor).
+   */
+  listEvents(runId: string, afterSeq = 0, limit = -1, beforeSeq?: number): RunEvent[] {
+    const rows =
+      beforeSeq === undefined
+        ? this.all('SELECT * FROM run_events WHERE run_id = ? AND seq > ? ORDER BY seq LIMIT ?', runId, afterSeq, limit)
+        : this.all('SELECT * FROM run_events WHERE run_id = ? AND seq > ? AND seq < ? ORDER BY seq DESC LIMIT ?', runId, afterSeq, beforeSeq, limit).reverse();
+    return rows.map((r) => ({
       seq: r.seq,
       runId: r.run_id,
       ts: r.ts,

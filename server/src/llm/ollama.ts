@@ -1,5 +1,6 @@
 // Adaptador para la API nativa de Ollama (/api/chat con streaming NDJSON).
 import type { ModelInfo } from '../../../shared/types';
+import { msg as serverMsg } from '../../../shared/server-messages';
 import { LlmError } from '../errors';
 import { llmFetch, normalizeBaseUrl, parseToolArguments, readLines } from './http';
 import type { ChatMessage, ChatRequest, ChatResult, LlmClient, ToolCall } from './types';
@@ -82,7 +83,7 @@ export class OllamaClient implements LlmClient {
       { method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal: req.signal },
       'Ollama',
     );
-    if (!res.body) throw new LlmError('Ollama devolvió una respuesta sin cuerpo.', { retryable: true });
+    if (!res.body) throw new LlmError(serverMsg('ollamaNoBody'), { retryable: true });
 
     const result: ChatResult = {
       content: '',
@@ -100,7 +101,7 @@ export class OllamaClient implements LlmClient {
       } catch {
         continue;
       }
-      if (chunk.error) throw new LlmError(`Ollama: ${chunk.error}`, { retryable: false });
+      if (chunk.error) throw new LlmError(serverMsg('ollamaError', { detail: String(chunk.error) }), { retryable: false });
       const msg = chunk.message;
       if (msg?.thinking) {
         result.thinking += msg.thinking;
@@ -128,7 +129,7 @@ export class OllamaClient implements LlmClient {
       }
     }
     if (req.signal?.aborted) throw req.signal.reason;
-    if (!done) throw new LlmError('La respuesta de Ollama se cortó antes de terminar.', { retryable: true });
+    if (!done) throw new LlmError(serverMsg('ollamaCutOff'), { retryable: true });
     return result;
   }
 }

@@ -93,7 +93,7 @@ test.describe('Constructor de workflows', () => {
     await expect(badge).toHaveText(/Válido/);
 
     // 7) Guardar: URL definitiva y definición persistida tal como se construyó.
-    await page.getByRole('button', { name: 'Guardar' }).click();
+    await page.getByRole('button', { name: 'Guardar', exact: true }).click();
     await expect(toast(page, 'Workflow guardado.')).toBeVisible();
     await expect(page).toHaveURL(/\/workflows\/wf_/);
     const wfId = page.url().split('/').pop()!;
@@ -153,7 +153,7 @@ test.describe('Constructor de workflows', () => {
     );
     await page.goto(`/workflows/${wf.id}`);
     await expect(page.locator('.check-badge')).toHaveText(/Válido/);
-    await expect(page.getByRole('button', { name: 'Guardar' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Guardar', exact: true })).toBeDisabled();
 
     // Añadir una condición tras el juez y conectar su rama «no» a un nuevo nodo de salida.
     await node(page, 'juez').click();
@@ -184,7 +184,7 @@ test.describe('Constructor de workflows', () => {
     await page.getByRole('link', { name: 'Volver a workflows' }).click();
     const leave = page.getByRole('dialog', { name: 'Cambios sin guardar' });
     await leave.getByRole('button', { name: 'Cancelar' }).click();
-    await page.getByRole('button', { name: 'Guardar' }).click();
+    await page.getByRole('button', { name: 'Guardar', exact: true }).click();
     await expect(toast(page, 'Workflow guardado.')).toBeVisible();
 
     const saved = await app.api('GET', `/api/workflows/${wf.id}`);

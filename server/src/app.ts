@@ -4,10 +4,12 @@ import fs from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { ZodError } from 'zod';
+import { msg, refOf, type CodedMessage, type ServerMessage } from '../../shared/server-messages';
 import type { AppContext } from './context';
-import { ConfigError, HttpError, LlmError, ToolError } from './errors';
+import { codedOf, ConfigError, HttpError, LlmError, ToolError } from './errors';
 import { HttpCounters } from './metrics';
 import { registerApi } from './routes/api';
+import { fieldIssues, validationSummary } from './routes/field-issues';
 import {
   RateLimiter,
   SECURITY_HEADERS,
@@ -24,6 +26,9 @@ import { protectLocalPort } from './tools/net';
 
 /** Rutas de la API que no exigen clave de acceso: iniciar sesión y la sonda de vida (para un orquestador). */
 const PUBLIC_API = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/health/live']);
+
+/** Cuerpo de una respuesta de error: el texto en español, la clase de error y la referencia para traducirlo. */
+const errorBody = (text: CodedMessage, code: string) => ({ error: text.message, code, i18n: refOf(text) });
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   const { config } = ctx;
@@ -55,14 +60,14 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   app.addHook('onRequest', async (req, reply) => {
     // 1) Host: solo se aceptan peticiones dirigidas a un nombre conocido (protección frente a DNS rebinding).
     if (!allowedHosts.has(hostName(req.headers.host))) {
-      return reply.status(403).send({ error: 'Host no permitido.', code: 'forbidden_host' });
+      return reply.status(403).send(errorBody(msg('forbiddenHost'), 'forbidden_host'));
     }
     const urlPath = req.url.split('?')[0];
     if (!urlPath.startsWith('/api/')) return;
 
     // 2) Origen: otra web no puede usar la API desde el navegador del usuario (CSRF), ni siquiera para leer.
     if (isCrossSiteRequest(req.headers as Record<string, string | undefined>)) {
-      return reply.status(403).send({ error: 'Petición rechazada: procede de otro sitio web.', code: 'cross_site' });
+      return reply.status(403).send(errorBody(msg('crossSite'), 'cross_site'));
     }
 
     // 3) Límite de tasa por cliente; más estricto en lo que lanza trabajo caro y en el inicio de sesión.
@@ -75,14 +80,14 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
       return reply
         .status(429)
         .header('Retry-After', String(wait))
-        .send({ error: `Demasiadas peticiones. Vuelve a intentarlo dentro de ${wait} s.`, code: 'rate_limited' });
+        .send(errorBody(msg('rateLimited', { seconds: wait }), 'rate_limited'));
     }
 
     // 4) Clave de acceso, si está configurada (obligatoria cuando el servidor escucha fuera de este equipo).
     // Los webhooks los llama otro programa: se autentican con el secreto de su disparador, no con la clave de la interfaz.
     const isWebhook = req.method === 'POST' && urlPath.startsWith('/api/hooks/');
     if (config.authToken && !PUBLIC_API.has(urlPath) && !isWebhook && !isAuthenticated(config.authToken, req.headers)) {
-      return reply.status(401).send({ error: 'Hace falta la clave de acceso.', code: 'auth_required' });
+      return reply.status(401).send(errorBody(msg('authRequired'), 'auth_required'));
     }
   });
 
@@ -118,8 +123,8 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   });
   app.addHook('onClose', async () => unprotect?.());
 
-  // Además del texto en español, cada error lleva un `code` estable: la interfaz lo usa para mostrar los errores
-  // genéricos en el idioma del usuario (los textos concretos de validación y de proveedores van en español).
+  // Además del texto en español, cada error lleva un `code` estable (la clase de error) y, en `i18n`, el código y
+  // los parámetros de su texto: con ellos la interfaz lo muestra en el idioma del usuario.
   const codeFor = (status: number): string =>
     status === 401
       ? 'auth_required'
@@ -134,23 +139,28 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
               : 'bad_request';
   app.setErrorHandler((err: unknown, req, reply) => {
     if (err instanceof ZodError) {
-      const issues = err.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
-      const first = issues[0];
-      return reply.status(400).send({
-        error: `Datos no válidos${first ? `: ${first.path ? `${first.path}: ` : ''}${first.message}` : ''}`,
-        code: 'validation',
-        issues,
-      });
+      const issues = fieldIssues(err);
+      const { error, i18n } = validationSummary(issues);
+      return reply.status(400).send({ error, code: 'validation', i18n, issues });
     }
-    if (err instanceof HttpError) return reply.status(err.status).send({ error: err.message, code: err.code ?? codeFor(err.status), details: err.details });
-    if (err instanceof LlmError) return reply.status(502).send({ error: err.message, code: 'provider_error' });
-    if (err instanceof ToolError) return reply.status(400).send({ error: err.message, code: 'tool_error' });
+    if (err instanceof HttpError) {
+      return reply.status(err.status).send({ error: err.message, code: err.code ?? codeFor(err.status), i18n: err.i18n, details: err.details });
+    }
+    // Un error sin código propio (lo que responde un proveedor o una herramienta externa) se muestra tal cual.
+    const external = (): { error: string; i18n: ServerMessage } => {
+      const text = codedOf(err);
+      return { error: text.message, i18n: refOf(text) };
+    };
+    if (err instanceof LlmError) return reply.status(502).send({ ...external(), code: 'provider_error' });
+    if (err instanceof ToolError) return reply.status(400).send({ ...external(), code: 'tool_error' });
     // Configuración que el usuario puede arreglar (clave que no se descifra, proveedor desactivado…).
-    if (err instanceof ConfigError) return reply.status(409).send({ error: err.message, code: 'config_error' });
+    if (err instanceof ConfigError) return reply.status(409).send({ ...external(), code: 'config_error' });
     const e = err as { statusCode?: number; message?: string };
     const status = e.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 500;
     if (status >= 500) app.log.error({ err, method: req.method, url: req.url }, 'Error interno al atender una petición');
-    return reply.status(status).send({ error: status >= 500 ? 'Error interno del servidor.' : (e.message ?? 'Petición no válida.'), code: codeFor(status) });
+    // Lo que rechaza el propio servidor web (JSON mal formado, cuerpo demasiado grande) trae su texto, en inglés.
+    const text = status >= 500 ? msg('internalError') : e.message ? msg('requestRejected', { detail: e.message }) : msg('badRequest');
+    return reply.status(status).send(errorBody(text, codeFor(status)));
   });
 
   // ---------- Sesión ----------
@@ -164,7 +174,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     const given = (req.body as { token?: unknown } | null)?.token;
     if (!tokenMatches(config.authToken, given)) {
       app.log.warn({ ip: req.ip }, 'Intento de acceso con una clave incorrecta');
-      throw new HttpError(401, 'La clave de acceso no es correcta.', undefined, 'invalid_token');
+      throw new HttpError(401, msg('invalidToken'), undefined, 'invalid_token');
     }
     return reply
       .header('Set-Cookie', sessionCookieHeader(config.authToken, req.protocol === 'https'))
@@ -207,7 +217,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
         .type('text/plain; charset=utf-8')
         .send('La interfaz no está compilada. Ejecuta "npm run build" y recarga esta página. La API sí está disponible en /api.');
     }
-    return reply.status(404).send({ error: 'Ruta no encontrada.', code: 'not_found' });
+    return reply.status(404).send(errorBody(msg('notFound', { kind: 'route' }), 'not_found'));
   });
 
   return app;

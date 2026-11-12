@@ -1,3 +1,4 @@
+import { msg } from '../../../shared/server-messages';
 import { ConfigError } from '../errors';
 import { OllamaClient } from './ollama';
 import { OpenAiCompatibleClient } from './openai';
@@ -14,7 +15,7 @@ export const defaultLlmFactory: LlmFactory = {
       case 'openai':
         return new OpenAiCompatibleClient(provider.baseUrl, provider.apiKey);
       default:
-        throw new ConfigError(`Tipo de proveedor no soportado: ${String((provider as LlmProviderConfig).kind)}`);
+        throw new ConfigError(msg('providerKindUnsupported', { kind: String((provider as LlmProviderConfig).kind) }));
     }
   },
 };

@@ -5,6 +5,7 @@ import { nodeSubworkflowId, nodeUsesAgent, topologicalOrder } from '../../../sha
 import {
   DEFAULT_WORKFLOW_SETTINGS,
   MAX_SUBWORKFLOW_DEPTH,
+  ZERO_USAGE,
   type Agent,
   type Approval,
   type Run,
@@ -13,14 +14,16 @@ import {
   type RunSnapshot,
   type RunSummary,
   type TriggerKind,
+  type Usage,
   type Workflow,
   type WorkflowDefinition,
 } from '../../../shared/types';
 import type { Store } from '../db/store';
 import type { LlmFactory } from '../llm/types';
 import type { ToolRegistry } from '../tools/registry';
-import { ConfigError, HttpError, ShutdownSignal } from '../errors';
-import { errorMessage, nowIso, silentLogger, type Logger } from '../util';
+import { msg } from '../../../shared/server-messages';
+import { ConfigError, errorParam, failure, HttpError, ShutdownSignal } from '../errors';
+import { nowIso, silentLogger, type Logger } from '../util';
 import { WorkflowExecution, type ExecutionResult } from './workflow-engine';
 
 export interface RunManagerDeps {
@@ -48,6 +51,11 @@ interface ActiveRun {
   controller: AbortController;
   /** Texto parcial en streaming por nodo, para clientes que se conectan a mitad de una respuesta. */
   partials: Map<string, string>;
+  /**
+   * Consumo que lleva cada paso sin terminar (llamadas al modelo, tokens y herramientas). En la base de datos el
+   * consumo de un paso se guarda al terminar; esto permite entregarlo ya calculado a quien abre la ejecución a medias.
+   */
+  usage: Map<string, Usage>;
   done: Promise<void>;
 }
 
@@ -89,6 +97,36 @@ export class RunManager {
   partials(runId: string): Array<{ nodeId: string; text: string }> {
     const entry = this.entryOf(runId);
     return entry ? [...entry.partials].filter(([, text]) => text).map(([nodeId, text]) => ({ nodeId, text })) : [];
+  }
+
+  /**
+   * Completa una ejecución recién leída con el consumo de los pasos que siguen en curso, que todavía no está
+   * guardado. Es la misma cuenta que lleva el monitor con los eventos `llm.message` y `tool.call`.
+   */
+  withLiveUsage(run: Run): Run {
+    const usage = this.entryOf(run.id)?.usage;
+    if (!usage?.size) return run;
+    return {
+      ...run,
+      steps: run.steps.map((step) => (step.finishedAt === null && usage.has(step.nodeId) ? { ...step, usage: usage.get(step.nodeId)! } : step)),
+    };
+  }
+
+  /** Lleva la cuenta del consumo de los pasos en curso (ver `ActiveRun.usage`). */
+  private trackUsage(runId: string, type: RunEventType, nodeId: string | null, data: Record<string, any>): void {
+    const usage = this.entryOf(runId)?.usage;
+    if (!usage || !nodeId) return;
+    if (type === 'step.finished') usage.delete(nodeId);
+    else if (type === 'llm.message' || type === 'tool.call') {
+      const current = usage.get(nodeId) ?? { ...ZERO_USAGE };
+      if (type === 'tool.call') current.toolCalls++;
+      else {
+        current.llmCalls++;
+        current.promptTokens += data.usage?.promptTokens ?? 0;
+        current.completionTokens += data.usage?.completionTokens ?? 0;
+      }
+      usage.set(nodeId, current);
+    }
   }
 
   /** Ejecución en marcha (de primer nivel o subejecución). */
@@ -137,6 +175,7 @@ export class RunManager {
     }
     // Cualquier otro evento va detrás del texto que ya se había generado: el orden se conserva.
     this.flushDeltas(runId);
+    if (!transient) this.trackUsage(runId, type, nodeId, data);
     const event: RunEvent = transient ? { seq: null, runId, ts: nowIso(), type, nodeId, data } : this.deps.store.appendEvent(runId, type, nodeId, data);
     this.emitter.emit(`run:${runId}`, event);
   }
@@ -314,7 +353,7 @@ export class RunManager {
     while (this.active.size - this.waitingRuns.size < max && this.queue.length) {
       const { runId, seeded } = this.queue.shift()!;
       const controller = new AbortController();
-      const entry: ActiveRun = { controller, partials: new Map(), done: Promise.resolve() };
+      const entry: ActiveRun = { controller, partials: new Map(), usage: new Map(), done: Promise.resolve() };
       this.active.set(runId, entry);
       entry.done = this.execute(runId, controller.signal, seeded)
         .then(() => undefined)
@@ -373,7 +412,7 @@ export class RunManager {
     } catch (err) {
       // Error inesperado del propio motor: la ejecución se cierra como fallida en lugar de quedar colgada.
       this.log.error({ err, runId }, 'Error interno del motor');
-      result = { status: 'failed' as const, output: null, error: `Error interno del motor: ${errorMessage(err)}`, usage: run.usage };
+      result = { status: 'failed' as const, output: null, ...failure(msg('engineInternal', { detail: errorParam(err) })), usage: run.usage };
       // Ningún paso debe quedar «en curso» en una ejecución que ya ha terminado.
       const now = nowIso();
       for (const step of store.listSteps(runId)) {
@@ -388,8 +427,9 @@ export class RunManager {
       return result;
     }
     this.log.info({ runId, status: result.status, usage: result.usage }, 'Ejecución terminada');
-    store.finishRun(runId, { status: result.status as 'completed' | 'failed' | 'cancelled', output: result.output, error: result.error, usage: result.usage });
-    this.emit(runId, 'run.finished', null, { status: result.status, output: result.output, error: result.error, usage: result.usage });
+    const final = { output: result.output, error: result.error, errorI18n: result.error ? (result.errorI18n ?? undefined) : undefined, usage: result.usage };
+    store.finishRun(runId, { status: result.status as 'completed' | 'failed' | 'cancelled', ...final });
+    this.emit(runId, 'run.finished', null, { status: result.status, ...final });
     this.publishRun(runId);
     return result;
   }
@@ -405,9 +445,9 @@ export class RunManager {
     opts: { nodeId: string; workflowId: string; input: string; signal: AbortSignal },
   ): Promise<ExecutionResult & { runId: string }> {
     // Primero la profundidad: la instantánea no recoge lo que queda por debajo del límite, y el motivo real es este.
-    if (depth >= MAX_SUBWORKFLOW_DEPTH) throw new ConfigError(`Se han anidado más de ${MAX_SUBWORKFLOW_DEPTH} niveles de workflows.`);
+    if (depth >= MAX_SUBWORKFLOW_DEPTH) throw new ConfigError(msg('subworkflowTooDeep', { max: MAX_SUBWORKFLOW_DEPTH }));
     const sub = parent.snapshot.subworkflows?.[opts.workflowId];
-    if (!sub) throw new ConfigError('El subworkflow ya no existe (no estaba disponible al lanzar la ejecución).');
+    if (!sub) throw new ConfigError(msg('subworkflowMissing'));
     const { store } = this.deps;
     const child = store.createRun({
       kind: 'workflow',
@@ -426,14 +466,14 @@ export class RunManager {
     const onAbort = () => controller.abort(opts.signal.reason);
     if (opts.signal.aborted) onAbort();
     else opts.signal.addEventListener('abort', onAbort, { once: true });
-    this.subruns.set(child.id, { controller, partials: new Map(), done: Promise.resolve() });
+    this.subruns.set(child.id, { controller, partials: new Map(), usage: new Map(), done: Promise.resolve() });
     this.rootOf.set(child.id, this.rootOf.get(parent.id) ?? parent.id);
     this.publishRun(child.id);
     try {
       const result = (await this.execute(child.id, controller.signal, new Map(), depth + 1)) ?? {
         status: 'failed' as const,
         output: null,
-        error: 'No se pudo iniciar el subworkflow.',
+        ...failure(msg('subworkflowStartFailed')),
         usage: child.usage,
       };
       return { ...result, runId: child.id };
@@ -502,12 +542,12 @@ export class RunManager {
   decideApproval(id: string, approved: boolean, comment = ''): Approval {
     const { store } = this.deps;
     const approval = store.getApproval(id);
-    if (!approval) throw new HttpError(404, 'Aprobación no encontrada.');
+    if (!approval) throw new HttpError(404, msg('notFound', { kind: 'approval' }));
     const waiting = this.approvals.get(id);
     if (approval.status !== 'pending' || !waiting) {
       // Sin nodo esperando (p. ej. el servidor se reinició): la petición ya no sirve.
       if (approval.status === 'pending') store.closeApproval(id, 'cancelled');
-      throw new HttpError(409, 'Esta aprobación ya no está pendiente.');
+      throw new HttpError(409, msg('approvalNotPending'));
     }
     store.closeApproval(id, approved ? 'approved' : 'rejected', comment);
     waiting.resolve({ approved, comment });
@@ -552,8 +592,9 @@ export class RunManager {
       for (const step of this.deps.store.listSteps(runId)) {
         if (step.status === 'pending') this.deps.store.updateStep(runId, step.nodeId, { status: 'cancelled', finishedAt: now });
       }
-      this.deps.store.finishRun(runId, { status: 'cancelled', error: 'Ejecución cancelada antes de empezar.', finishedAt: now });
-      this.emit(runId, 'run.finished', null, { status: 'cancelled', error: 'Ejecución cancelada antes de empezar.' });
+      const reason = failure(msg('runCancelledBeforeStart'));
+      this.deps.store.finishRun(runId, { status: 'cancelled', ...reason, finishedAt: now });
+      this.emit(runId, 'run.finished', null, { status: 'cancelled', ...reason });
       this.deps.store.releaseRun(runId);
       this.publishRun(runId);
       for (const resolve of this.waiters.get(runId) ?? []) resolve();
@@ -602,7 +643,7 @@ export class RunManager {
     ]);
     clearTimeout(timer);
     if (!settled) this.log.warn({ active: this.active.size, graceMs }, 'Hay ejecuciones que no han reaccionado al apagado dentro del plazo');
-    const interrupted = this.deps.store.markInterruptedRuns('Ejecución interrumpida por el apagado del servidor.');
+    const interrupted = this.deps.store.markInterruptedRuns(msg('runInterruptedByShutdown'));
     for (const { runId } of queued) {
       for (const resolve of this.waiters.get(runId) ?? []) resolve();
       this.waiters.delete(runId);

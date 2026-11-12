@@ -6,6 +6,7 @@
 // instante. Así una tarea «todos los días a las 02:30» se ejecuta exactamente una vez también los días de cambio
 // de hora: si esa hora no existe (salto de primavera) se ejecuta al terminar el salto, y si se repite (otoño), solo
 // en la primera de las dos.
+import { msg, refOf, type CodedMessage, type ServerMessage } from '../../../shared/server-messages';
 
 export interface CronSpec {
   minutes: number[];
@@ -21,11 +22,11 @@ export interface CronSpec {
 const MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const FIELDS = [
-  { name: 'minuto', min: 0, max: 59, names: [] as string[], base: 0 },
-  { name: 'hora', min: 0, max: 23, names: [] as string[], base: 0 },
-  { name: 'día del mes', min: 1, max: 31, names: [] as string[], base: 0 },
-  { name: 'mes', min: 1, max: 12, names: MONTH_NAMES, base: 1 },
-  { name: 'día de la semana', min: 0, max: 7, names: DAY_NAMES, base: 0 },
+  { key: 'minute', name: 'minuto', min: 0, max: 59, names: [] as string[], base: 0 },
+  { key: 'hour', name: 'hora', min: 0, max: 23, names: [] as string[], base: 0 },
+  { key: 'dayOfMonth', name: 'día del mes', min: 1, max: 31, names: [] as string[], base: 0 },
+  { key: 'month', name: 'mes', min: 1, max: 12, names: MONTH_NAMES, base: 1 },
+  { key: 'dayOfWeek', name: 'día de la semana', min: 0, max: 7, names: DAY_NAMES, base: 0 },
 ];
 const ALIASES: Record<string, string> = {
   '@hourly': '0 * * * *',
@@ -37,7 +38,15 @@ const ALIASES: Record<string, string> = {
   '@annually': '0 0 1 1 *',
 };
 
-export class CronError extends Error {}
+/** Expresión cron que no se entiende. `text` lleva el código y los parámetros del motivo, para mostrarlo en otro idioma. */
+export class CronError extends Error {
+  readonly i18n: ServerMessage;
+  constructor(readonly text: CodedMessage) {
+    super(text.message);
+    this.name = 'CronError';
+    this.i18n = refOf(text);
+  }
+}
 
 function parseField(text: string, field: (typeof FIELDS)[number]): number[] {
   const values = new Set<number>();
@@ -45,17 +54,17 @@ function parseField(text: string, field: (typeof FIELDS)[number]): number[] {
     const named = field.names.indexOf(raw.toLowerCase());
     const n = named >= 0 ? named + field.base : /^\d+$/.test(raw) ? Number(raw) : NaN;
     if (!Number.isInteger(n) || n < field.min || n > field.max) {
-      throw new CronError(`«${raw}» no es un valor válido para el campo ${field.name} (${field.min}-${field.max}).`);
+      throw new CronError(msg('cronFieldValue', { value: raw, field: field.key, min: field.min, max: field.max }));
     }
     return n;
   };
   for (const part of text.split(',')) {
-    if (!part) throw new CronError(`El campo ${field.name} tiene una lista con un elemento vacío.`);
+    if (!part) throw new CronError(msg('cronEmptyItem', { field: field.key }));
     const [range, stepText, extra] = part.split('/');
-    if (extra !== undefined) throw new CronError(`«${part}» no es válido en el campo ${field.name}.`);
+    if (extra !== undefined) throw new CronError(msg('cronPartInvalid', { value: part, field: field.key }));
     const step = stepText === undefined ? 1 : Number(stepText);
     if (!Number.isInteger(step) || step < 1 || !/^\d+$/.test(stepText ?? '1'))
-      throw new CronError(`El paso «${stepText}» del campo ${field.name} debe ser un entero mayor que 0.`);
+      throw new CronError(msg('cronStepInvalid', { value: String(stepText), field: field.key }));
     let from: number;
     let to: number;
     if (range === '*') {
@@ -63,10 +72,10 @@ function parseField(text: string, field: (typeof FIELDS)[number]): number[] {
       to = field.name === 'día de la semana' ? 6 : field.max;
     } else if (range.includes('-')) {
       const [a, b, more] = range.split('-');
-      if (more !== undefined) throw new CronError(`«${range}» no es un rango válido en el campo ${field.name}.`);
+      if (more !== undefined) throw new CronError(msg('cronRangeInvalid', { value: range, field: field.key }));
       from = number(a);
       to = number(b);
-      if (from > to) throw new CronError(`El rango «${range}» del campo ${field.name} está al revés.`);
+      if (from > to) throw new CronError(msg('cronRangeReversed', { value: range, field: field.key }));
     } else {
       from = number(range);
       // «5/10» significa «desde 5, cada 10».
@@ -82,7 +91,7 @@ export function parseCron(expression: string): CronSpec {
   const text = expression.trim();
   const fields = (ALIASES[text.toLowerCase()] ?? text).split(/\s+/);
   if (fields.length !== 5) {
-    throw new CronError('La expresión debe tener cinco campos: minuto, hora, día del mes, mes y día de la semana (por ejemplo «0 9 * * 1-5»).');
+    throw new CronError(msg('cronFieldCount'));
   }
   const [minutes, hours, dom, months, dow] = fields.map((f, i) => parseField(f, FIELDS[i]));
   return {

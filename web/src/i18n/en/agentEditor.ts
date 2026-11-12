@@ -88,8 +88,4 @@ export default {
     leaveMessage: 'If you leave now you will lose the changes to this agent.',
     leaveLabel: 'Leave without saving',
   },
-  playground: {
-    saveFirst: 'Save the agent to be able to test it.',
-    saveChanges: 'Save your changes to test the current version.',
-  },
 };

@@ -5,6 +5,35 @@ y las versiones, [SemVer](https://semver.org/lang/es/). El proyecto no se ha pub
 del desarrollo local, cada uno con sus commits. El detalle de cada hito, con lo verificado y lo que no, está en
 [PROGRESS.md](PROGRESS.md) y [TEST_RESULTS.md](TEST_RESULTS.md).
 
+## [1.0.0] — 2026-11-12 · Cierre de la primera versión
+
+Pasada de cierre sobre el hito 5. Las baterías y la verificación con Ollama, en `TEST_RESULTS.md`.
+
+### Añadido
+
+- **Monitor**: los eventos de una ejecución se piden por páginas (`GET /api/runs/:id/events` con `after`, `before`
+  y `limit`) y la actividad se construye de forma incremental; se muestran las entradas más recientes con «Cargar
+  anteriores». El estado de los pasos lo entrega el servidor ya calculado (`lastSeq`).
+- **Historial**: filtros por workflow, por agente y por intervalo de fechas, sincronizados con la dirección.
+- **Editor de agentes**: «Guardar y ejecutar» en el banco de pruebas.
+- **Idiomas**: los textos que escribe el servidor (errores de validación y de la API, motivo de fallo de una
+  ejecución o de un paso, avisos de importación) viajan con código y parámetros y la interfaz los traduce; las
+  herramientas integradas se muestran en el idioma activo.
+
+### Cambiado
+
+- El primer guardado de un agente o de un workflow nuevo ya no vuelve a montar la pantalla: se conservan deshacer,
+  selección y foco.
+- Un workflow nuevo sin tocar ya no aparece como «Sin guardar».
+- El filtro «En curso» del historial incluye las ejecuciones en cola y en espera.
+- `GET /api/runs/:id/stream` valida `after` y `Last-Event-ID` (400 si no son válidos).
+- Esquema de la base de datos v7 (referencia traducible del error en ejecuciones, pasos y disparadores).
+
+### Sin hacer
+
+- Licencia, publicación, imagen de contenedor construida y proveedores de pago probados: ver «Pendiente y
+  limitaciones» en `PROGRESS.md`.
+
 ## [0.5.0] — 2026-11-12 · Hito 5: llevarlo a primer nivel
 
 Diez fases, cada una cerrada con sus baterías y un commit (el detalle y las excepciones, en `TEST_RESULTS.md`).

@@ -187,8 +187,8 @@ onBeforeUnmount(() => {
       </div>
       <InterruptedBanner />
       <ApprovalsBanner />
-      <RouterView v-slot="{ Component, route }">
-        <component :is="Component" :key="route.meta.keyed ? route.fullPath : undefined" />
+      <RouterView v-slot="{ Component }">
+        <component :is="Component" />
       </RouterView>
     </main>
     <UiHost />

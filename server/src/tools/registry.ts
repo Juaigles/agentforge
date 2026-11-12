@@ -2,6 +2,7 @@
 import { renderTemplate } from '../../../shared/template';
 import type { CustomTool, ToolInfo } from '../../../shared/types';
 import type { Store } from '../db/store';
+import { msg } from '../../../shared/server-messages';
 import { ToolError } from '../errors';
 import { truncate } from '../util';
 import { BUILTIN_TOOLS } from './builtin';
@@ -74,7 +75,7 @@ export function customToolDefinition(tool: CustomTool): ToolDefinition {
           /* texto plano */
         }
       }
-      if (res.status >= 400) throw new ToolError(`La API respondió ${res.status}: ${truncate(res.text, 500)}`);
+      if (res.status >= 400) throw new ToolError(msg('toolApiError', { status: res.status, detail: truncate(res.text, 500) }));
       return { status: res.status, body: parsed };
     },
   };
@@ -159,11 +160,10 @@ export class ToolRegistry {
   /** Valida los argumentos y ejecuta la herramienta. */
   async invoke(name: string, rawArgs: unknown, ctx: ToolContext): Promise<unknown> {
     const tool = this.get(name);
-    if (!tool) throw new ToolError(`Herramienta desconocida o desactivada: ${name}`);
+    if (!tool) throw new ToolError(msg('toolNotAvailable', { name }));
     let args: Record<string, any>;
     if (tool.passthroughArgs) {
-      if (rawArgs !== null && rawArgs !== undefined && (typeof rawArgs !== 'object' || Array.isArray(rawArgs)))
-        throw new ToolError('Los argumentos deben ser un objeto JSON.');
+      if (rawArgs !== null && rawArgs !== undefined && (typeof rawArgs !== 'object' || Array.isArray(rawArgs))) throw new ToolError(msg('toolArgsNotObject'));
       args = (rawArgs ?? {}) as Record<string, any>;
     } else args = validateArgs(tool.parameters, rawArgs);
     if (ctx.signal.aborted) throw ctx.signal.reason;

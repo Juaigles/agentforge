@@ -1,4 +1,5 @@
 // Utilidades HTTP comunes a los adaptadores LLM.
+import { msg } from '../../../shared/server-messages';
 import { LlmError } from '../errors';
 
 /** Itera las líneas no vacías de un cuerpo de respuesta en streaming. */
@@ -27,14 +28,14 @@ export async function llmFetch(url: string, init: RequestInit, label: string): P
     res = await fetch(url, { ...init, redirect: 'manual' });
   } catch (err) {
     if (init.signal?.aborted) throw init.signal.reason ?? err;
-    throw new LlmError(`No se pudo conectar con ${label} (${new URL(url).origin}). ¿Está en marcha?`, {
+    throw new LlmError(msg('llmUnreachable', { label, origin: new URL(url).origin }), {
       retryable: true,
       cause: err,
     });
   }
   if (res.status >= 300 && res.status < 400) {
     await res.body?.cancel().catch(() => undefined);
-    throw new LlmError(`${label} respondió con una redirección (${res.status}), que no se sigue. Revisa la dirección del proveedor.`, {
+    throw new LlmError(msg('llmRedirect', { label, status: res.status }), {
       retryable: false,
       status: res.status,
     });
@@ -48,7 +49,7 @@ export async function llmFetch(url: string, init: RequestInit, label: string): P
     } catch {
       /* cuerpo no JSON: se usa el texto tal cual */
     }
-    throw new LlmError(`${label} respondió ${res.status}: ${detail || res.statusText}`, {
+    throw new LlmError(msg('llmHttpError', { label, status: res.status, detail: detail || res.statusText }), {
       retryable: res.status === 408 || res.status === 429 || res.status >= 500,
       status: res.status,
     });

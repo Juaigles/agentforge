@@ -1,6 +1,7 @@
 // Bucle de un agente: LLM → (herramientas → LLM)* → respuesta final.
 import { ZERO_USAGE, type Agent, type RunEventType, type Settings, type Usage } from '../../../shared/types';
 import type { Store } from '../db/store';
+import { msg } from '../../../shared/server-messages';
 import { ConfigError, LimitError, LlmError, ToolError } from '../errors';
 import type { ChatMessage, LlmFactory, ToolSchema } from '../llm/types';
 import type { ToolRegistry } from '../tools/registry';
@@ -49,9 +50,9 @@ function buildSystemPrompt(agent: Agent, hasTools: boolean): string {
 
 export async function runAgent(agent: Agent, input: string, ctx: AgentRunContext, depth = 0): Promise<AgentRunResult> {
   const provider = ctx.store.getProviderWithSecret(agent.providerId);
-  if (!provider) throw new ConfigError(`El agente «${agent.name}» usa un proveedor que ya no existe.`);
-  if (!provider.enabled) throw new ConfigError(`El proveedor «${provider.name}» está desactivado.`);
-  if (!agent.model.trim()) throw new ConfigError(`El agente «${agent.name}» no tiene modelo configurado.`);
+  if (!provider) throw new ConfigError(msg('agentProviderGone', { name: agent.name }));
+  if (!provider.enabled) throw new ConfigError(msg('providerDisabled', { name: provider.name }));
+  if (!agent.model.trim()) throw new ConfigError(msg('agentNoModel', { name: agent.name }));
   const client = ctx.llm.create(provider);
 
   // Solo se ofrecen al modelo las herramientas del agente que existen y están activas.
@@ -90,7 +91,7 @@ export async function runAgent(agent: Agent, input: string, ctx: AgentRunContext
     const finalTurn = iteration > maxIterations;
     if (ctx.signal.aborted) throw ctx.signal.reason;
     if (ctx.budget.llmCalls >= ctx.budget.maxLlmCalls) {
-      throw new LimitError(`Se alcanzó el límite de ${ctx.budget.maxLlmCalls} llamadas al modelo para esta ejecución.`);
+      throw new LimitError(msg('llmCallLimit', { max: ctx.budget.maxLlmCalls }));
     }
     ctx.budget.llmCalls++;
     ctx.emit('llm.start', { ...meta, iteration, model: agent.model });
@@ -121,7 +122,7 @@ export async function runAgent(agent: Agent, input: string, ctx: AgentRunContext
 
     if (!toolCalls.length) {
       if (!res.content.trim()) {
-        throw new LlmError(`El modelo ${agent.model} devolvió una respuesta vacía.`, { retryable: true });
+        throw new LlmError(msg('llmEmptyAnswer', { model: agent.model }), { retryable: true });
       }
       return { output: res.content.trim(), usage };
     }

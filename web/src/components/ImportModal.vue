@@ -6,6 +6,7 @@ import { CircleAlert, LoaderCircle, TriangleAlert, Upload } from 'lucide-vue-nex
 import { computed, onMounted, reactive, ref } from 'vue';
 import { t } from '@/i18n';
 import { api, errorText } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import AppModal from './AppModal.vue';
 import Term from './Term.vue';
 
@@ -112,7 +113,7 @@ async function apply(): Promise<void> {
       <p v-else class="muted small" style="margin: 0">{{ t('importModal.introFile') }}</p>
 
       <div v-for="(warning, i) in plan.warnings" :key="i" class="callout warning small">
-        <TriangleAlert /><span>{{ warning }}</span>
+        <TriangleAlert /><span>{{ serverText(warning, plan.warningsI18n?.[i]) }}</span>
       </div>
 
       <section v-for="g in groups" :key="g.kind" class="col" style="gap: 8px">
@@ -144,7 +145,7 @@ async function apply(): Promise<void> {
                 <option v-for="target in item.targets" :key="target.id" :value="target.id">{{ target.name }}</option>
               </select>
             </div>
-            <p v-for="(note, n) in item.notes" :key="n" class="small muted note">{{ note }}</p>
+            <p v-for="(note, n) in item.notes" :key="n" class="small muted note">{{ serverText(note, item.notesI18n?.[n]) }}</p>
           </li>
         </ul>
       </section>

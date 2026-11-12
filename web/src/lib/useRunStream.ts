@@ -3,12 +3,16 @@ import type { Run, RunEvent } from '@shared/types';
 import { computed, onBeforeUnmount, reactive, ref, watch, type Ref } from 'vue';
 import { api, errorText } from './api';
 import { isActiveStatus } from './format';
-import { applyEvent, blankFromRun, fromRun, totalUsage, type RunLive } from './run-state';
+import { appendActivity, applyEvent, fromRun, prependActivity, totalUsage, type RunLive } from './run-state';
+
+/** Eventos que se piden de una vez para el registro de actividad (los más recientes al abrir; después, hacia atrás). */
+export const EVENTS_PAGE = 200;
 
 export function useRunStream(runId: Ref<string | null>) {
   const run = ref<Run | null>(null);
   const live = ref<RunLive | null>(null);
   const loading = ref(false);
+  const loadingOlder = ref(false);
   const error = ref<string | null>(null);
   let source: EventSource | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -40,7 +44,8 @@ export function useRunStream(runId: Ref<string | null>) {
         if (fresh.output !== null && live.value.output === null && live.value.status === fresh.status) live.value.output = fresh.output;
         // Si el servidor ya la da por terminada, su versión es la definitiva.
         if (!isActiveStatus(fresh.status) && isActiveStatus(live.value.status)) {
-          const next = fromRun(fresh, live.value.events);
+          const seen = live.value.lastSeq;
+          const next = fromRun(fresh, live.value.activity);
           // Un paso cancelado o fallido a medias no guarda salida: se conserva lo que ya se había visto en directo.
           for (const [nodeId, step] of Object.entries(next.steps)) {
             const seen = live.value.steps[nodeId];
@@ -51,11 +56,45 @@ export function useRunStream(runId: Ref<string | null>) {
           }
           live.value = reactive(next) as RunLive;
           close();
+          // Lo que ocurrió con el flujo cortado no llegó al registro de actividad: se pide solo ese tramo.
+          void catchUp(id, gen, seen);
         }
       } catch {
         /* se reintentará con el siguiente evento */
       }
     }, delayMs);
+  }
+
+  /** Añade al registro de actividad los eventos guardados posteriores a `after` (el estado de los pasos ya es el del servidor). */
+  async function catchUp(id: string, gen: number, after: number): Promise<void> {
+    try {
+      for (;;) {
+        const events = await api.runs.events(id, { after, limit: EVENTS_PAGE });
+        if (gen !== generation || !live.value) return;
+        for (const ev of events) appendActivity(live.value.activity, ev);
+        if (events.length < EVENTS_PAGE) return;
+        after = events[events.length - 1].seq!;
+      }
+    } catch {
+      /* el registro queda incompleto hasta la próxima carga; el estado mostrado sí es el definitivo */
+    }
+  }
+
+  /** Carga la página de eventos anterior a los que ya están en el registro de actividad. */
+  async function loadOlder(): Promise<void> {
+    const id = runId.value;
+    const gen = generation;
+    if (!id || !live.value || loadingOlder.value || live.value.activity.firstSeq <= 1) return;
+    loadingOlder.value = true;
+    try {
+      const events = await api.runs.events(id, { before: live.value.activity.firstSeq, limit: EVENTS_PAGE });
+      if (gen !== generation || !live.value) return;
+      prependActivity(live.value.activity, events);
+      // Una página incompleta es la primera de la ejecución: no queda nada más antiguo.
+      if (events.length < EVENTS_PAGE) live.value.activity.firstSeq = Math.min(live.value.activity.firstSeq, 1);
+    } finally {
+      loadingOlder.value = false;
+    }
   }
 
   async function load(id: string): Promise<void> {
@@ -64,24 +103,20 @@ export function useRunStream(runId: Ref<string | null>) {
     loading.value = true;
     error.value = null;
     try {
+      // El servidor entrega el estado de los pasos ya calculado hasta `lastSeq`, también con la ejecución en curso:
+      // no se reproduce el historial. Del registro de actividad se trae solo la página más reciente.
       const fetched = await api.runs.get(id);
       if (gen !== generation) return;
+      const recent = fetched.lastSeq ? await api.runs.events(id, { before: fetched.lastSeq + 1, limit: EVENTS_PAGE }) : [];
+      if (gen !== generation) return;
       run.value = fetched;
-      if (!isActiveStatus(fetched.status)) {
-        const events = await api.runs.events(id);
-        if (gen !== generation) return;
-        live.value = reactive(fromRun(fetched, events)) as RunLive;
-        return;
-      }
-      // En curso: se parte de cero y se reproducen todos los eventos (historial + directo) por SSE.
-      const state = reactive(blankFromRun(fetched)) as RunLive;
-      for (const s of fetched.steps) {
-        if (s.input !== null) state.steps[s.nodeId].input = s.input;
-        // Los pasos que ya habían terminado conservan su salida: el historial de eventos no la vuelve a traer.
-        if (s.output !== null) state.steps[s.nodeId].output = s.output;
-      }
+      const state = reactive(fromRun(fetched)) as RunLive;
+      prependActivity(state.activity, recent);
+      if (recent.length < EVENTS_PAGE && state.activity.firstSeq > 1) state.activity.firstSeq = 1;
       live.value = state;
-      source = new EventSource(`/api/runs/${id}/stream?after=0`);
+      if (!isActiveStatus(fetched.status)) return;
+      // En curso: el flujo continúa justo después del último evento que ya recoge ese estado.
+      source = new EventSource(`/api/runs/${id}/stream?after=${fetched.lastSeq}`);
       // Si el flujo se corta (el servidor cae o la red falla) el navegador lo reintenta solo, pero una ejecución que
       // termine mientras tanto no enviaría ya ningún evento: se consulta su estado para no quedarse «en curso».
       source.onerror = () => {
@@ -128,7 +163,9 @@ export function useRunStream(runId: Ref<string | null>) {
 
   const usage = computed(() => (live.value ? totalUsage(live.value) : null));
   const isActive = computed(() => (live.value ? isActiveStatus(live.value.status) : false));
+  /** Quedan eventos más antiguos en el servidor que no están en el registro de actividad. */
+  const hasOlder = computed(() => (live.value ? live.value.activity.firstSeq > 1 : false));
   const reload = () => (runId.value ? load(runId.value) : Promise.resolve());
 
-  return { run, live, loading, error, usage, isActive, reload };
+  return { run, live, loading, error, usage, isActive, reload, hasOlder, loadingOlder, loadOlder };
 }

@@ -26,6 +26,7 @@ import Term from '@/components/Term.vue';
 import ToolEditorModal from '@/components/ToolEditorModal.vue';
 import ToolTestModal from '@/components/ToolTestModal.vue';
 import { api, errorText } from '@/lib/api';
+import { toolCategory, toolDescription, toolParamDescription, toolTitle } from '@/lib/tool-text';
 import { t, tn } from '@/i18n';
 import { formatBytes, formatDateTime, relativeTime } from '@/lib/format';
 import { useCatalog } from '@/stores/catalog';
@@ -80,13 +81,14 @@ const usage = computed(() => {
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
   if (!q) return catalog.tools;
-  return catalog.tools.filter((tool) => [tool.name, tool.title, tool.description, tool.category].some((s) => s.toLowerCase().includes(q)));
+  // Se busca en lo que se ve: el título, la descripción y la categoría en el idioma de la interfaz.
+  return catalog.tools.filter((tool) => [tool.name, toolTitle(tool), toolDescription(tool), toolCategory(tool)].some((s) => s.toLowerCase().includes(q)));
 });
 
 const groups = computed(() => {
   const map = new Map<string, ToolInfo[]>();
   for (const tool of filtered.value) map.set(tool.category, [...(map.get(tool.category) ?? []), tool]);
-  return [...map.entries()].map(([category, tools]) => ({ category, tools }));
+  return [...map.entries()].map(([category, tools]) => ({ category, label: toolCategory(tools[0]), tools }));
 });
 
 const customCount = computed(() => catalog.tools.filter((tool) => tool.source === 'custom').length);
@@ -348,12 +350,12 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
         </div>
 
         <section v-for="g in groups" :key="g.category" class="col" style="gap: 10px">
-          <h2 class="eyebrow">{{ g.category }}</h2>
+          <h2 class="eyebrow">{{ g.label }}</h2>
           <div class="tool-grid">
             <article v-for="tool in g.tools" :key="tool.name" class="card tool" :class="{ off: !tool.enabled }">
               <header>
                 <div class="grow">
-                  <h3 class="truncate">{{ tool.source === 'custom' ? tool.name : tool.title }}</h3>
+                  <h3 class="truncate">{{ tool.source === 'custom' ? tool.name : toolTitle(tool) }}</h3>
                   <code class="faint">{{ tool.name }}</code>
                 </div>
                 <div class="row" style="gap: 4px">
@@ -361,7 +363,7 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
                     class="btn btn-sm"
                     type="button"
                     :disabled="!tool.enabled"
-                    :aria-label="t('tools.card.testAria', { title: tool.title })"
+                    :aria-label="t('tools.card.testAria', { title: toolTitle(tool) })"
                     :title="tool.enabled ? undefined : t('tools.card.enableToTest')"
                     @click="testing = tool"
                   >
@@ -402,7 +404,7 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
                 </span>
               </div>
 
-              <p class="muted small desc">{{ tool.description }}</p>
+              <p class="muted small desc">{{ toolDescription(tool) }}</p>
 
               <div v-if="paramsOf(tool).length" class="params">
                 <div class="eyebrow">{{ t('tools.params.title') }}</div>
@@ -414,7 +416,7 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
                       <span v-if="p.required" class="tiny req">{{ t('tools.params.required') }}</span>
                     </span>
                     <span class="small muted">
-                      {{ p.prop.description || '—' }}
+                      {{ toolParamDescription(tool, p.name, p.prop) || '—' }}
                       <span v-if="p.prop.enum?.length" class="faint"> {{ t('tools.params.values', { list: p.prop.enum.join(', ') }) }}</span>
                       <span v-if="p.prop.default !== undefined" class="faint"> {{ t('tools.params.defaultValue', { value: p.prop.default }) }}</span>
                     </span>

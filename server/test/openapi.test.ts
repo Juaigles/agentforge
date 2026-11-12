@@ -402,6 +402,23 @@ describe('contrato con respuestas reales', () => {
     { name: 'error 404 en una ejecución', method: 'GET', url: () => '/api/runs/no-existe', spec: '/api/runs/{id}', status: 404 },
     { name: 'error de validación', method: 'POST', url: () => '/api/agents', spec: '/api/agents', status: 400, payload: () => ({}) },
     { name: 'error de validación en la consulta', method: 'GET', url: () => '/api/runs?limit=0', spec: '/api/runs', status: 400 },
+    {
+      name: 'historial filtrado por workflow, fechas y sin terminar',
+      method: 'GET',
+      url: () => `/api/runs?workflowId=${workflowId}&from=2020-01-01T00:00:00Z&to=2100-01-01T00:00:00%2B01:00&status=active`,
+      spec: '/api/runs',
+      status: 200,
+    },
+    { name: 'fecha no válida en el historial', method: 'GET', url: () => '/api/runs?from=ayer', spec: '/api/runs', status: 400 },
+    {
+      name: 'una página de eventos',
+      method: 'GET',
+      url: () => `/api/runs/${runId}/events?before=4&limit=2`,
+      spec: '/api/runs/{id}/events',
+      status: 200,
+    },
+    { name: 'límite de eventos no válido', method: 'GET', url: () => `/api/runs/${runId}/events?limit=0`, spec: '/api/runs/{id}/events', status: 400 },
+    { name: 'cursor no válido en el flujo en vivo', method: 'GET', url: () => `/api/runs/${runId}/stream?after=x`, spec: '/api/runs/{id}/stream', status: 400 },
     { name: 'conflicto al eliminar un agente en uso', method: 'DELETE', url: () => `/api/agents/${agentId}`, spec: '/api/agents/{id}', status: 409 },
   ];
 

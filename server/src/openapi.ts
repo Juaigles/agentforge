@@ -272,15 +272,40 @@ function domainSchemas(): Record<string, Schema> {
     Error: obj(
       {
         error: str('Mensaje legible, en español.'),
-        code: { ...str('Código estable del error; ver la tabla de códigos.', { enum: Object.keys(ERROR_CODES) }), 'x-code-descriptions': ERROR_CODES },
+        code: { ...str('Clase del error, estable; ver la tabla de códigos.', { enum: Object.keys(ERROR_CODES) }), 'x-code-descriptions': ERROR_CODES },
+        i18n: ref('ServerMessage'),
         issues: array(ref('FieldIssue'), 'Solo con `code: validation`: un elemento por campo que no cumple el esquema.'),
         details: { description: 'Datos extra según el error; p. ej. `{ issues: ValidationIssue[] }` al lanzar un workflow con errores (422).' },
       },
-      { optional: ['issues', 'details'], description: 'Forma de todas las respuestas de error de la API.' },
+      {
+        optional: ['issues', 'details'],
+        description: 'Forma de todas las respuestas de error de la API. `error` es el texto en español; `i18n`, el código y los parámetros de ese mismo texto.',
+      },
+    ),
+    ServerMessage: obj(
+      {
+        code: { ...str('Código del texto (los de `shared/server-messages.ts`; en una causa anidada, también los de la validación de workflows).') },
+        params: {
+          ...anyObject(
+            'Valores con los que se rellena el texto. Cada uno es un texto, un número, otro `ServerMessage` (la causa de un fallo; lleva su texto en `message`) o una lista de ellos. Lo que viene de fuera (la respuesta de un proveedor o de una herramienta) va aquí tal cual.',
+          ),
+        },
+        message: str('Solo en un mensaje anidado: su texto en español.'),
+      },
+      {
+        optional: ['params', 'message'],
+        description:
+          'Referencia a un texto escrito por el servidor, para mostrarlo en otro idioma: acompaña siempre al texto en español (`error`, `lastError`, `warnings[i]`…), que sirve de respaldo a quien no traduzca.',
+      },
     ),
     FieldIssue: obj(
-      { path: str('Ruta del campo, separada por puntos (`nodes.0.id`). Vacía si afecta al cuerpo entero.'), message: str() },
-      { description: 'Problema de validación de un campo del cuerpo o de la consulta.' },
+      {
+        path: str('Ruta del campo, separada por puntos (`nodes.0.id`). Vacía si afecta al cuerpo entero.'),
+        message: str('Texto en español.'),
+        code: str('Código del problema (`nameRequired`, `tooLong`…), para mostrarlo en otro idioma.'),
+        params: anyObject('Parámetros del mensaje (`min`, `max`, `field`…).'),
+      },
+      { optional: ['params'], description: 'Problema de validación de un campo del cuerpo o de la consulta.' },
     ),
     ValidationIssue: obj(
       {
@@ -345,6 +370,7 @@ function domainSchemas(): Record<string, Schema> {
         image: str(),
         imagePresent: bool(),
         error: nullable(str()),
+        errorI18n: nullable(ref('ServerMessage')),
       }),
     }),
 
@@ -363,10 +389,22 @@ function domainSchemas(): Record<string, Schema> {
       { id: str(), sizeBytes: int(), parameterSize: str(), contextLength: int(), capabilities: array(str()) },
       { optional: ['sizeBytes', 'parameterSize', 'contextLength', 'capabilities'] },
     ),
-    ProviderTestResult: obj({ ok: bool(), latencyMs: int(), modelCount: int(), error: str() }, { optional: ['modelCount', 'error'] }),
+    ProviderTestResult: obj(
+      { ok: bool(), latencyMs: int(), modelCount: int(), error: str(), errorI18n: ref('ServerMessage') },
+      { optional: ['modelCount', 'error', 'errorI18n'] },
+    ),
     ProviderHealth: obj(
-      { providerId: str(), name: str(), kind: enumOf(['ollama', 'openai']), ok: bool(), latencyMs: int(), modelCount: int(), error: str() },
-      { optional: ['error'] },
+      {
+        providerId: str(),
+        name: str(),
+        kind: enumOf(['ollama', 'openai']),
+        ok: bool(),
+        latencyMs: int(),
+        modelCount: int(),
+        error: str(),
+        errorI18n: ref('ServerMessage'),
+      },
+      { optional: ['error', 'errorI18n'] },
     ),
 
     // --- Agentes ---
@@ -432,8 +470,14 @@ function domainSchemas(): Record<string, Schema> {
       ...timestamps,
     }),
     ToolInvokeResult: obj(
-      { ok: bool(), durationMs: int(), result: str('Resultado como texto (si `ok`).'), error: str('Motivo del fallo (si no `ok`).') },
-      { optional: ['result', 'error'], description: 'Un fallo de la herramienta no es un error HTTP: la respuesta es 200 con `ok: false`.' },
+      {
+        ok: bool(),
+        durationMs: int(),
+        result: str('Resultado como texto (si `ok`).'),
+        error: str('Motivo del fallo (si no `ok`).'),
+        errorI18n: ref('ServerMessage'),
+      },
+      { optional: ['result', 'error', 'errorI18n'], description: 'Un fallo de la herramienta no es un error HTTP: la respuesta es 200 con `ok: false`.' },
     ),
     WorkspaceFile: obj({ path: str('Ruta relativa al espacio de trabajo, con `/`.'), sizeBytes: int(), modifiedAt: dateTime() }),
     WorkspaceFileContent: obj({ path: str(), sizeBytes: int(), content: str('Como mucho los primeros 500 000 bytes, como texto UTF-8.'), truncated: bool() }),
@@ -449,6 +493,7 @@ function domainSchemas(): Record<string, Schema> {
       enabled: bool(),
       status: enumOf(['disabled', 'connecting', 'connected', 'error']),
       error: nullable(str('Motivo del último fallo de conexión.')),
+      errorI18n: nullable(ref('ServerMessage')),
       tools: array(obj({ name: str(), description: str() }), 'Herramientas que ofrece.'),
       ...timestamps,
     }),
@@ -488,7 +533,8 @@ function domainSchemas(): Record<string, Schema> {
         status: enumOf(RUN_STATUS, '`waiting`: detenida a la espera de una aprobación humana.'),
         input: str('Solo el principio del texto; el completo está en la ejecución.'),
         output: nullable(str()),
-        error: nullable(str()),
+        error: nullable(str('Motivo del fallo o de la cancelación, en español.')),
+        errorI18n: nullable(ref('ServerMessage')),
         usage: ref('Usage'),
         retryOf: nullable(str()),
         interrupted: bool('Quedó a medias por un apagado y aún no se ha reanudado ni descartado.'),
@@ -517,6 +563,7 @@ function domainSchemas(): Record<string, Schema> {
         input: nullable(str()),
         output: nullable(str()),
         error: nullable(str()),
+        errorI18n: nullable(ref('ServerMessage')),
         usage: ref('Usage'),
         startedAt: nullable(dateTime()),
         finishedAt: nullable(dateTime()),
@@ -534,7 +581,16 @@ function domainSchemas(): Record<string, Schema> {
     ),
     Run: {
       description: 'Ejecución completa: el resumen más la definición lanzada y sus pasos.',
-      allOf: [ref('RunSummary'), obj({ snapshot: ref('RunSnapshot'), steps: array(ref('RunStep')) })],
+      allOf: [
+        ref('RunSummary'),
+        obj({
+          snapshot: ref('RunSnapshot'),
+          steps: array(ref('RunStep')),
+          lastSeq: int(
+            'Número de secuencia del último evento guardado al leer la ejecución (0 si no hay). El estado de los pasos ya incluye todo lo ocurrido hasta él: el flujo en vivo se continúa con `?after=` este valor.',
+          ),
+        }),
+      ],
     },
     RunList: obj(
       {
@@ -556,7 +612,14 @@ function domainSchemas(): Record<string, Schema> {
       { description: 'Evento del registro de una ejecución.' },
     ),
     RunStepItem: obj(
-      { index: int(), item: str(), status: enumOf(['completed', 'failed']), output: nullable(str()), error: nullable(str()) },
+      {
+        index: int(),
+        item: str(),
+        status: enumOf(['completed', 'failed']),
+        output: nullable(str()),
+        error: nullable(str()),
+        errorI18n: nullable(ref('ServerMessage')),
+      },
       { description: 'Elemento de un nodo «para cada», con su resultado.' },
     ),
     Approval: obj({
@@ -590,6 +653,7 @@ function domainSchemas(): Record<string, Schema> {
         lastRunAt: nullable(dateTime()),
         lastRunId: nullable(str()),
         lastError: nullable(str('Motivo por el que la última ocasión no llegó a lanzarse.')),
+        lastErrorI18n: nullable(ref('ServerMessage')),
         ...timestamps,
       },
       { description: 'Lo que lanza un workflow sin que nadie pulse «Ejecutar». El secreto de un webhook nunca se devuelve aquí.' },
@@ -658,11 +722,18 @@ function domainSchemas(): Record<string, Schema> {
         targets: array(obj({ id: str(), name: str() }), 'Elementos locales a los que se puede enlazar con `reuse`.'),
         recommendedTargetId: str(),
         notes: array(str()),
+        notesI18n: array(ref('ServerMessage'), 'Código y parámetros de cada nota, en la misma posición que en `notes`.'),
       },
       { optional: ['targets', 'recommendedTargetId'] },
     ),
     ImportPlan: obj(
-      { kind: enumOf(['workflow', 'agent']), name: str(), items: array(ref('ImportItem')), warnings: array(str()) },
+      {
+        kind: enumOf(['workflow', 'agent']),
+        name: str(),
+        items: array(ref('ImportItem')),
+        warnings: array(str()),
+        warningsI18n: array(ref('ServerMessage'), 'Código y parámetros de cada aviso, en la misma posición que en `warnings`.'),
+      },
       { description: 'Lo que haría una importación; no cambia nada.' },
     ),
     ImportResult: obj(
@@ -677,6 +748,7 @@ function domainSchemas(): Record<string, Schema> {
         createdWorkflows: array(ref('Workflow'), 'Subworkflows creados.'),
         triggers: int('Disparadores creados (siempre en pausa).'),
         warnings: array(str()),
+        warningsI18n: array(ref('ServerMessage'), 'Código y parámetros de cada aviso, en la misma posición que en `warnings`.'),
         issues: array(ref('ValidationIssue'), 'Problemas de validación del workflow importado.'),
       },
       { description: '`workflow` es `null` al importar agentes sueltos.' },
@@ -781,10 +853,18 @@ const TAGS: Array<[string, string]> = [
 ];
 
 const runsQuery: Param[] = [
-  queryParam('status', 'Solo ejecuciones en este estado.', { type: 'string', enum: [...RUN_STATUS] }),
+  queryParam('status', 'Solo ejecuciones en este estado. `active` reúne las que no han terminado: en cola, en curso y en espera.', {
+    type: 'string',
+    enum: [...RUN_STATUS, 'active'],
+  }),
   queryParam('kind', 'Solo de este tipo.', { type: 'string', enum: ['agent', 'workflow'] }),
   queryParam('workflowId', 'Solo las de este workflow.', { type: 'string', maxLength: 64 }),
-  queryParam('agentId', 'Solo las de este agente.', { type: 'string', maxLength: 64 }),
+  queryParam('agentId', 'Solo las ejecuciones directas de este agente (no las de workflows que lo usan).', { type: 'string', maxLength: 64 }),
+  queryParam('from', 'Solo las creadas en este instante o después (ISO 8601 con zona horaria, p. ej. `2026-01-31T00:00:00Z`).', {
+    type: 'string',
+    format: 'date-time',
+  }),
+  queryParam('to', 'Solo las creadas en este instante o antes (ISO 8601 con zona horaria).', { type: 'string', format: 'date-time' }),
   queryParam('search', 'Texto a buscar en el nombre, la entrada, la salida y el error.', { type: 'string', maxLength: 200 }),
   queryParam('limit', 'Tamaño de página (1-200; por defecto 50).', { type: 'integer', minimum: 1, maximum: 200 }),
   queryParam('offset', 'Elementos a saltar (0 o más).', { type: 'integer', minimum: 0 }),
@@ -792,6 +872,16 @@ const runsQuery: Param[] = [
 
 const afterParam = (what: string): Param =>
   queryParam('after', `Devuelve solo ${what} posteriores a este número de secuencia (0 o más).`, { type: 'integer', minimum: 0 });
+
+const eventsQuery: Param[] = [
+  afterParam('eventos'),
+  queryParam('before', 'Devuelve solo eventos anteriores a este número de secuencia (0 o más).', { type: 'integer', minimum: 0 }),
+  queryParam(
+    'limit',
+    'Tamaño de página (1-1000). Sin él se devuelven todos los eventos del tramo. Con `before`, la página son los últimos eventos anteriores a ese cursor; sin él, los primeros posteriores a `after`.',
+    { type: 'integer', minimum: 1, maximum: 1000 },
+  ),
+];
 
 const SSE_NOTE =
   'Flujo de eventos del servidor (`text/event-stream`): la conexión queda abierta. Cada ~15 s llega un comentario `: ping` para mantenerla viva y el servidor sugiere reconectar a los 2 s (`retry: 2000`). Si un cliente no lee y se le acumulan más de 8 MiB, se le corta la conexión.';
@@ -1391,8 +1481,10 @@ function routes(): Array<[string, Method, OpSpec]> {
     R('/api/runs/{id}/events', 'get', {
       tag: T.runs,
       id: 'listRunEvents',
-      summary: 'Eventos guardados de una ejecución, por orden',
-      query: [afterParam('eventos')],
+      summary: 'Eventos guardados de una ejecución, por orden y por páginas',
+      description:
+        'Siempre por orden de secuencia. Para recorrer una ejecución larga hacia atrás: `?before=<lastSeq + 1>&limit=200` da la página más reciente y `?before=<seq del primero recibido>&limit=200`, la anterior; hacia delante, `?after=<seq del último recibido>&limit=200`.',
+      query: eventsQuery,
       response: list(ref('RunEvent')),
       errors: [400, 404],
     }),
@@ -1474,7 +1566,8 @@ function routes(): Array<[string, Method, OpSpec]> {
       description: [
         SSE_NOTE,
         '',
-        'Evento `run-event`: `data` es un `RunEvent` y `id` su `seq`. Al conectar se reproduce primero el historial guardado, por tandas de 500, a partir del número indicado en la cabecera `Last-Event-ID` o, si no viene, en `?after=` (0 por defecto); después llegan los eventos nuevos sin perder ni repetir ninguno.',
+        'Evento `run-event`: `data` es un `RunEvent` y `id` su `seq`. Al conectar se reproduce primero el historial guardado, por tandas de 500, a partir del número indicado en la cabecera `Last-Event-ID` o, si no viene, en `?after=` (0 por defecto); después llegan los eventos nuevos sin perder ni repetir ninguno. Un valor no válido en cualquiera de los dos se rechaza con 400.',
+        'Para no reproducir el historial entero, se parte de `GET /api/runs/{id}` (que ya trae el estado de los pasos) y se conecta con `?after=` su `lastSeq`.',
         'Un navegador (`EventSource`) reconecta solo y envía `Last-Event-ID` con el último `id` recibido.',
         'Tras el historial se envían eventos `llm.snapshot` (con `seq: null` y sin `id`) con el texto que cada nodo lleva generado, y los deltas de streaming (`llm.delta`) también tienen `seq: null`.',
         'La conexión no se cierra al terminar la ejecución: el evento `run.finished` marca el final.',
@@ -1489,7 +1582,7 @@ function routes(): Array<[string, Method, OpSpec]> {
         },
       ],
       okContent: SSE('Eventos `run-event` con un `RunEvent` en `data`.'),
-      errors: [404],
+      errors: [400, 404],
     }),
   ];
 }
@@ -1513,7 +1606,9 @@ export function buildOpenApi(version: string): object {
         '',
         '**Autenticación.** Si el servidor se arranca con `AGENTFORGE_TOKEN`, toda la API (salvo `/api/auth/*`, `/api/health/live` y los webhooks) exige la clave: envíala como `Authorization: Bearer <clave>` o inicia sesión con `POST /api/auth/login` para recibir la cookie `af_session`. Sin clave configurada (por defecto, escuchando solo en `127.0.0.1`) no hace falta nada. Los webhooks se autentican con el secreto de su disparador.',
         '',
-        '**Errores.** Toda respuesta de error es `{ "error": string, "code": string }`, más `issues` (validación) o `details` según el caso. Antes de llegar a las rutas, una petición con un `Host` no permitido o que procede de otro sitio web se rechaza con 403 y `{ "error": string }` sin `code`.',
+        '**Errores.** Toda respuesta de error es `{ "error": string, "code": string, "i18n": ServerMessage }`, más `issues` (validación) o `details` según el caso. Antes de llegar a las rutas, una petición con un `Host` no permitido o que procede de otro sitio web se rechaza con 403 y `{ "error": string }` sin `code`.',
+        '',
+        '**Idiomas.** El servidor escribe sus textos en español. Los que llegan a la pantalla (errores, problemas de validación, motivo de fallo de una ejecución o de un paso, avisos de una importación) van acompañados de su código y sus parámetros (`ServerMessage`: `i18n`, `errorI18n`, `lastErrorI18n`, `warningsI18n`…), con los que un cliente puede mostrarlos en otro idioma; el texto en español sigue ahí como respaldo. Los datos anteriores a esta versión no tienen referencia (`null`).',
         '',
         '**Límite de tasa.** 1 200 peticiones por minuto y cliente (`AGENTFORGE_RATE_LIMIT`; 0 lo desactiva), un décimo (mínimo 30) en las rutas costosas (lanzar, probar, reintentar, invocar, reconectar y webhooks) y 10 intentos por minuto en el inicio de sesión. Al superarlo, 429 con `Retry-After`.',
       ].join('\n'),

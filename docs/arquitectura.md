@@ -142,15 +142,18 @@ El frontend no guarda estado propio del dominio: lo que muestra viene de la API 
    ejecuciones que la cree: se guarda con su instantánea, en cola.
 3. Cuando hay hueco, el motor recorre el grafo. Cada nodo de agente entra en el bucle de `agent-runner`, que
    habla con el proveedor por su adaptador y ejecuta herramientas a través del registro.
-4. Cada paso emite eventos: se guardan y se envían por SSE. El monitor los aplica a su estado con el reductor de
-   `run-state.ts`, el mismo que usa para reproducir una ejecución ya terminada.
+4. Cada paso emite eventos: se guardan y se envían por SSE. El monitor no reproduce el historial: parte del estado
+   de los pasos que entrega `GET /api/runs/:id` (ya calculado hasta su `lastSeq`, también a media ejecución),
+   sigue el flujo desde ese evento y aplica cada uno nuevo con el reductor de `run-state.ts`. Del registro de
+   actividad trae solo la página de eventos más reciente (`GET /api/runs/:id/events?before=&limit=`) y las
+   anteriores a petición; cada evento añade su entrada sin recorrer las que ya había.
 5. Al terminar se guardan el resultado, el uso de tokens y los contadores del panel, y se aplica la retención.
 
 ## Dónde tocar para…
 
 | Cambio | Archivos |
 |---|---|
-| Una herramienta integrada nueva | `server/src/tools/builtin.ts` (aparece sola en el catálogo, el editor y el constructor) |
+| Una herramienta integrada nueva | `server/src/tools/builtin.ts` (aparece sola en el catálogo, el editor y el constructor) y sus textos para la pantalla (fila «El título o la descripción de una herramienta integrada») |
 | Un proveedor de otro tipo | Un adaptador en `server/src/llm/` y su alta en `llm/index.ts`; el tipo en `shared/types.ts` |
 | Un tipo de nodo nuevo | `shared/types.ts` y `shared/graph.ts` (validación), `server/src/engine/workflow-engine.ts` (ejecución), `server/src/routes/schemas.ts`, y en la interfaz `lib/flow.ts`, `FlowNode.vue` y el inspector de `WorkflowBuilderView.vue`. No hay un registro único: es la limitación conocida más incómoda |
 | Una columna o tabla | Una migración nueva al final de la lista de `db/database.ts` (nunca editar una existente), `Store` y los tests que fijan la versión del esquema |
@@ -158,6 +161,8 @@ El frontend no guarda estado propio del dominio: lo que muestra viene de la API 
 | Un texto de la interfaz | `web/src/i18n/es/<ámbito>.ts` y `en/<ámbito>.ts` (un test exige las mismas claves) |
 | Un término del glosario | `web/src/lib/glossary.ts` (español e inglés) y usarlo con `<Term id="…">` en alguna pantalla |
 | Un mensaje de validación de workflows | `shared/validation-messages.ts` y `web/src/lib/validation-en.ts` |
+| Un texto que escribe el servidor (error de la API o de validación, motivo de fallo, aviso) | `shared/server-messages.ts` (código → texto en español) y `web/src/lib/server-messages-en.ts`; en el servidor se construye con `msg('código', { … })` y viaja como texto + `{ code, params }` (`i18n`, `errorI18n`…), que la interfaz muestra con `serverText()` |
+| El título o la descripción de una herramienta integrada | Además de `builtin.ts`, `web/src/i18n/{es,en}/builtinTools.ts` y su categoría en `web/src/lib/tool-text.ts` (un test falla si falta) |
 | Una variable de entorno | `server/src/config.ts` (lectura y validación) y la tabla del README |
 | Lo que viaja al exportar o importar | `server/src/portability.ts` y `web/src/components/ImportModal.vue` |
 | Las copias de seguridad | `server/src/backup.ts` |

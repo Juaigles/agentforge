@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { AgentInput, ModelInfo } from '@shared/types';
 import { ArrowLeft, CircleAlert, Copy, RefreshCw, Save, Trash2, TriangleAlert } from 'lucide-vue-next';
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import AgentAvatar from '@/components/AgentAvatar.vue';
 import RunPlayground from '@/components/RunPlayground.vue';
 import Term from '@/components/Term.vue';
 import { api, ApiError, errorText } from '@/lib/api';
+import { toolCategory, toolDescription, toolTitle } from '@/lib/tool-text';
+import { adoptRoute } from '@/lib/editor-mount';
 import { intlLocale, t } from '@/i18n';
 import { formatBytes, formatNumber } from '@/lib/format';
 import { agentDeleteMessage, workflowsUsingAgent } from '@/lib/usage';
@@ -117,7 +119,8 @@ const toolGroups = computed(() => {
     if (!groups.has(tool.category)) groups.set(tool.category, []);
     groups.get(tool.category)!.push(tool);
   }
-  return [...groups.entries()];
+  // La categoría se rotula en el idioma de la interfaz (las de las herramientas integradas, por su nombre).
+  return [...groups.values()].map((list) => [toolCategory(list[0]), list] as const);
 });
 const unknownTools = computed(() => form.tools.filter((name) => !catalog.toolByName.has(name)));
 /** Temperatura con un decimal y la coma o el punto del idioma actual. */
@@ -148,7 +151,8 @@ async function save(): Promise<boolean> {
     form.tools = agent.tools;
     snapshot();
     ui.success(t('agentEditor.toast.saved', { name: agent.name }));
-    if (!agentId.value) await router.replace(`/agents/${agent.id}`);
+    // Primer guardado: la pantalla sigue montada (formulario, foco y banco de pruebas intactos) y pasa a su dirección definitiva.
+    if (!agentId.value) await adoptRoute(router, `/agents/${agent.id}`);
     return true;
   } catch (err) {
     if (err instanceof ApiError && err.issues.length) {
@@ -202,11 +206,17 @@ onBeforeRouteLeave(async () => {
   });
 });
 
-const playgroundBlocked = computed(() => {
-  if (isNew.value) return t('agentEditor.playground.saveFirst');
-  if (dirty.value) return t('agentEditor.playground.saveChanges');
-  return null;
-});
+/**
+ * Lo que hace el banco de pruebas antes de ejecutar cuando hay algo sin guardar: guardarlo. Así se prueba siempre
+ * lo que se ve en el formulario y no se pierde la tarea escrita.
+ */
+async function saveForRun(): Promise<boolean> {
+  const ok = await save();
+  // Tras el primer guardado, el banco de pruebas recibe el id del agente con el siguiente repintado.
+  await nextTick();
+  if (!ok) document.querySelector<HTMLElement>('#agent-form [aria-invalid="true"]')?.focus();
+  return ok;
+}
 </script>
 
 <template>
@@ -467,12 +477,12 @@ const playgroundBlocked = computed(() => {
               <input v-model="form.tools" type="checkbox" :value="tool.name" />
               <span class="grow">
                 <span class="row wrap" style="gap: 6px">
-                  <strong>{{ tool.title }}</strong>
+                  <strong>{{ toolTitle(tool) }}</strong>
                   <code class="faint">{{ tool.name }}</code>
                   <span v-if="tool.dangerous" class="badge warning">{{ t('agentEditor.tools.needsEnabling') }}</span>
                   <span v-if="!tool.enabled" class="badge danger">{{ t('agentEditor.tools.disabled') }}</span>
                 </span>
-                <span class="small muted desc">{{ tool.description }}</span>
+                <span class="small muted desc">{{ toolDescription(tool) }}</span>
               </span>
             </label>
           </div>
@@ -480,7 +490,7 @@ const playgroundBlocked = computed(() => {
       </form>
 
       <aside class="side">
-        <RunPlayground :agent-id="agentId" :blocked="playgroundBlocked" />
+        <RunPlayground :agent-id="agentId" :save-first="isNew || dirty ? saveForRun : null" />
       </aside>
     </div>
   </div>

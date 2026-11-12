@@ -7,18 +7,44 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 
 Comandos: `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run test:coverage` (Vitest 5 con
 cobertura v8), `npm run test:e2e:all` (Playwright 1.65 en Chromium, Firefox y WebKit) y `npm audit`.
-Resultados del 2026-11-12 (hito 5, tras la fase 10; es el estado del último commit):
+Resultados del 2026-11-12 sobre la **versión 1.0.0** (pasada de cierre; es el estado del commit de la 1.0):
 
 ```
 lint         sin errores (ESLint 10)
 formato      todo el código con el estilo de Prettier
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
+servidor     Test Files  24 passed (24)   Tests  622 passed | 1 skipped (623)
+frontend     Test Files  34 passed (34)   Tests  382 passed (382)
+end-to-end   216 passed (13.4m): chromium 72, firefox 72, webkit 72
+npm audit    found 0 vulnerabilities
+```
+
+Cómo se llegó, sin maquillar: la primera suite e2e completa de la 1.0 dio 207 de 216. Las 9 fallidas eran las
+mismas 3 pruebas en los tres navegadores (`agents.spec.ts`, dos, y `persistence.spec.ts`): el botón nuevo
+«Guardar y ejecutar» hacía ambiguo el selector `getByRole('button', { name: 'Guardar' })`. Se hizo exacto en las
+pruebas que lo usaban, las cuatro specs afectadas pasaron (69 de 69 en los tres navegadores) y después la suite
+completa, 216 de 216. La cobertura no se ha vuelto a medir en esta pasada; las últimas cifras (fase 10) eran
+servidor 94,3 % de sentencias y frontend 55,5 %.
+
+Verificación con modelo real de la 1.0 (script de humo por API contra una instancia aislada con datos vacíos,
+Ollama `qwen3.5:4b-q4_K_M`): arranque en 1,9 s con versión 1.0.0 y Ollama detectado; «Calculista» respondió
+1250 × 1,21 = 1512,5 en 5,1 s; el workflow «Informe de investigación multiagente» terminó en 14,4 s; eventos por
+páginas correctos (`before`/`limit`, 400 con un `limit` no válido y con `stream?after=abc`); filtros del historial
+por workflow, agente, fecha y `status=active` con los recuentos esperados y 400 con una fecha no válida; un agente
+con un modelo inexistente falló con el código traducible `runNodeFailed` y un alta sin nombre dio 400 con
+`nameRequired` en el campo; tras matar y rearrancar, las tres ejecuciones seguían. Además, una copia de la carpeta
+`data/` de esta máquina (6 agentes, 3 workflows, esquema v6) arrancó con la 1.0, migró a v7 y sirvió sus
+ejecuciones antiguas con el estado de sus pasos. Las capturas de la presentación se regeneraron ese mismo día con
+cuatro ejecuciones reales más.
+
+Resultados del 2026-11-12 (hito 5, tras la fase 10; commit `cb96e10`):
+
+```
 servidor     Test Files  22 passed (22)   Tests  589 passed | 1 skipped (590)
              cobertura: sentencias 94,3 % · ramas 87,0 % · funciones 95,1 % · líneas 96,9 %
 frontend     Test Files  31 passed (31)   Tests  330 passed (330)
              cobertura: sentencias 55,5 % · ramas 53,3 % · funciones 52,6 % · líneas 57,9 %
 end-to-end   213 passed (12.4m): chromium 71, firefox 71, webkit 71
-npm audit    found 0 vulnerabilities
 ```
 
 Cómo se llegó a estas cifras en la fase 10, sin maquillar: la primera batería completa dio 209 de 213 en la suite

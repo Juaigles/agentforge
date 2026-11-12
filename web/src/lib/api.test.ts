@@ -284,16 +284,16 @@ describe('cliente de la API: mensajes en inglés', () => {
     }
   }
 
-  it('un 404 se muestra con el texto genérico en inglés, no con el del servidor en español', async () => {
+  it('un 404 se muestra traducido a partir de su código, no con el texto del servidor en español', async () => {
     const err = await inEnglish(() => failure(api.tools.getCustom('nada')));
     expect(err.code).toBe('not_found');
-    expect(err.message).toBe('What you asked for was not found. It may have been deleted.');
+    expect(err.message).toBe('Tool not found.');
     // De vuelta en español, el mismo error usa el texto del servidor.
     expect((await failure(api.tools.getCustom('nada'))).message).toBe('Herramienta no encontrada.');
   });
 
-  it('una validación conserva el detalle del servidor tras el texto genérico, y las incidencias por campo', async () => {
-    const err = await inEnglish(() =>
+  it('una validación sale en inglés: la frase de resumen y el problema de cada campo', async () => {
+    const invalid = () =>
       failure(
         api.tools.createCustom({
           name: 'X',
@@ -305,14 +305,37 @@ describe('cliente de la API: mensajes en inglés', () => {
           bodyTemplate: '',
           enabled: true,
         }),
-      ),
-    );
+      );
+    const err = await inEnglish(invalid);
     expect(err.code).toBe('validation');
-    expect(err.message.startsWith('Some data is not valid. Check the highlighted fields. (Datos no válidos: name:')).toBe(true);
-    expect(err.field('name')).toBeDefined();
+    expect(err.message).toBe('Invalid data: name: Use lowercase letters, numbers and underscores (2-49 characters, starting with a letter)');
+    expect(err.field('name')).toBe('Use lowercase letters, numbers and underscores (2-49 characters, starting with a letter)');
+    expect(err.field('description')).toBe('Describe what the tool does (the model uses it to decide)');
+    // En español, el texto del servidor.
+    const spanish = await invalid();
+    expect(spanish.message).toBe('Datos no válidos: name: Usa minúsculas, números y guiones bajos (2-49 caracteres, empieza por letra)');
+    expect(spanish.field('description')).toBe('Describe qué hace la herramienta (el modelo lo usa para decidir)');
   });
 
-  it('un código sin texto genérico (conflicto) mantiene el mensaje del servidor', async () => {
+  it('un problema que detecta zod sin mensaje propio (un texto demasiado largo) también tiene código y sale en los dos idiomas', async () => {
+    const tooLong = () =>
+      failure(api.providers.create({ name: 'x'.repeat(81), kind: 'ollama', baseUrl: 'http://127.0.0.1:11434', defaultModel: '', enabled: true }));
+    expect((await inEnglish(tooLong)).field('name')).toBe('Cannot be longer than 80 characters');
+    expect((await tooLong()).field('name')).toBe('No puede superar los 80 caracteres');
+  });
+
+  it('una respuesta sin `i18n` (un proxy, un servidor anterior) usa el texto genérico de su clase de error o, si no hay, el original', async () => {
+    await localServer((req, res) => {
+      res.writeHead(req.url === '/api/stats' ? 404 : 409, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify(req.url === '/api/stats' ? { error: 'No encontrado.', code: 'not_found' } : { error: 'Texto del servidor.', code: 'bad_request' }),
+      );
+    });
+    expect((await inEnglish(() => failure(api.stats()))).message).toBe('What you asked for was not found. It may have been deleted.');
+    expect((await inEnglish(() => failure(api.health()))).message).toBe('Texto del servidor.');
+  });
+
+  it('un conflicto (nombre repetido) se traduce con sus parámetros', async () => {
     const input = {
       name: 'repetida',
       description: 'Una herramienta',
@@ -326,7 +349,7 @@ describe('cliente de la API: mensajes en inglés', () => {
     await api.tools.createCustom(input);
     const err = await inEnglish(() => failure(api.tools.createCustom(input)));
     expect(err.status).toBe(409);
-    expect(err.message).toContain('Ya existe una herramienta');
+    expect(err.message).toBe('A tool named "repetida" already exists.');
   });
 
   it('el mensaje de conexión y el de «servidor no responde» salen en inglés', async () => {

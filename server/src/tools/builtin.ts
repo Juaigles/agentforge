@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { WorkspaceFile } from '../../../shared/types';
+import { msg } from '../../../shared/server-messages';
 import { ToolError } from '../errors';
 import { truncate } from '../util';
 import { evaluateExpression } from './calc';
@@ -40,7 +41,7 @@ export function resolveInWorkspace(root: string, relPath: string): string {
   const base = path.resolve(root);
   const target = path.resolve(base, relPath.replace(/^[/\\]+/, ''));
   if (target !== base && !target.startsWith(base + path.sep)) {
-    throw new ToolError(`Ruta fuera del espacio de trabajo: ${relPath}`);
+    throw new ToolError(msg('workspaceOutside', { path: relPath }));
   }
   return target;
 }
@@ -98,7 +99,7 @@ const currentDatetime: ToolDefinition = {
     try {
       if (tz) new Intl.DateTimeFormat('es-ES', { timeZone: tz });
     } catch {
-      throw new ToolError(`Zona horaria no válida: ${tz}`);
+      throw new ToolError(msg('timezoneInvalid', { timezone: String(tz) }));
     }
     tz ??= Intl.DateTimeFormat().resolvedOptions().timeZone;
     return {
@@ -160,7 +161,7 @@ const webFetch: ToolDefinition = {
   },
   async execute({ url, max_chars }, ctx) {
     const res = await safeFetch(url, { signal: ctx.signal, allowPrivate: ctx.settings.allowPrivateNetwork, maxBytes: 1_500_000 });
-    if (res.status >= 400) throw new ToolError(`La página respondió ${res.status} ${res.statusText}.`);
+    if (res.status >= 400) throw new ToolError(msg('pageHttpError', { status: res.status, statusText: res.statusText }));
     const isHtml = (res.headers['content-type'] ?? '').includes('html') || /^\s{0,200}<(!doctype|html)/i.test(res.text.slice(0, 400));
     const title = isHtml ? htmlTitle(res.text) : null;
     const text = isHtml ? htmlToText(res.text) : res.text;
@@ -184,17 +185,15 @@ const fileWrite: ToolDefinition = {
   },
   async execute({ path: rel, content, append }, ctx) {
     const bytes = Buffer.byteLength(content);
-    if (bytes > MAX_WRITE_BYTES) throw new ToolError('El contenido supera el límite de 1 MB.');
+    if (bytes > MAX_WRITE_BYTES) throw new ToolError(msg('writeTooLarge'));
     const target = resolveInWorkspace(ctx.workspaceDir, rel);
     const existing = (await fs.stat(target).catch(() => null))?.size ?? 0;
     const finalSize = append ? existing + bytes : bytes;
     if (finalSize > MAX_FILE_BYTES) {
-      throw new ToolError(`El archivo superaría el límite de ${MAX_FILE_BYTES / 1_000_000} MB por archivo. Escribe en otro archivo o sobrescribe este.`);
+      throw new ToolError(msg('fileTooLarge', { mb: MAX_FILE_BYTES / 1_000_000 }));
     }
     if ((await workspaceSize(ctx.workspaceDir)) - existing + finalSize > MAX_WORKSPACE_BYTES) {
-      throw new ToolError(
-        `El espacio de trabajo ha alcanzado su límite de ${MAX_WORKSPACE_BYTES / 1_000_000} MB. Borra archivos desde Herramientas → Archivos.`,
-      );
+      throw new ToolError(msg('workspaceFull', { mb: MAX_WORKSPACE_BYTES / 1_000_000 }));
     }
     await fs.mkdir(path.dirname(target), { recursive: true });
     if (append) await fs.appendFile(target, content, 'utf8');
@@ -220,9 +219,9 @@ const fileRead: ToolDefinition = {
     try {
       stat = await fs.stat(target);
     } catch {
-      throw new ToolError(`El archivo no existe: ${rel}`);
+      throw new ToolError(msg('fileMissing', { path: rel }));
     }
-    if (!stat.isFile()) throw new ToolError(`No es un archivo: ${rel}`);
+    if (!stat.isFile()) throw new ToolError(msg('notAFile', { path: rel }));
     const handle = await fs.open(target, 'r');
     try {
       const buffer = Buffer.alloc(Math.min(stat.size, MAX_READ_BYTES));
@@ -263,7 +262,7 @@ const memorySet: ToolDefinition = {
     required: ['key', 'value'],
   },
   async execute({ key, value }, ctx) {
-    if (ctx.memory.size >= 200 && !ctx.memory.has(key)) throw new ToolError('La memoria compartida está llena (200 entradas).');
+    if (ctx.memory.size >= 200 && !ctx.memory.has(key)) throw new ToolError(msg('memoryFull'));
     ctx.memory.set(key, truncate(value, 20_000));
     return { saved: key, keys: [...ctx.memory.keys()] };
   },
@@ -300,7 +299,7 @@ const delegateTask: ToolDefinition = {
     required: ['agent', 'task'],
   },
   async execute({ agent, task }, ctx) {
-    if (!ctx.delegate) throw new ToolError('La delegación solo está disponible durante la ejecución de un agente.');
+    if (!ctx.delegate) throw new ToolError(msg('delegateUnavailable'));
     return { agent, response: await ctx.delegate(agent, task) };
   },
 };
@@ -319,7 +318,7 @@ const runJavascript: ToolDefinition = {
   },
   async execute({ code }, ctx) {
     if (!ctx.settings.allowCodeExecution) {
-      throw new ToolError('La ejecución de código está desactivada. Puede habilitarse en Ajustes → "Permitir ejecución de código".');
+      throw new ToolError(msg('codeDisabled'));
     }
     return runJavaScript(code, { timeoutMs: 5000, signal: ctx.signal, backend: ctx.settings.codeSandbox });
   },

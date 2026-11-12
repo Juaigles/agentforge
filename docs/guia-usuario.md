@@ -5,7 +5,10 @@ agente, los conectas en un workflow y ves cómo trabajan paso a paso. Esta guía
 en que lo harás. Los términos técnicos están explicados en el **Glosario** de la propia aplicación (menú lateral)
 y aparecen subrayados con puntos: al pasar el ratón, enfocarlos o tocarlos se ve su definición.
 
-La interfaz está en español y en inglés (selector ES / EN al pie del menú lateral).
+La interfaz está en español y en inglés (selector ES / EN al pie del menú lateral). En inglés se traducen también
+los mensajes del servidor: los errores de un formulario, el motivo por el que falla una ejecución y los textos de
+las herramientas integradas. Lo que responde un modelo o un servicio externo se muestra tal cual, y las
+ejecuciones anteriores a la versión 1.0 conservan su mensaje en español.
 
 ## 1. Antes de empezar: conectar un modelo
 
@@ -83,12 +86,16 @@ reintentos por defecto, duración máxima, número máximo de llamadas al modelo
 
 «Ejecutar» pide la entrada y abre el **monitor**: el grafo con el estado de cada nodo, la lista de pasos, el
 texto que se va generando y el registro de actividad (cada llamada al modelo y a una herramienta, con sus
-argumentos y su resultado).
+argumentos y su resultado). En una ejecución larga el registro enseña las 100 entradas más recientes; «Cargar
+anteriores» trae las de antes, por tandas.
 
 ## 4. Ejecuciones
 
-**Ejecuciones** guarda el historial. Se puede filtrar por estado y tipo y buscar en el nombre, la entrada y el
-resultado; los filtros quedan en la dirección de la página, así que se pueden guardar como favorito.
+**Ejecuciones** guarda el historial. Se puede filtrar por estado, por tipo, por workflow o agente y por fecha de
+inicio (desde y hasta, ambos días incluidos), y buscar en el nombre, la entrada y el resultado; los filtros quedan
+en la dirección de la página, así que se pueden guardar como favorito. «En curso» reúne todo lo que no ha
+terminado: lo que se está ejecutando, lo que espera en la cola y lo que espera una aprobación. El filtro por
+agente muestra las ejecuciones directas de ese agente, no las de los workflows que lo usan.
 
 Desde el monitor de una ejecución:
 

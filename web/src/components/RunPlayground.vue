@@ -6,6 +6,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { announce } from '@/lib/a11y';
 import { t } from '@/i18n';
 import { api, errorText } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import { elapsedMs, formatCompact, formatDuration, relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
 import { useRunStream } from '@/lib/useRunStream';
@@ -16,7 +17,12 @@ import RunActivity from './RunActivity.vue';
 import StatusBadge from './StatusBadge.vue';
 import Term from './Term.vue';
 
-const props = defineProps<{ agentId: string | null; blocked?: string | null }>();
+const props = defineProps<{
+  agentId: string | null;
+  blocked?: string | null;
+  /** Si hay algo sin guardar: lo guarda antes de ejecutar y dice si se pudo. Con un agente nuevo, además lo crea. */
+  saveFirst?: (() => Promise<boolean>) | null;
+}>();
 const ui = useUi();
 const runsStore = useRuns();
 const now = useNow();
@@ -25,12 +31,13 @@ const task = ref('');
 const runId = ref<string | null>(null);
 const starting = ref(false);
 const history = ref<RunSummary[]>([]);
-const { live, usage, isActive, error: streamError } = useRunStream(runId);
+const { live, usage, isActive, error: streamError, hasOlder, loadingOlder, loadOlder } = useRunStream(runId);
 
 const step = computed(() => live.value?.steps.agent ?? null);
 const text = computed(() => (live.value?.output ?? step.value?.streamText ?? '').trim());
 const thinking = computed(() => step.value?.thinkingText ?? '');
-const hasTools = computed(() => live.value?.events.some((e) => e.type === 'tool.call') ?? false);
+const hasTools = computed(() => (usage.value?.toolCalls ?? 0) > 0);
+const olderActivity = () => loadOlder().catch((err) => ui.error(errorText(err)));
 
 async function loadHistory(): Promise<void> {
   if (!props.agentId) return;
@@ -49,9 +56,11 @@ watch(isActive, (active, was) => {
 watch(runId, (id) => (runsStore.watching = id), { immediate: true });
 
 async function start(): Promise<void> {
-  if (!props.agentId || !task.value.trim() || starting.value) return;
+  if ((!props.agentId && !props.saveFirst) || !task.value.trim() || starting.value) return;
   starting.value = true;
   try {
+    if (props.saveFirst && !(await props.saveFirst())) return;
+    if (!props.agentId) return;
     const run = await api.agents.run(props.agentId, task.value.trim());
     runId.value = run.id;
   } catch (err) {
@@ -103,11 +112,18 @@ async function cancel(): Promise<void> {
         />
       </div>
       <div class="row wrap">
-        <button v-if="!isActive" class="btn btn-primary" type="button" :disabled="!agentId || !!blocked || !task.trim() || starting" @click="start">
-          <Play /> {{ starting ? t('playground.starting') : t('common.actions.run') }}
+        <button
+          v-if="!isActive"
+          class="btn btn-primary"
+          type="button"
+          :disabled="(!agentId && !saveFirst) || !!blocked || !task.trim() || starting"
+          @click="start"
+        >
+          <Play /> {{ starting ? t('playground.starting') : saveFirst ? t('playground.saveAndRun') : t('common.actions.run') }}
         </button>
         <button v-else class="btn btn-danger" type="button" @click="cancel"><Square /> {{ t('common.actions.cancel') }}</button>
         <span v-if="blocked" class="small muted">{{ blocked }}</span>
+        <span v-else-if="saveFirst && !isActive" class="small muted">{{ t('playground.savesFirst') }}</span>
         <span v-else-if="!isActive" class="tiny faint">{{ t('playground.shortcut') }}</span>
         <span v-if="live?.startedAt" class="small muted num" style="margin-left: auto">
           {{ formatDuration(elapsedMs(live.startedAt, live.finishedAt, now)) }}
@@ -120,7 +136,7 @@ async function cancel(): Promise<void> {
       <div v-if="streamError" class="callout danger">{{ streamError }}</div>
 
       <template v-if="live">
-        <div v-if="live.error" class="callout danger" role="alert">{{ live.error }}</div>
+        <div v-if="live.error" class="callout danger" role="alert">{{ serverText(live.error, live.errorI18n) }}</div>
         <div v-if="thinking && !text" class="thinking small">
           <span class="eyebrow">{{ t('playground.reasoning') }}</span>{{ thinking.slice(-400) }}
         </div>
@@ -132,7 +148,7 @@ async function cancel(): Promise<void> {
 
         <details v-if="hasTools || !isActive" class="activity">
           <summary>{{ hasTools ? t('playground.activityTools') : t('playground.activity') }}</summary>
-          <RunActivity :events="live.events" node-id="agent" />
+          <RunActivity :log="live.activity" node-id="agent" :has-older="hasOlder" :loading-older="loadingOlder" @older="olderActivity" />
         </details>
         <RouterLink v-if="runId" class="small row" :to="`/runs/${runId}`" style="gap: 4px"
           >{{ t('playground.viewFull') }} <ArrowUpRight style="width: 13px; height: 13px"

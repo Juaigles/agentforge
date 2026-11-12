@@ -8,7 +8,7 @@ test.describe('Persistencia tras reiniciar el servidor', () => {
     await page.getByLabel('Nombre').fill(agentName);
     await page.getByLabel('Rol').fill('guardián de datos');
     await page.getByLabel('Instrucciones del sistema').fill('[[decir:respuesta que debe sobrevivir]]');
-    await page.getByRole('button', { name: 'Guardar' }).click();
+    await page.getByRole('button', { name: 'Guardar', exact: true }).click();
     await expect(page).toHaveURL(/\/agents\/agt_/);
     const agentId = page.url().split('/').pop()!;
 

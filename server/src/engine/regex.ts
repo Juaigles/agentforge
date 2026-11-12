@@ -5,6 +5,7 @@
 // demás ejecuciones, sin que ni la cancelación ni el límite de duración pudieran cortarla (ambos necesitan el
 // bucle de eventos). Por eso se evalúa en un hilo aparte que se puede matar desde fuera.
 import { Worker } from 'node:worker_threads';
+import { msg } from '../../../shared/server-messages';
 import { ConfigError } from '../errors';
 
 const MAX_PATTERN_CHARS = 1000;
@@ -21,12 +22,12 @@ try {
 
 /** ¿`text` casa con `pattern` (sin distinguir mayúsculas)? Se rechaza si la expresión no es válida o tarda demasiado. */
 export async function regexTest(pattern: string, text: string, opts: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<boolean> {
-  if (pattern.length > MAX_PATTERN_CHARS) throw new ConfigError(`La expresión regular es demasiado larga (máximo ${MAX_PATTERN_CHARS} caracteres).`);
+  if (pattern.length > MAX_PATTERN_CHARS) throw new ConfigError(msg('regexTooLong', { max: MAX_PATTERN_CHARS }));
   try {
     // Compilar es barato y no ejecuta la búsqueda: sirve para dar un error claro sin lanzar el hilo.
     new RegExp(pattern, 'i');
   } catch {
-    throw new ConfigError(`Expresión regular no válida: ${pattern}`);
+    throw new ConfigError(msg('regexInvalid', { detail: pattern }));
   }
   if (opts.signal?.aborted) throw opts.signal.reason;
   const timeoutMs = opts.timeoutMs ?? 1000;
@@ -43,21 +44,11 @@ export async function regexTest(pattern: string, text: string, opts: { timeoutMs
       fn();
     };
     const onAbort = () => finish(() => reject(opts.signal!.reason));
-    const timer = setTimeout(
-      () =>
-        finish(() =>
-          reject(
-            new ConfigError(
-              `La expresión regular «${pattern.slice(0, 80)}» tardó más de ${timeoutMs} ms en evaluarse y se ha detenido. Simplifícala (evita cuantificadores anidados como (a+)+).`,
-            ),
-          ),
-        ),
-      timeoutMs,
-    );
+    const timer = setTimeout(() => finish(() => reject(new ConfigError(msg('regexTimeout', { pattern: pattern.slice(0, 80), ms: timeoutMs })))), timeoutMs);
     opts.signal?.addEventListener('abort', onAbort, { once: true });
-    worker.once('message', (msg: { ok: boolean; result?: boolean; error?: string }) =>
-      finish(() => (msg.ok ? resolve(Boolean(msg.result)) : reject(new ConfigError(`Expresión regular no válida: ${msg.error}`)))),
+    worker.once('message', (reply: { ok: boolean; result?: boolean; error?: string }) =>
+      finish(() => (reply.ok ? resolve(Boolean(reply.result)) : reject(new ConfigError(msg('regexInvalid', { detail: String(reply.error) }))))),
     );
-    worker.once('error', (err) => finish(() => reject(new ConfigError(`No se pudo evaluar la expresión regular: ${err.message}`))));
+    worker.once('error', (err) => finish(() => reject(new ConfigError(msg('regexFailed', { detail: err.message })))));
   });
 }

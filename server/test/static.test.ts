@@ -64,6 +64,6 @@ describe('frontend estático', () => {
     expect((await get('/assets/..%2f..%2fagentforge.db')).statusCode).toBeGreaterThanOrEqual(400);
     const api = await get('/api/no-existe');
     expect(api.statusCode).toBe(404);
-    expect(api.json()).toEqual({ error: 'Ruta no encontrada.', code: 'not_found' });
+    expect(api.json()).toEqual({ error: 'Ruta no encontrada.', code: 'not_found', i18n: { code: 'notFound', params: { kind: 'route' } } });
   });
 });

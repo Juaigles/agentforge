@@ -1,6 +1,7 @@
 // Adaptador para APIs compatibles con OpenAI (/chat/completions con streaming SSE).
 // Funciona con OpenAI, OpenRouter, Groq, LM Studio, vLLM, llama.cpp, el endpoint /v1 de Ollama, etc.
 import type { ModelInfo } from '../../../shared/types';
+import { msg } from '../../../shared/server-messages';
 import { LlmError } from '../errors';
 import { invalidToolArguments, llmFetch, normalizeBaseUrl, parseToolArguments, readLines } from './http';
 import type { ChatMessage, ChatRequest, ChatResult, LlmClient } from './types';
@@ -94,7 +95,7 @@ export class OpenAiCompatibleClient implements LlmClient {
       { method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal: req.signal },
       'El proveedor',
     );
-    if (!res.body) throw new LlmError('El proveedor devolvió una respuesta sin cuerpo.', { retryable: true });
+    if (!res.body) throw new LlmError(msg('providerNoBody'), { retryable: true });
 
     const result: ChatResult = {
       content: '',
@@ -125,7 +126,7 @@ export class OpenAiCompatibleClient implements LlmClient {
       }
       sawData = true;
       if (chunk.error) {
-        throw new LlmError(`El proveedor devolvió un error: ${chunk.error.message ?? JSON.stringify(chunk.error)}`, {
+        throw new LlmError(msg('providerError', { detail: String(chunk.error.message ?? JSON.stringify(chunk.error)) }), {
           retryable: false,
         });
       }
@@ -161,8 +162,8 @@ export class OpenAiCompatibleClient implements LlmClient {
       }
     }
     if (req.signal?.aborted) throw req.signal.reason;
-    if (!sawData) throw new LlmError('El proveedor no devolvió ningún dato.', { retryable: true });
-    if (!finished) throw new LlmError('La respuesta del proveedor se cortó antes de terminar.', { retryable: true });
+    if (!sawData) throw new LlmError(msg('providerNoData'), { retryable: true });
+    if (!finished) throw new LlmError(msg('providerCutOff'), { retryable: true });
 
     for (const [index, entry] of [...partial.entries()].sort((a, b) => a[0] - b[0])) {
       if (!entry.name) continue;

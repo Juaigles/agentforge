@@ -22,6 +22,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import ProviderModal from '@/components/ProviderModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import { t, tn } from '@/i18n';
 import { formatBytes, formatDateTime, formatDuration, formatNumber, formatUptime } from '@/lib/format';
 import { useCatalog } from '@/stores/catalog';
@@ -80,7 +81,11 @@ function statusOf(p: Provider): { tone: string; text: string; error?: string; pu
       tone: 'success',
       text: t('settings.providers.status.available', { models: tn('settings.counts.models', r.modelCount ?? 0), latency: formatDuration(r.latencyMs) }),
     };
-  return { tone: 'danger', text: t('settings.providers.status.unavailable'), error: r.error ?? t('settings.providers.status.connectFailed') };
+  return {
+    tone: 'danger',
+    text: t('settings.providers.status.unavailable'),
+    error: r.error ? serverText(r.error, r.errorI18n) : t('settings.providers.status.connectFailed'),
+  };
 }
 
 async function testProvider(p: Provider): Promise<void> {
@@ -96,7 +101,13 @@ async function testProvider(p: Provider): Promise<void> {
           latency: formatDuration(result.latencyMs),
         }),
       );
-    else ui.error(t('settings.providers.toast.noResponse', { name: p.name, error: result.error ?? t('settings.providers.toast.unknownError') }));
+    else
+      ui.error(
+        t('settings.providers.toast.noResponse', {
+          name: p.name,
+          error: result.error ? serverText(result.error, result.errorI18n) : t('settings.providers.toast.unknownError'),
+        }),
+      );
     await catalog.refreshHealth(true);
   } catch (err) {
     ui.error(errorText(err));
@@ -691,7 +702,9 @@ async function clearFinished(): Promise<void> {
                         </template>
                         <template v-else
                           ><span class="dot" aria-hidden="true" />
-                          {{ t('settings.exec.sandbox.containerUnavailable', { error: sandbox.container.error }) }}</template
+                          {{
+                            t('settings.exec.sandbox.containerUnavailable', { error: serverText(sandbox.container.error, sandbox.container.errorI18n) })
+                          }}</template
                         >
                       </span>
                       <span v-else class="sandbox-status small muted">{{ t('settings.providers.status.checking') }}</span>

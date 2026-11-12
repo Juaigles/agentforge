@@ -1583,14 +1583,14 @@ describe('manejador de errores de la API', () => {
     expect(justo.json().code).toBe('validation');
   });
 
-  it('validation: 400 con los problemas campo a campo (path y message) y el primero en el texto', async () => {
+  it('validation: 400 con los problemas campo a campo (path, message y código) y el primero en el texto', async () => {
     await boot();
     const res = await post('/api/agents', {});
     expect(res.statusCode).toBe(400);
     const body = res.json();
     expect(body.code).toBe('validation');
     expect(body.issues.length).toBeGreaterThan(0);
-    for (const issue of body.issues) expect(issue).toEqual({ path: expect.any(String), message: expect.any(String) });
+    for (const issue of body.issues) expect(issue).toMatchObject({ path: expect.any(String), message: expect.any(String), code: expect.any(String) });
     expect(body.issues.map((i: { path: string }) => i.path)).toContain('name');
     expect(body.error).toBe(`Datos no válidos: ${body.issues[0].path}: ${body.issues[0].message}`);
   });
@@ -1599,7 +1599,7 @@ describe('manejador de errores de la API', () => {
     await boot();
     const agente = await get('/api/agents/agt_no_existe');
     expect(agente.statusCode).toBe(404);
-    expect(agente.json()).toEqual({ error: 'Agente no encontrado.', code: 'not_found' });
+    expect(agente.json()).toEqual({ error: 'Agente no encontrado.', code: 'not_found', i18n: { code: 'notFound', params: { kind: 'agent' } } });
   });
 
   // La interfaz usa el código para mostrar el error en el idioma elegido: también las rutas que no existen lo llevan.
@@ -1607,7 +1607,7 @@ describe('manejador de errores de la API', () => {
     await boot();
     const ruta = await get('/api/no-existe');
     expect(ruta.statusCode).toBe(404);
-    expect(ruta.json()).toEqual({ error: 'Ruta no encontrada.', code: 'not_found' });
+    expect(ruta.json()).toEqual({ error: 'Ruta no encontrada.', code: 'not_found', i18n: { code: 'notFound', params: { kind: 'route' } } });
   });
 
   it('provider_error: un proveedor que no responde es un 502 con el motivo', async () => {
@@ -1628,10 +1628,19 @@ describe('manejador de errores de la API', () => {
     });
     const herramienta = await get('/api/_prueba/herramienta');
     expect(herramienta.statusCode).toBe(400);
-    expect(herramienta.json()).toEqual({ error: 'argumentos inválidos para la herramienta', code: 'tool_error' });
+    // Un error sin código propio (texto suelto) viaja tal cual, como detalle de `unexpected`.
+    expect(herramienta.json()).toEqual({
+      error: 'argumentos inválidos para la herramienta',
+      code: 'tool_error',
+      i18n: { code: 'unexpected', params: { detail: 'argumentos inválidos para la herramienta' } },
+    });
     const configuracion = await get('/api/_prueba/configuracion');
     expect(configuracion.statusCode).toBe(409);
-    expect(configuracion.json()).toEqual({ error: 'el proveedor está desactivado', code: 'config_error' });
+    expect(configuracion.json()).toEqual({
+      error: 'el proveedor está desactivado',
+      code: 'config_error',
+      i18n: { code: 'unexpected', params: { detail: 'el proveedor está desactivado' } },
+    });
   });
 
   it('rate_limited: 429 con code y Retry-After', async () => {
@@ -1649,7 +1658,7 @@ describe('manejador de errores de la API', () => {
     ctx!.db.exec('DROP TABLE agents');
     const res = await get('/api/agents');
     expect(res.statusCode).toBe(500);
-    expect(res.json()).toEqual({ error: 'Error interno del servidor.', code: 'internal' });
+    expect(res.json()).toEqual({ error: 'Error interno del servidor.', code: 'internal', i18n: { code: 'internalError' } });
     expect(res.body).not.toMatch(/agents|sqlite|no such table/i);
   });
 });

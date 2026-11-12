@@ -2,6 +2,7 @@
 // ramas condicionales, reintentos, timeouts, límites y cancelación.
 import { foreachBody, isBranchingNode, topologicalOrder } from '../../../shared/graph';
 import { parseList } from '../../../shared/list';
+import { msg, refOf, type ServerMessage } from '../../../shared/server-messages';
 import { renderTemplate } from '../../../shared/template';
 import {
   DEFAULT_WORKFLOW_SETTINGS,
@@ -19,7 +20,7 @@ import {
   type WorkflowSettings,
 } from '../../../shared/types';
 import type { Store } from '../db/store';
-import { ConfigError, isRetryable } from '../errors';
+import { ConfigError, errorI18n, errorParam, failure, failureOf, isRetryable, storedText, textParam, type Failure } from '../errors';
 import type { LlmFactory } from '../llm/types';
 import type { ToolRegistry } from '../tools/registry';
 import { addUsage, errorMessage, localDate, nowIso, raceAbort, sleep, stringifyResult, truncate } from '../util';
@@ -69,6 +70,8 @@ export interface ExecutionResult {
   status: RunStatus;
   output: string | null;
   error: string | null;
+  /** Código y parámetros de `error`, para mostrarlo en otro idioma. */
+  errorI18n?: ServerMessage | null;
   usage: Usage;
 }
 
@@ -92,7 +95,7 @@ export async function evaluateCondition(left: string, operator: string, right: s
       const a = parseNumber(l);
       const b = parseNumber(r);
       if (!Number.isFinite(a) || !Number.isFinite(b)) {
-        throw new ConfigError(`La condición numérica necesita números; se recibió "${truncate(l, 40)}" y "${truncate(r, 40)}".`);
+        throw new ConfigError(msg('conditionNeedsNumbers', { left: truncate(l, 40), right: truncate(r, 40) }));
       }
       return operator === 'gt' ? a > b : a < b;
     }
@@ -101,7 +104,7 @@ export async function evaluateCondition(left: string, operator: string, right: s
     case 'not_empty':
       return l !== '';
     default:
-      throw new ConfigError(`Operador de condición desconocido: ${operator}`);
+      throw new ConfigError(msg('conditionUnknownOperator', { operator }));
   }
 }
 
@@ -143,7 +146,7 @@ export class WorkflowExecution {
   private readonly settings: WorkflowSettings;
   private readonly status = new Map<string, StepStatus>();
   private readonly outputs = new Map<string, string>();
-  private readonly errors = new Map<string, string>();
+  private readonly errors = new Map<string, Failure>();
   private readonly memory: Map<string, string>;
   private readonly budget: Budget;
   // Límite de duración de la ejecución. Es un temporizador propio (no AbortSignal.timeout) porque se detiene
@@ -212,7 +215,7 @@ export class WorkflowExecution {
 
   async execute(): Promise<ExecutionResult> {
     const order = topologicalOrder(this.nodes, this.run.snapshot.workflow.edges);
-    if (!order) return { status: 'failed', output: null, error: 'El workflow contiene un ciclo.', usage: this.usage };
+    if (!order) return { status: 'failed', output: null, ...failure(msg('runCycle')), usage: this.usage };
 
     const running = new Map<string, Promise<void>>();
     const maxConcurrency = Math.max(1, this.settings.maxConcurrency);
@@ -296,7 +299,8 @@ export class WorkflowExecution {
     this.status.set(nodeId, 'skipped');
     const parentFailed = this.incoming.get(nodeId)!.some((e) => ['failed', 'cancelled'].includes(this.status.get(e.source)!));
     this.deps.store.updateStep(this.run.id, nodeId, { status: 'skipped', finishedAt: nowIso() });
-    this.deps.emit('step.skipped', nodeId, { reason: parentFailed ? 'Una dependencia ha fallado.' : 'Rama no tomada.' });
+    const reason = msg(parentFailed ? 'skipDependencyFailed' : 'skipBranchNotTaken');
+    this.deps.emit('step.skipped', nodeId, { reason: reason.message, reasonI18n: refOf(reason) });
   }
 
   /** Ejecuta un nodo. Nunca rechaza: cualquier fallo, también uno inesperado, deja el paso cerrado como fallido. */
@@ -304,12 +308,12 @@ export class WorkflowExecution {
     try {
       await this.attemptNode(node);
     } catch (err) {
-      const message = `Error interno al ejecutar el nodo: ${errorMessage(err)}`;
+      const fail = failure(msg('nodeInternal', { detail: errorParam(err) }));
       this.status.set(node.id, 'failed');
-      this.errors.set(node.id, message);
+      this.errors.set(node.id, fail);
       try {
-        this.deps.store.updateStep(this.run.id, node.id, { status: 'failed', error: message, finishedAt: nowIso() });
-        this.deps.emit('step.finished', node.id, { status: 'failed', error: message });
+        this.deps.store.updateStep(this.run.id, node.id, { status: 'failed', ...fail, finishedAt: nowIso() });
+        this.deps.emit('step.finished', node.id, { status: 'failed', ...fail });
       } catch {
         /* si ni siquiera se puede escribir, el gestor de ejecuciones cierra los pasos que queden abiertos */
       }
@@ -355,10 +359,10 @@ export class WorkflowExecution {
           return;
         }
         const timedOut = Boolean(nodeTimeout?.aborted);
-        const message = timedOut ? `El nodo superó su tiempo máximo (${timeoutMs} ms).` : errorMessage(err);
+        const fail = timedOut ? failure(msg('nodeTimeout', { ms: timeoutMs })) : failureOf(err);
         if (attempt <= retries && (timedOut || isRetryable(err))) {
           const delayMs = (this.deps.retryBaseDelayMs ?? 1000) * 2 ** (attempt - 1);
-          emit('step.retry', node.id, { attempt, error: message, delayMs });
+          emit('step.retry', node.id, { attempt, ...fail, delayMs });
           try {
             await sleep(delayMs, this.signal);
           } catch {
@@ -371,10 +375,10 @@ export class WorkflowExecution {
           return;
         }
         this.status.set(node.id, 'failed');
-        this.errors.set(node.id, message);
-        store.updateStep(this.run.id, node.id, { status: 'failed', error: message, usage: stepUsage, finishedAt: nowIso() });
+        this.errors.set(node.id, fail);
+        store.updateStep(this.run.id, node.id, { status: 'failed', ...fail, usage: stepUsage, finishedAt: nowIso() });
         store.updateRun(this.run.id, { usage: this.usage });
-        emit('step.finished', node.id, { status: 'failed', error: message, usage: stepUsage, durationMs: Date.now() - startMs });
+        emit('step.finished', node.id, { status: 'failed', ...fail, usage: stepUsage, durationMs: Date.now() - startMs });
         return;
       }
     }
@@ -389,9 +393,9 @@ export class WorkflowExecution {
 
       case 'agent': {
         const agent = this.run.snapshot.agents[cfg.agentId];
-        if (!agent) throw new ConfigError(`El nodo "${node.label || node.id}" no tiene un agente válido.`);
+        if (!agent) throw new ConfigError(msg('nodeNoAgent', { name: node.label || node.id }));
         const prompt = this.render(String(cfg.prompt || '{{upstream}}'), node);
-        if (!prompt.trim()) throw new ConfigError(`El nodo "${node.label || node.id}" generó un prompt vacío.`);
+        if (!prompt.trim()) throw new ConfigError(msg('nodeEmptyPrompt', { name: node.label || node.id }));
         store.updateStep(this.run.id, node.id, { input: prompt });
         const result = await runAgent(agent, prompt, {
           store,
@@ -442,6 +446,7 @@ export class WorkflowExecution {
               name: cfg.tool,
               ok: false,
               result: `Error: ${errorMessage(err)}`,
+              errorI18n: errorI18n(err),
               durationMs: Date.now() - started,
             });
           }
@@ -469,9 +474,9 @@ export class WorkflowExecution {
       }
 
       case 'approval': {
-        if (!this.deps.requestApproval) throw new ConfigError('Las aprobaciones no están disponibles en este contexto.');
+        if (!this.deps.requestApproval) throw new ConfigError(msg('approvalsUnavailable'));
         const message = this.render(String(cfg.message ?? ''), node).trim();
-        if (!message) throw new ConfigError(`La aprobación "${node.label || node.id}" no tiene nada que preguntar.`);
+        if (!message) throw new ConfigError(msg('approvalNoQuestion', { name: node.label || node.id }));
         store.updateStep(this.run.id, node.id, { input: message });
         // Mientras se espera a la persona, el reloj de la duración máxima se detiene.
         const decision = await this.withoutDeadline(() => this.deps.requestApproval!({ nodeId: node.id, message, signal }));
@@ -483,17 +488,17 @@ export class WorkflowExecution {
         return this.render(String(cfg.template || '{{upstream}}'), node);
 
       default:
-        throw new ConfigError(`Tipo de nodo desconocido: ${String(node.type)}`);
+        throw new ConfigError(msg('nodeUnknownType', { type: String(node.type) }));
     }
   }
 
   /** Lanza un subworkflow y devuelve su salida; si falla, falla el nodo con el motivo. */
   private async runChildWorkflow(node: WorkflowNode, workflowId: string, input: string, signal: AbortSignal, trackUsage: (u: Usage) => void): Promise<string> {
-    if (!this.deps.runSubworkflow) throw new ConfigError('Los subworkflows no están disponibles en este contexto.');
+    if (!this.deps.runSubworkflow) throw new ConfigError(msg('subworkflowUnavailable'));
     const result = await this.deps.runSubworkflow({ nodeId: node.id, workflowId, input, signal });
     trackUsage(result.usage);
     if (signal.aborted) throw signal.reason ?? new Error('Cancelado');
-    if (result.status !== 'completed') throw new ConfigError(result.error ?? 'El subworkflow no terminó correctamente.');
+    if (result.status !== 'completed') throw new ConfigError(result.error ? storedText(result.error, result.errorI18n) : msg('subworkflowFailed'));
     return result.output ?? '';
   }
 
@@ -509,7 +514,7 @@ export class WorkflowExecution {
     const name = node.label || node.id;
     const body = foreachBody(node);
     const agent = body === 'agent' ? this.run.snapshot.agents[cfg.agentId] : undefined;
-    if (body === 'agent' && !agent) throw new ConfigError(`El nodo "${name}" no tiene un agente válido.`);
+    if (body === 'agent' && !agent) throw new ConfigError(msg('nodeNoAgent', { name }));
     const keepGoing = cfg.onItemError === 'continue';
 
     const clamp = (value: unknown, fallback: number, max: number) => Math.min(Math.max(Math.round(Number(value) || fallback), 1), max);
@@ -520,11 +525,11 @@ export class WorkflowExecution {
     const items = parseList(this.render(String(cfg.items || '{{upstream}}'), node));
     store.updateStep(this.run.id, node.id, { input: JSON.stringify(items, null, 2) });
     if (items.length > maxItems) {
-      throw new ConfigError(`"${name}" recibió ${items.length} elementos y su máximo es ${maxItems}. Reduce la lista o sube el límite del nodo.`);
+      throw new ConfigError(msg('foreachTooManyItems', { name, count: items.length, max: maxItems }));
     }
     const total = items.length;
     const results = new Array<string>(total);
-    const errors = new Array<string | null>(total).fill(null);
+    const errors = new Array<Failure | null>(total).fill(null);
     const states = new Array<'pending' | 'running' | 'done' | 'failed'>(total).fill('pending');
 
     // Elementos ya completados en una ejecución anterior (reintento desde el fallo): se reutilizan si el elemento
@@ -588,6 +593,7 @@ export class WorkflowExecution {
               name: cfg.tool,
               ok: false,
               result: `Error: ${errorMessage(err)}`,
+              errorI18n: errorI18n(err),
               durationMs: Date.now() - started,
               depth: 1,
               item: index,
@@ -601,7 +607,7 @@ export class WorkflowExecution {
         return this.runChildWorkflow(node, String(cfg.workflowId ?? ''), input, itemSignal, trackUsage);
       }
       const prompt = this.render(String(cfg.prompt || '{{item}}'), node, extra);
-      if (!prompt.trim()) throw new ConfigError(`El nodo "${name}" generó una tarea vacía para el elemento ${index + 1}.`);
+      if (!prompt.trim()) throw new ConfigError(msg('foreachEmptyTask', { name, index: index + 1 }));
       const result = await runAgent(agent!, prompt, {
         store,
         tools: this.deps.tools,
@@ -644,20 +650,20 @@ export class WorkflowExecution {
           return;
         } catch (err) {
           if (itemSignal.aborted) throw err;
-          const message = errorMessage(err);
+          const fail = failureOf(err);
           if (attempt <= retries && isRetryable(err)) {
             const delayMs = (this.deps.retryBaseDelayMs ?? 1000) * 2 ** (attempt - 1);
-            emit('foreach.item', node.id, { index, total, item: truncate(item, 300), status: 'retry', attempt, error: message, delayMs });
+            emit('foreach.item', node.id, { index, total, item: truncate(item, 300), status: 'retry', attempt, ...fail, delayMs });
             await sleep(delayMs, itemSignal);
             continue;
           }
           states[index] = 'failed';
-          errors[index] = message;
-          store.saveStepItem(this.run.id, node.id, { index, item, status: 'failed', output: null, error: message } satisfies RunStepItem);
-          emit('foreach.item', node.id, { index, total, item: truncate(item, 300), status: 'failed', error: message });
+          errors[index] = fail;
+          store.saveStepItem(this.run.id, node.id, { index, item, status: 'failed', output: null, ...fail } satisfies RunStepItem);
+          emit('foreach.item', node.id, { index, total, item: truncate(item, 300), status: 'failed', ...fail });
           progress();
           if (keepGoing) return;
-          throw new ConfigError(`Elemento ${index + 1} de ${total} («${truncate(item, 60)}»): ${message}`);
+          throw new ConfigError(msg('foreachItemFailed', { index: index + 1, total, item: truncate(item, 60), cause: textParam(fail.error, fail.errorI18n) }));
         }
       }
     };
@@ -681,17 +687,18 @@ export class WorkflowExecution {
 
     const failed = errors.filter((e) => e !== null).length;
     if (failed && failed === total) {
-      throw new ConfigError(`Han fallado los ${total} elementos de "${name}". El primero: ${errors.find((e) => e !== null)}`);
+      const first = errors.find((e) => e !== null)!;
+      throw new ConfigError(msg('foreachAllFailed', { total, name, cause: textParam(first.error, first.errorI18n) }));
     }
     if (cfg.format === 'json') {
       return JSON.stringify(
-        items.map((_item, i) => (errors[i] !== null ? { error: errors[i] } : results[i])),
+        items.map((_item, i) => (errors[i] !== null ? { error: errors[i]!.error } : results[i])),
         null,
         2,
       );
     }
     const sections = items.map(
-      (item, i) => `### ${i + 1}. ${truncate(item, 120)}\n\n${errors[i] !== null ? `⚠ No se pudo completar: ${errors[i]}` : results[i]}`,
+      (item, i) => `### ${i + 1}. ${truncate(item, 120)}\n\n${errors[i] !== null ? `⚠ No se pudo completar: ${errors[i]!.error}` : results[i]}`,
     );
     if (failed) sections.push(`_${failed} de ${total} elementos no se pudieron completar._`);
     return sections.join('\n\n');
@@ -741,24 +748,25 @@ export class WorkflowExecution {
     const output = produced.length ? produced.map((id) => this.outputs.get(id) ?? '').join('\n\n') : null;
 
     if (this.external.aborted) {
-      return { status: 'cancelled', output, error: 'Ejecución cancelada por el usuario.', usage: this.usage };
+      return { status: 'cancelled', output, ...failure(msg('runCancelledByUser')), usage: this.usage };
     }
     if (this.deadline.aborted) {
       const secs = Math.round(this.settings.maxDurationMs / 1000);
-      return { status: 'failed', output, error: `Se superó la duración máxima de la ejecución (${secs} s).`, usage: this.usage };
+      return { status: 'failed', output, ...failure(msg('runMaxDuration', { seconds: secs })), usage: this.usage };
     }
     const failed = order.filter((id) => this.status.get(id) === 'failed');
     if (failed.length && (this.settings.onError === 'fail' || !produced.length)) {
       const first = this.nodeById.get(failed[0])!;
+      const cause = this.errors.get(first.id);
       return {
         status: 'failed',
         output,
-        error: `El nodo "${first.label || first.id}" falló: ${this.errors.get(first.id)}`,
+        ...failure(msg('runNodeFailed', { name: first.label || first.id, cause: cause ? textParam(cause.error, cause.errorI18n) : '' })),
         usage: this.usage,
       };
     }
     if (!produced.length) {
-      return { status: 'failed', output: null, error: 'Ningún nodo de salida llegó a ejecutarse.', usage: this.usage };
+      return { status: 'failed', output: null, ...failure(msg('runNoOutput')), usage: this.usage };
     }
     return { status: 'completed', output, error: null, usage: this.usage };
   }

@@ -8,7 +8,7 @@ test.describe('Agentes', () => {
     await expect(page).toHaveURL(/\/agents\/new$/);
 
     // Validación en cliente: sin nombre no se guarda.
-    await page.getByRole('button', { name: 'Guardar' }).click();
+    await page.getByRole('button', { name: 'Guardar', exact: true }).click();
     await expect(page.getByText('Ponle un nombre al agente.')).toBeVisible();
 
     await page.getByLabel('Nombre').fill(name);
@@ -20,11 +20,11 @@ test.describe('Agentes', () => {
     await page.getByRole('checkbox', { name: /Calculadora/ }).check();
     await expect(page.getByText('1 activas')).toBeVisible();
 
-    // Mientras no se guarda, el banco de pruebas está bloqueado.
-    await expect(page.getByText('Guarda el agente para poder probarlo.')).toBeVisible();
-    await expect(page.locator('.playground').getByRole('button', { name: 'Ejecutar' })).toBeDisabled();
+    // Mientras no se guarda, el banco de pruebas ofrece «Guardar y ejecutar» (sin tarea todavía no hay qué lanzar).
+    await expect(page.getByText('Lo que hay sin guardar se guarda antes de ejecutar.')).toBeVisible();
+    await expect(page.locator('.playground').getByRole('button', { name: 'Guardar y ejecutar' })).toBeDisabled();
 
-    await page.getByRole('button', { name: 'Guardar' }).click();
+    await page.getByRole('button', { name: 'Guardar', exact: true }).click();
     await expect(toast(page, `«${name}» guardado.`)).toBeVisible();
     await expect(page).toHaveURL(/\/agents\/agt_/);
     await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
@@ -83,11 +83,11 @@ test.describe('Agentes', () => {
   test('avisa antes de perder cambios sin guardar, y permite editar, duplicar y eliminar', async ({ page, app }) => {
     const agent = await app.createAgent({ name: unique('Editable'), role: 'rol inicial' });
     await page.goto(`/agents/${agent.id}`);
-    await expect(page.getByRole('button', { name: 'Guardar' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Guardar', exact: true })).toBeDisabled();
 
     await page.getByLabel('Rol').fill('rol cambiado');
     await expect(page.getByText('Cambios sin guardar')).toBeVisible();
-    await expect(page.getByText('Guarda los cambios para probar la versión actual.')).toBeVisible();
+    await expect(page.locator('.playground').getByRole('button', { name: 'Guardar y ejecutar' })).toBeVisible();
 
     // Intento de salir: se pide confirmación y, al cancelar, se sigue en el editor.
     await page.getByRole('link', { name: 'Workflows' }).click();
@@ -96,7 +96,7 @@ test.describe('Agentes', () => {
     await dialog.getByRole('button', { name: 'Cancelar' }).click();
     await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
 
-    await page.getByRole('button', { name: 'Guardar' }).click();
+    await page.getByRole('button', { name: 'Guardar', exact: true }).click();
     await expect(toast(page, 'guardado')).toBeVisible();
     expect((await app.api('GET', `/api/agents/${agent.id}`)).role).toBe('rol cambiado');
 

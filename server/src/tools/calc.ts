@@ -1,4 +1,5 @@
 // Evaluador de expresiones aritméticas seguro (sin eval): analizador descendente recursivo.
+import { msg } from '../../../shared/server-messages';
 import { ToolError } from '../errors';
 
 const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E };
@@ -35,7 +36,7 @@ function tokenize(expr: string): Token[] {
     if (/^\s*$/.test(expr.slice(pos))) break;
     re.lastIndex = pos;
     const m = re.exec(expr);
-    if (!m) throw new ToolError(`Carácter no válido en la expresión, posición ${pos + 1}: "${expr.slice(pos, pos + 10)}"`);
+    if (!m) throw new ToolError(msg('calcBadChar', { position: pos + 1, text: expr.slice(pos, pos + 10) }));
     if (m[1] !== undefined) tokens.push({ type: 'num', value: Number(m[1]) });
     else if (m[2] !== undefined) tokens.push({ type: 'id', value: m[2].toLowerCase() });
     else tokens.push({ type: 'op', value: m[3] === '**' ? '^' : m[3] });
@@ -45,7 +46,7 @@ function tokenize(expr: string): Token[] {
 }
 
 export function evaluateExpression(expr: string): number {
-  if (expr.length > 1000) throw new ToolError('La expresión es demasiado larga.');
+  if (expr.length > 1000) throw new ToolError(msg('calcTooLong'));
   // Se aceptan formatos habituales: "×", "÷", coma decimal no (ambigua con separador de argumentos).
   const tokens = tokenize(expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-'));
   let i = 0;
@@ -53,7 +54,7 @@ export function evaluateExpression(expr: string): number {
   const peek = (): Token | undefined => tokens[i];
   const isOp = (v: string) => peek()?.type === 'op' && peek()!.value === v;
   const expect = (v: string) => {
-    if (!isOp(v)) throw new ToolError(`Se esperaba "${v}" en la expresión.`);
+    if (!isOp(v)) throw new ToolError(msg('calcExpected', { symbol: v }));
     i++;
   };
 
@@ -73,7 +74,7 @@ export function evaluateExpression(expr: string): number {
     while (isOp('*') || isOp('/') || isOp('%')) {
       const op = (tokens[i++] as Token).value;
       const right = parseUnary();
-      if ((op === '/' || op === '%') && right === 0) throw new ToolError('División entre cero.');
+      if ((op === '/' || op === '%') && right === 0) throw new ToolError(msg('calcDivisionByZero'));
       left = op === '*' ? left * right : op === '/' ? left / right : left % right;
     }
     return left;
@@ -95,7 +96,7 @@ export function evaluateExpression(expr: string): number {
   }
   function parsePrimary(): number {
     const t = tokens[i++];
-    if (!t) throw new ToolError('Expresión incompleta.');
+    if (!t) throw new ToolError(msg('calcIncomplete'));
     if (t.type === 'num') return t.value;
     if (t.type === 'op' && t.value === '(') {
       const v = parseExpr();
@@ -105,7 +106,7 @@ export function evaluateExpression(expr: string): number {
     if (t.type === 'id') {
       if (isOp('(')) {
         const fn = FUNCTIONS[t.value];
-        if (!fn) throw new ToolError(`Función desconocida: ${t.value}`);
+        if (!fn) throw new ToolError(msg('calcUnknownFunction', { name: String(t.value) }));
         i++;
         const args: number[] = [];
         if (!isOp(')')) {
@@ -117,15 +118,15 @@ export function evaluateExpression(expr: string): number {
         return fn(...args);
       }
       if (t.value in CONSTANTS) return CONSTANTS[t.value];
-      throw new ToolError(`Identificador desconocido: ${t.value}`);
+      throw new ToolError(msg('calcUnknownIdentifier', { name: String(t.value) }));
     }
-    throw new ToolError(`Símbolo inesperado: ${t.value}`);
+    throw new ToolError(msg('calcUnexpected', { symbol: String(t.value) }));
   }
 
-  if (!tokens.length) throw new ToolError('La expresión está vacía.');
+  if (!tokens.length) throw new ToolError(msg('calcEmpty'));
   const value = parseExpr();
-  if (i < tokens.length) throw new ToolError(`Símbolo inesperado: ${String(tokens[i].value)}`);
-  if (!Number.isFinite(value)) throw new ToolError('El resultado no es un número finito.');
+  if (i < tokens.length) throw new ToolError(msg('calcUnexpected', { symbol: String(tokens[i].value) }));
+  if (!Number.isFinite(value)) throw new ToolError(msg('calcNotFinite'));
   // 12 cifras significativas: elimina el ruido binario de la coma flotante (2965.4680000000003 → 2965.468).
   return Number(value.toPrecision(12));
 }

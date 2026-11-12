@@ -16,6 +16,7 @@ import { Readable, type Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import zlib from 'node:zlib';
 import { SCHEMA_VERSION } from './db/database';
+import { msg } from '../../shared/server-messages';
 import { HttpError } from './errors';
 
 export const BACKUP_FORMAT = 'agentforge.backup';
@@ -51,7 +52,7 @@ const pendingDir = (p: BackupPaths) => path.join(p.dataDir, 'restore-pending');
 const READY_MARK = 'READY.json';
 
 export function assertBackupName(name: string): string {
-  if (!BACKUP_NAME_RE.test(name)) throw new HttpError(400, 'Nombre de copia de seguridad no válido.');
+  if (!BACKUP_NAME_RE.test(name)) throw new HttpError(400, msg('backupNameInvalid'));
   return name;
 }
 
@@ -193,7 +194,7 @@ async function readTar(
             .toString('utf8')
             .replace(/\0.*$/s, '');
         const size = parseInt(text(124, 12).trim() || '0', 8);
-        if (!Number.isFinite(size) || size < 0) throw new HttpError(400, 'La copia de seguridad está dañada (tamaño de entrada no válido).');
+        if (!Number.isFinite(size) || size < 0) throw new HttpError(400, msg('backupEntryCorrupt'));
         const prefix = text(345, 155);
         const name = prefix ? `${prefix}/${text(0, 100)}` : text(0, 100);
         const isFile = (header[156] || 48) === 48; // '0' o nulo: archivo normal
@@ -207,7 +208,7 @@ async function readTar(
     }
     const last: TarEntryState | null = current;
     if (last) {
-      if (last.remaining > 0) throw new HttpError(400, 'La copia de seguridad está incompleta.');
+      if (last.remaining > 0) throw new HttpError(400, msg('backupIncomplete'));
       await finishEntry(last);
       current = null;
     }
@@ -256,7 +257,7 @@ export async function createBackup(paths: BackupPaths, db: DatabaseSync, appVers
     .slice(0, 24);
   const name = `agentforge-${stamp(createdAt)}${suffix ? `-${suffix}` : ''}.afbackup`;
   const target = path.join(dir, name);
-  if (fs.existsSync(target)) throw new HttpError(409, 'Ya existe una copia con esa fecha y hora. Espera un segundo y vuelve a intentarlo.');
+  if (fs.existsSync(target)) throw new HttpError(409, msg('backupExists'));
   const dbCopy = path.join(dir, `.tmp-${process.pid}-${Date.now()}.db`);
   try {
     // Copia coherente de la base (incluye lo que aún está en el diario WAL), sin parar las escrituras.
@@ -308,13 +309,13 @@ export async function readManifest(file: string): Promise<BackupManifest> {
     );
   } catch (err) {
     if (err instanceof HttpError) throw err;
-    throw new HttpError(400, 'El archivo no es una copia de seguridad de AgentForge o está dañado.');
+    throw new HttpError(400, msg('backupNotOursOrCorrupt'));
   } finally {
     input.destroy();
     gunzip.destroy();
   }
   const found = manifest as BackupManifest | null;
-  if (!found || found.format !== BACKUP_FORMAT || found.version !== 1) throw new HttpError(400, 'El archivo no es una copia de seguridad de AgentForge.');
+  if (!found || found.format !== BACKUP_FORMAT || found.version !== 1) throw new HttpError(400, msg('backupNotOurs'));
   return found;
 }
 
@@ -337,7 +338,7 @@ export async function listBackups(paths: BackupPaths): Promise<BackupInfo[]> {
 
 export function backupFile(paths: BackupPaths, name: string): string {
   const file = path.join(backupsDir(paths), assertBackupName(name));
-  if (!fs.existsSync(file)) throw new HttpError(404, 'Copia de seguridad no encontrada.');
+  if (!fs.existsSync(file)) throw new HttpError(404, msg('notFound', { kind: 'backup' }));
   return file;
 }
 
@@ -358,7 +359,7 @@ export async function receiveBackup(paths: BackupPaths, source: Readable): Promi
       async function* (chunks) {
         for await (const chunk of chunks) {
           received += (chunk as Buffer).length;
-          if (received > MAX_UPLOAD_BYTES) throw new HttpError(413, 'La copia de seguridad es demasiado grande.');
+          if (received > MAX_UPLOAD_BYTES) throw new HttpError(413, msg('backupTooLarge'));
           yield chunk;
         }
       },
@@ -404,10 +405,7 @@ export async function prepareRestore(paths: BackupPaths, name: string): Promise<
   const file = backupFile(paths, name);
   const manifest = await readManifest(file);
   if (manifest.schemaVersion > SCHEMA_VERSION) {
-    throw new HttpError(
-      409,
-      `La copia es de una versión más reciente de AgentForge (esquema v${manifest.schemaVersion}; esta versión entiende hasta v${SCHEMA_VERSION}). Actualiza AgentForge antes de restaurarla.`,
-    );
+    throw new HttpError(409, msg('backupNewerSchema', { version: manifest.schemaVersion, supported: SCHEMA_VERSION }));
   }
   const dir = pendingDir(paths);
   await fsp.rm(dir, { recursive: true, force: true });
@@ -431,14 +429,14 @@ export async function prepareRestore(paths: BackupPaths, name: string): Promise<
     // El lector se cierra aquí: si no, el archivo de la copia quedaría abierto (y en Windows, bloqueado).
     input.destroy();
     gunzip.destroy();
-    if (!hasDb) throw new HttpError(400, 'La copia de seguridad no contiene la base de datos.');
+    if (!hasDb) throw new HttpError(400, msg('backupNoDatabase'));
     // La base restaurada tiene que abrirse y estar íntegra ANTES de comprometerse a usarla.
     const probe = new DatabaseSync(path.join(dir, 'agentforge.db'), { readOnly: true });
     try {
       const check = probe.prepare('PRAGMA quick_check').get() as Record<string, string>;
       const version = (probe.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-      if (Object.values(check)[0] !== 'ok') throw new HttpError(400, 'La base de datos de la copia está dañada.');
-      if (version > SCHEMA_VERSION) throw new HttpError(409, 'La base de datos de la copia es de una versión más reciente de AgentForge.');
+      if (Object.values(check)[0] !== 'ok') throw new HttpError(400, msg('backupDatabaseCorrupt'));
+      if (version > SCHEMA_VERSION) throw new HttpError(409, msg('backupDatabaseNewer'));
     } finally {
       probe.close();
     }
@@ -451,7 +449,7 @@ export async function prepareRestore(paths: BackupPaths, name: string): Promise<
     gunzip.destroy();
     await fsp.rm(dir, { recursive: true, force: true });
     if (err instanceof HttpError) throw err;
-    throw new HttpError(400, `No se pudo leer la copia de seguridad: ${(err as Error).message}`);
+    throw new HttpError(400, msg('backupUnreadable', { detail: (err as Error).message }));
   }
 }
 

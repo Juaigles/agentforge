@@ -4,11 +4,16 @@
 // manual; los webhooks llegan por la API (routes/api.ts) y usan `fire`.
 import type { Run, Trigger, TriggerInput, ValidationIssue, Workflow } from '../../../shared/types';
 import type { Store } from '../db/store';
-import { errorMessage, silentLogger, type Logger } from '../util';
+import { msg, refOf, type CodedMessage } from '../../../shared/server-messages';
+import { ConfigError, errorParam, issueParam } from '../errors';
+import { silentLogger, type Logger } from '../util';
 import { dailyCron, nextCronTime, parseCron, systemTimeZone } from './cron';
 import type { RunManager } from './run-manager';
 
 type Timing = Pick<TriggerInput, 'kind' | 'intervalMinutes' | 'time' | 'weekdays' | 'cron' | 'timezone'>;
+
+/** El motivo por el que una ocasión no se lanzó, como se guarda en el disparador: el texto y su referencia para traducirlo. */
+const lastError = (text: CodedMessage) => ({ lastError: text.message, lastErrorI18n: refOf(text) });
 
 /** Una ocasión con hora fija que llega con más retraso que este (el servidor estaba apagado) se omite. */
 export const LATE_GRACE_MS = 60 * 60_000;
@@ -102,36 +107,36 @@ export class Scheduler {
         next = nextOccurrence(trigger, new Date(now), new Date(due))?.toISOString() ?? null;
       } catch (err) {
         // Una expresión guardada que ya no se entiende no debe parar a los demás disparadores.
-        this.deps.store.updateTriggerState(trigger.id, { nextRunAt: null, lastError: `El horario no es válido: ${errorMessage(err)}` });
+        this.deps.store.updateTriggerState(trigger.id, { nextRunAt: null, ...lastError(msg('triggerScheduleInvalid', { detail: errorParam(err) })) });
         continue;
       }
       // Una hora fija que llega muy tarde (el servidor estaba apagado) no se ejecuta a deshora.
       if (trigger.kind !== 'interval' && now - due > LATE_GRACE_MS) {
         this.deps.store.updateTriggerState(trigger.id, {
           nextRunAt: next,
-          lastError: 'Se omitió una ejecución porque AgentForge no estaba en marcha a su hora.',
+          ...lastError(msg('triggerMissedDown')),
         });
         continue;
       }
       // Sin solapes: si la ejecución anterior de este disparador sigue viva, esta ocasión se omite.
       if (trigger.lastRunId && this.deps.runs.isActive(trigger.lastRunId)) {
-        this.deps.store.updateTriggerState(trigger.id, { nextRunAt: next, lastError: 'Se omitió una ejecución porque la anterior seguía en curso.' });
+        this.deps.store.updateTriggerState(trigger.id, { nextRunAt: next, ...lastError(msg('triggerMissedOverlap')) });
         continue;
       }
       // Cada disparador por separado: si uno falla de forma inesperada, los demás se siguen evaluando.
-      let result: { run: Run } | { error: string };
+      let result: { run: Run } | { error: CodedMessage };
       try {
         result = this.launch(trigger, trigger.input);
       } catch (err) {
         this.log.error({ err, triggerId: trigger.id }, 'Fallo inesperado al lanzar un disparador');
-        result = { error: `No se pudo lanzar: ${errorMessage(err)}` };
+        result = { error: msg('triggerLaunchFailed', { detail: errorParam(err) }) };
       }
       if ('run' in result) {
         started.push(result.run.id);
         this.log.info({ triggerId: trigger.id, workflowId: trigger.workflowId, runId: result.run.id }, 'Disparador lanzado');
         this.deps.store.updateTriggerState(trigger.id, { nextRunAt: next, lastRunAt: new Date(now).toISOString(), lastRunId: result.run.id, lastError: null });
       } else {
-        this.deps.store.updateTriggerState(trigger.id, { nextRunAt: next, lastError: result.error });
+        this.deps.store.updateTriggerState(trigger.id, { nextRunAt: next, ...lastError(result.error) });
       }
     }
     return started;
@@ -139,23 +144,23 @@ export class Scheduler {
 
   /**
    * Lanza ahora un disparador (sin alterar su siguiente ocasión): «Ejecutar ahora» y la llegada de un webhook.
-   * `input` sustituye a la entrada guardada. Lanza un Error con el motivo si no se puede.
+   * `input` sustituye a la entrada guardada. Lanza un error con el motivo (y su código) si no se puede.
    */
   fire(trigger: Trigger, input = trigger.input): Run {
     const result = this.launch(trigger, input);
     if (!('run' in result)) {
-      this.deps.store.updateTriggerState(trigger.id, { lastError: result.error });
-      throw new Error(result.error);
+      this.deps.store.updateTriggerState(trigger.id, lastError(result.error));
+      throw new ConfigError(result.error);
     }
     this.deps.store.updateTriggerState(trigger.id, { lastRunAt: new Date().toISOString(), lastRunId: result.run.id, lastError: null });
     return result.run;
   }
 
-  private launch(trigger: Trigger, input: string): { run: Run } | { error: string } {
+  private launch(trigger: Trigger, input: string): { run: Run } | { error: CodedMessage } {
     const workflow = this.deps.store.getWorkflow(trigger.workflowId);
-    if (!workflow) return { error: 'El workflow ya no existe.' };
+    if (!workflow) return { error: msg('triggerWorkflowGone') };
     const problem = this.deps.validate(workflow).find((i) => i.level === 'error');
-    if (problem) return { error: `No se pudo lanzar: ${problem.message}` };
+    if (problem) return { error: msg('triggerLaunchFailed', { detail: issueParam(problem) }) };
     return { run: this.deps.runs.startWorkflowRun(workflow, input, { scheduled: trigger.kind !== 'webhook', triggerKind: trigger.kind }) };
   }
 }

@@ -532,7 +532,7 @@ Ejecuciones de agentes y de workflows: historial, cancelación, reintento y rean
 | `POST` | `/api/runs/interrupted/dismiss` | Descarta el aviso de reanudación: las ejecuciones quedan como fallidas |
 | `GET` | `/api/runs/{id}` | Obtiene una ejecución completa, con su definición y sus pasos |
 | `DELETE` | `/api/runs/{id}` | Elimina una ejecución terminada |
-| `GET` | `/api/runs/{id}/events` | Eventos guardados de una ejecución, por orden |
+| `GET` | `/api/runs/{id}/events` | Eventos guardados de una ejecución, por orden y por páginas |
 | `POST` | `/api/runs/{id}/cancel` | Cancela una ejecución en curso |
 | `POST` | `/api/runs/{id}/retry` | Reintenta una ejecución terminada, desde cero o solo lo que falló |
 | `GET` | `/api/runs/{id}/children` | Subejecuciones (subworkflows) que lanzó una ejecución |
@@ -544,10 +544,12 @@ Parámetros de consulta:
 
 | Nombre | Tipo | Obligatorio | Descripción |
 | --- | --- | --- | --- |
-| `status` | `queued` / `running` / `waiting` / `completed` / `failed` / `cancelled` | no | Solo ejecuciones en este estado. |
+| `status` | `queued` / `running` / `waiting` / `completed` / `failed` / `cancelled` / `active` | no | Solo ejecuciones en este estado. `active` reúne las que no han terminado: en cola, en curso y en espera. |
 | `kind` | `agent` / `workflow` | no | Solo de este tipo. |
 | `workflowId` | `string` | no | Solo las de este workflow. · 0-64 caracteres |
-| `agentId` | `string` | no | Solo las de este agente. · 0-64 caracteres |
+| `agentId` | `string` | no | Solo las ejecuciones directas de este agente (no las de workflows que lo usan). · 0-64 caracteres |
+| `from` | `string` | no | Solo las creadas en este instante o después (ISO 8601 con zona horaria, p. ej. `2026-01-31T00:00:00Z`). |
+| `to` | `string` | no | Solo las creadas en este instante o antes (ISO 8601 con zona horaria). |
 | `search` | `string` | no | Texto a buscar en el nombre, la entrada, la salida y el error. · 0-200 caracteres |
 | `limit` | `integer` | no | Tamaño de página (1-200; por defecto 50). · de 1 a 200 |
 | `offset` | `integer` | no | Elementos a saltar (0 o más). · de 0 a sin máximo |
@@ -572,11 +574,15 @@ Cuerpo JSON (opcional) (`RunIdsInput`): Ejecuciones interrumpidas a las que se a
 
 ### `GET /api/runs/{id}/events`
 
+Siempre por orden de secuencia. Para recorrer una ejecución larga hacia atrás: `?before=<lastSeq + 1>&limit=200` da la página más reciente y `?before=<seq del primero recibido>&limit=200`, la anterior; hacia delante, `?after=<seq del último recibido>&limit=200`.
+
 Parámetros de consulta:
 
 | Nombre | Tipo | Obligatorio | Descripción |
 | --- | --- | --- | --- |
 | `after` | `integer` | no | Devuelve solo eventos posteriores a este número de secuencia (0 o más). · de 0 a sin máximo |
+| `before` | `integer` | no | Devuelve solo eventos anteriores a este número de secuencia (0 o más). · de 0 a sin máximo |
+| `limit` | `integer` | no | Tamaño de página (1-1000). Sin él se devuelven todos los eventos del tramo. Con `before`, la página son los últimos eventos anteriores a ese cursor; sin él, los primeros posteriores a `after`. · de 1 a 1000 |
 
 ### `POST /api/runs/{id}/retry`
 
@@ -732,7 +738,8 @@ Flujos de eventos del servidor (SSE) para interfaces en vivo.
 
 Flujo de eventos del servidor (`text/event-stream`): la conexión queda abierta. Cada ~15 s llega un comentario `: ping` para mantenerla viva y el servidor sugiere reconectar a los 2 s (`retry: 2000`). Si un cliente no lee y se le acumulan más de 8 MiB, se le corta la conexión.
 
-Evento `run-event`: `data` es un `RunEvent` y `id` su `seq`. Al conectar se reproduce primero el historial guardado, por tandas de 500, a partir del número indicado en la cabecera `Last-Event-ID` o, si no viene, en `?after=` (0 por defecto); después llegan los eventos nuevos sin perder ni repetir ninguno.
+Evento `run-event`: `data` es un `RunEvent` y `id` su `seq`. Al conectar se reproduce primero el historial guardado, por tandas de 500, a partir del número indicado en la cabecera `Last-Event-ID` o, si no viene, en `?after=` (0 por defecto); después llegan los eventos nuevos sin perder ni repetir ninguno. Un valor no válido en cualquiera de los dos se rechaza con 400.
+Para no reproducir el historial entero, se parte de `GET /api/runs/{id}` (que ya trae el estado de los pasos) y se conecta con `?after=` su `lastSeq`.
 Un navegador (`EventSource`) reconecta solo y envía `Last-Event-ID` con el último `id` recibido.
 Tras el historial se envían eventos `llm.snapshot` (con `seq: null` y sin `id`) con el texto que cada nodo lleva generado, y los deltas de streaming (`llm.delta`) también tienen `seq: null`.
 La conexión no se cierra al terminar la ejecución: el evento `run.finished` marca el final.

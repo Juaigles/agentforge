@@ -78,7 +78,7 @@ test.describe('Teclado y foco', () => {
     await page.goto('/workflows/new');
     await expect(page.locator('.vue-flow__node')).toHaveCount(2);
     await page.getByLabel('Nombre del workflow').fill('');
-    await page.getByRole('button', { name: 'Guardar' }).click();
+    await page.getByRole('button', { name: 'Guardar', exact: true }).click();
     const error = toast(page, 'Ponle un nombre al workflow.');
     await expect(error).toBeVisible();
     await expect(error).toHaveAttribute('role', 'alert');

@@ -8,6 +8,7 @@ import GettingStarted from '@/components/GettingStarted.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import { intlLocale, t, tn } from '@/i18n';
 import { elapsedMs, formatBytes, formatCompact, formatDuration, formatNumber, formatUptime, relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
@@ -234,7 +235,7 @@ async function cancel(run: RunSummary): Promise<void> {
             <p v-if="!catalog.health.length" class="small faint">
               {{ catalog.providers.length ? t('dashboard.providers.checking') : t('dashboard.providers.none') }}
             </p>
-            <div v-for="h in catalog.health" :key="h.providerId" class="row small" :title="h.error">
+            <div v-for="h in catalog.health" :key="h.providerId" class="row small" :title="h.error ? serverText(h.error, h.errorI18n) : undefined">
               <span class="dot" :class="h.ok ? 'success' : 'danger'" />
               <span class="grow truncate">{{ h.name }}</span>
               <span class="faint num">{{

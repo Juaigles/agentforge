@@ -4,6 +4,7 @@ import type { McpServer, McpServerInput, McpStatus, McpTransport } from '@shared
 import { CircleAlert, LoaderCircle, Pencil, Plug, Plus, RefreshCw, ShieldAlert, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api, ApiError, errorText } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import { t, tn } from '@/i18n';
 import { useUi } from '@/stores/ui';
 import AppModal from './AppModal.vue';
@@ -45,7 +46,10 @@ async function reconnect(server: McpServer): Promise<void> {
     await load();
     emit('changed');
     if (updated.status === 'connected') ui.success(tn('mcp.toast.reconnected', updated.tools.length, { name: server.name }));
-    else ui.error(t('mcp.toast.reconnectFailed', { name: server.name, error: updated.error ?? t('mcp.unknownError') }));
+    else
+      ui.error(
+        t('mcp.toast.reconnectFailed', { name: server.name, error: updated.error ? serverText(updated.error, updated.errorI18n) : t('mcp.unknownError') }),
+      );
   } catch (err) {
     ui.error(errorText(err));
   } finally {
@@ -160,7 +164,7 @@ async function save(): Promise<void> {
     emit('changed');
     if (saved.status === 'connected') ui.success(tn('mcp.toast.connected', saved.tools.length, { name: saved.name }));
     else if (saved.status === 'disabled') ui.success(t('mcp.toast.savedDisabled', { name: saved.name }));
-    else ui.error(t('mcp.toast.savedFailed', { name: saved.name, error: saved.error ?? t('mcp.unknownError') }));
+    else ui.error(t('mcp.toast.savedFailed', { name: saved.name, error: saved.error ? serverText(saved.error, saved.errorI18n) : t('mcp.unknownError') }));
   } catch (err) {
     if (err instanceof ApiError && err.issues.length) fieldErrors.value = Object.fromEntries(err.issues.map((i) => [i.path, i.message]));
     else formError.value = errorText(err);
@@ -222,7 +226,7 @@ async function save(): Promise<void> {
           </button>
         </header>
         <code class="mono small target">{{ s.transport === 'stdio' ? [s.command, ...s.args].join(' ') : s.url }}</code>
-        <p v-if="s.error" class="error-line small" role="alert"><CircleAlert /> {{ s.error }}</p>
+        <p v-if="s.error" class="error-line small" role="alert"><CircleAlert /> {{ serverText(s.error, s.errorI18n) }}</p>
         <p v-if="s.tools.length" class="small muted" style="margin: 0">
           {{ tn('mcp.toolsCount', s.tools.length) }}:
           <span class="tool-names">{{ s.tools.map((tl) => tl.name).join(', ') }}</span>

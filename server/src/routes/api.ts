@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import { validateWorkflow } from '../../../shared/graph';
+import { msg } from '../../../shared/server-messages';
 import {
   AGENT_EXPORT_FORMAT,
   WORKFLOW_EXPORT_FORMAT,
@@ -32,7 +33,7 @@ import { SCHEMA_VERSION } from '../db/database';
 import { orphanedSecretHeaders, sameTemplateOrigin } from '../db/store';
 import { systemTimeZone } from '../engine/cron';
 import { nextOccurrence, upcomingOccurrences } from '../engine/scheduler';
-import { HttpError } from '../errors';
+import { codedOf, failure, failureOf, HttpError, issueParam, textParam } from '../errors';
 import { HttpCounters, renderMetrics } from '../metrics';
 import { buildOpenApi } from '../openapi';
 import { APP_VERSION } from '../version';
@@ -48,6 +49,7 @@ import {
   importDecisionsSchema,
   customToolSchema,
   eventsQuerySchema,
+  lastEventIdSchema,
   invokeToolSchema,
   providerProbeSchema,
   providerSchema,
@@ -59,6 +61,7 @@ import {
   workflowImportSchema,
   runInputSchema,
   settingsSchema,
+  streamQuerySchema,
   workflowSchema,
 } from './schemas';
 
@@ -71,10 +74,10 @@ const SSE_REPLAY_BATCH = 500;
 
 const idOf = (req: FastifyRequest): string => (req.params as { id: string }).id;
 
-/** Sustantivos femeninos entre lo que se puede no encontrar (concordancia del mensaje). */
-const FEMININE = new Set(['Ejecución', 'Herramienta']);
-function notFound(what: string): never {
-  throw new HttpError(404, `${what} no ${FEMININE.has(what) ? 'encontrada' : 'encontrado'}.`);
+/** Lo que se puede no encontrar (el texto de cada caso está en shared/server-messages.ts). */
+type Missing = 'provider' | 'agent' | 'tool' | 'mcpServer' | 'file' | 'workflow' | 'trigger' | 'run';
+function notFound(kind: Missing): never {
+  throw new HttpError(404, msg('notFound', { kind }));
 }
 
 /** Abre una respuesta SSE y devuelve funciones para enviar eventos y registrar la limpieza. */
@@ -130,7 +133,7 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
       return {
         ok: false,
         latencyMs: Date.now() - started,
-        error: timedOut ? 'El proveedor no respondió en 8 segundos.' : errorMessage(err),
+        ...(timedOut ? failure(msg('providerTimeout', { seconds: 8 })) : failureOf(err)),
       };
     }
   }
@@ -153,12 +156,7 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
     const saved = input.id ? store.getProviderWithSecret(input.id) : null;
     if (!saved?.apiKey) return undefined;
     if (originOf(saved.baseUrl) !== originOf(input.baseUrl)) {
-      throw new HttpError(
-        400,
-        'Has cambiado la dirección del proveedor: vuelve a escribir la API key para probarla con la nueva dirección.',
-        undefined,
-        'api_key_required',
-      );
+      throw new HttpError(400, msg('apiKeyRetypeToTest'), undefined, 'api_key_required');
     }
     return saved.apiKey;
   }
@@ -174,10 +172,10 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   }
 
   function assertAgentRefs(input: { providerId: string; tools: string[] }): void {
-    if (!store.getProvider(input.providerId)) throw new HttpError(400, 'El proveedor seleccionado no existe.');
+    if (!store.getProvider(input.providerId)) throw new HttpError(400, msg('providerMissing'));
     const known = new Set(tools.list().map((t) => t.name));
     const unknown = input.tools.filter((t) => !known.has(t));
-    if (unknown.length) throw new HttpError(400, `Herramientas desconocidas: ${unknown.join(', ')}.`);
+    if (unknown.length) throw new HttpError(400, msg('unknownTools', { names: unknown.join(', ') }));
   }
 
   // ---------- Sistema ----------
@@ -297,7 +295,8 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
     const patch = settingsSchema.parse(req.body);
     if (patch.codeSandbox === 'container') {
       const status = await sandboxStatus(true);
-      if (!status.container.available) throw new HttpError(409, `No se puede usar el contenedor: ${status.container.error}`);
+      if (!status.container.available)
+        throw new HttpError(409, msg('containerUnavailable', { detail: textParam(String(status.container.error), status.container.errorI18n) }));
     }
     const settings = store.updateSettings(patch);
     // Un cambio en la retención se aplica en el momento, sin esperar a la siguiente pasada.
@@ -324,7 +323,7 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
 
   app.post('/api/backups/upload', { bodyLimit: Number.MAX_SAFE_INTEGER }, async (req, reply) => {
     if (!String(req.headers['content-type'] ?? '').startsWith('application/octet-stream')) {
-      throw new HttpError(415, 'Envía el archivo de la copia como application/octet-stream.');
+      throw new HttpError(415, msg('backupContentType'));
     }
     return reply.status(201).send(await receiveBackup(ctx.config, req.raw));
   });
@@ -369,9 +368,18 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
             r = await testProvider(store.getProviderWithSecret(p.id)!);
           } catch (err) {
             // P. ej. una API key que ya no se puede descifrar: es el estado de ESE proveedor, no un error de la ruta.
-            r = { ok: false, latencyMs: 0, error: errorMessage(err) };
+            r = { ok: false, latencyMs: 0, ...failureOf(err) };
           }
-          return { providerId: p.id, name: p.name, kind: p.kind, ok: r.ok, latencyMs: r.latencyMs, modelCount: r.modelCount ?? 0, error: r.error };
+          return {
+            providerId: p.id,
+            name: p.name,
+            kind: p.kind,
+            ok: r.ok,
+            latencyMs: r.latencyMs,
+            modelCount: r.modelCount ?? 0,
+            error: r.error,
+            errorI18n: r.errorI18n,
+          };
         }),
     );
     healthCache = { at: Date.now(), data };
@@ -399,41 +407,36 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   app.put('/api/providers/:id', async (req) => {
     healthCache = null;
     const input = providerSchema.parse(req.body);
-    const current = store.getProvider(idOf(req)) ?? notFound('Proveedor');
+    const current = store.getProvider(idOf(req)) ?? notFound('provider');
     // La clave guardada no se «muda» a otra dirección: si cambia el origen hay que escribirla de nuevo (o quitarla).
     if (current.hasApiKey && input.apiKey === undefined && originOf(current.baseUrl) !== originOf(input.baseUrl)) {
-      throw new HttpError(
-        400,
-        'Has cambiado la dirección del proveedor: vuelve a escribir la API key (o quítala) antes de guardar.',
-        undefined,
-        'api_key_required',
-      );
+      throw new HttpError(400, msg('apiKeyRetypeToSave'), undefined, 'api_key_required');
     }
-    return store.updateProvider(current.id, input) ?? notFound('Proveedor');
+    return store.updateProvider(current.id, input) ?? notFound('provider');
   });
 
   app.delete('/api/providers/:id', async (req, reply) => {
     const id = idOf(req);
     const used = store.countAgentsByProvider(id);
-    if (used) throw new HttpError(409, `No se puede eliminar: ${used} agente(s) usan este proveedor.`);
-    if (!store.deleteProvider(id)) notFound('Proveedor');
+    if (used) throw new HttpError(409, msg('providerInUse', { count: used }));
+    if (!store.deleteProvider(id)) notFound('provider');
     healthCache = null;
     return reply.status(204).send();
   });
 
   app.post('/api/providers/:id/test', async (req) => {
-    const provider = store.getProviderWithSecret(idOf(req)) ?? notFound('Proveedor');
+    const provider = store.getProviderWithSecret(idOf(req)) ?? notFound('provider');
     return testProvider(provider);
   });
 
   app.get('/api/providers/:id/models', async (req) => {
-    const provider = store.getProviderWithSecret(idOf(req)) ?? notFound('Proveedor');
+    const provider = store.getProviderWithSecret(idOf(req)) ?? notFound('provider');
     return ctx.llm.create(provider).listModels(AbortSignal.timeout(8000));
   });
 
   // ---------- Agentes ----------
   app.get('/api/agents', async () => store.listAgents());
-  app.get('/api/agents/:id', async (req) => store.getAgent(idOf(req)) ?? notFound('Agente'));
+  app.get('/api/agents/:id', async (req) => store.getAgent(idOf(req)) ?? notFound('agent'));
 
   app.post('/api/agents', async (req, reply) => {
     const input = agentSchema.parse(req.body);
@@ -444,11 +447,11 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   app.put('/api/agents/:id', async (req) => {
     const input = agentSchema.parse(req.body);
     assertAgentRefs(input);
-    return store.updateAgent(idOf(req), input) ?? notFound('Agente');
+    return store.updateAgent(idOf(req), input) ?? notFound('agent');
   });
 
   app.post('/api/agents/:id/duplicate', async (req, reply) => {
-    const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = store.getAgent(idOf(req)) ?? notFound('Agente');
+    const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = store.getAgent(idOf(req)) ?? notFound('agent');
     return reply.status(201).send(store.createAgent({ ...rest, name: `${rest.name} (copia)` }));
   });
 
@@ -456,28 +459,28 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
     const id = idOf(req);
     const used = store.workflowsUsingAgent(id);
     if (used.length) {
-      throw new HttpError(409, `No se puede eliminar: lo usan los workflows ${used.map((w) => `«${w.name}»`).join(', ')}.`);
+      throw new HttpError(409, msg('agentInUse', { names: used.map((w) => `«${w.name}»`).join(', ') }));
     }
-    if (!store.deleteAgent(id)) notFound('Agente');
+    if (!store.deleteAgent(id)) notFound('agent');
     return reply.status(204).send();
   });
 
   app.post('/api/agents/:id/run', async (req, reply) => {
-    const agent = store.getAgent(idOf(req)) ?? notFound('Agente');
+    const agent = store.getAgent(idOf(req)) ?? notFound('agent');
     const { input } = runInputSchema.parse(req.body);
-    if (!input.trim()) throw new HttpError(400, 'Escribe una tarea para el agente.');
+    if (!input.trim()) throw new HttpError(400, msg('taskRequired'));
     return reply.status(202).send(runs.startAgentRun(agent, input));
   });
 
   // ---------- Herramientas ----------
   app.get('/api/tools', async () => tools.list());
   app.get('/api/tools/custom', async () => store.listCustomTools());
-  app.get('/api/tools/custom/:id', async (req) => store.getCustomTool(idOf(req)) ?? notFound('Herramienta'));
+  app.get('/api/tools/custom/:id', async (req) => store.getCustomTool(idOf(req)) ?? notFound('tool'));
 
   function assertToolName(name: string, selfId?: string): void {
-    if (tools.isBuiltin(name)) throw new HttpError(409, `"${name}" es el nombre de una herramienta integrada.`);
+    if (tools.isBuiltin(name)) throw new HttpError(409, msg('toolNameBuiltin', { name }));
     const other = store.getCustomToolByName(name);
-    if (other && other.id !== selfId) throw new HttpError(409, `Ya existe una herramienta llamada "${name}".`);
+    if (other && other.id !== selfId) throw new HttpError(409, msg('toolNameTaken', { name }));
   }
 
   app.post('/api/tools/custom', async (req, reply) => {
@@ -489,28 +492,23 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   app.put('/api/tools/custom/:id', async (req) => {
     const input = customToolSchema.parse(req.body);
     assertToolName(input.name, idOf(req));
-    const current = store.getCustomTool(idOf(req)) ?? notFound('Herramienta');
+    const current = store.getCustomTool(idOf(req)) ?? notFound('tool');
     // La credencial guardada no se «muda» a otra dirección (misma regla que la clave de un proveedor).
     const orphaned = orphanedSecretHeaders(current, input);
     if (orphaned.length) {
-      throw new HttpError(
-        400,
-        `Has cambiado la dirección de la herramienta: vuelve a escribir ${orphaned.join(', ')} (o quita esa cabecera) antes de guardar.`,
-        undefined,
-        'credential_required',
-      );
+      throw new HttpError(400, msg('toolCredentialRetype', { headers: orphaned.join(', ') }), undefined, 'credential_required');
     }
-    return store.updateCustomTool(current.id, input) ?? notFound('Herramienta');
+    return store.updateCustomTool(current.id, input) ?? notFound('tool');
   });
 
   app.delete('/api/tools/custom/:id', async (req, reply) => {
-    if (!store.deleteCustomTool(idOf(req))) notFound('Herramienta');
+    if (!store.deleteCustomTool(idOf(req))) notFound('tool');
     return reply.status(204).send();
   });
 
   // ---------- Servidores MCP ----------
   function assertMcpName(name: string, selfId?: string): void {
-    if (store.listMcpServers().some((s) => s.name === name && s.id !== selfId)) throw new HttpError(409, `Ya existe un servidor MCP llamado «${name}».`);
+    if (store.listMcpServers().some((s) => s.name === name && s.id !== selfId)) throw new HttpError(409, msg('mcpNameTaken', { name }));
   }
 
   app.get('/api/mcp/servers', async () => ctx.mcp.list());
@@ -526,40 +524,30 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   app.put('/api/mcp/servers/:id', async (req) => {
     const input = mcpServerSchema.parse(req.body);
     assertMcpName(input.name, idOf(req));
-    const current = store.getMcpServer(idOf(req)) ?? notFound('Servidor MCP');
+    const current = store.getMcpServer(idOf(req)) ?? notFound('mcpServer');
     // Las credenciales guardadas no siguen al servidor a otro origen ni a otro programa: hay que escribirlas de nuevo.
     if (input.transport === 'http' && input.headers === undefined && Object.keys(current.headers).length && !sameTemplateOrigin(current.url, input.url)) {
-      throw new HttpError(
-        400,
-        'Has cambiado la dirección del servidor MCP: vuelve a escribir sus cabeceras (o déjalas vacías) antes de guardar.',
-        undefined,
-        'credential_required',
-      );
+      throw new HttpError(400, msg('mcpHeadersRetype'), undefined, 'credential_required');
     }
     if (input.transport === 'stdio' && input.env === undefined && Object.keys(current.env).length && current.command !== input.command) {
-      throw new HttpError(
-        400,
-        'Has cambiado el programa del servidor MCP: vuelve a escribir sus variables de entorno (o déjalas vacías) antes de guardar.',
-        undefined,
-        'credential_required',
-      );
+      throw new HttpError(400, msg('mcpEnvRetype'), undefined, 'credential_required');
     }
-    if (!store.updateMcpServer(current.id, input)) notFound('Servidor MCP');
+    if (!store.updateMcpServer(current.id, input)) notFound('mcpServer');
     return ctx.mcp.sync(idOf(req));
   });
 
   app.delete('/api/mcp/servers/:id', async (req, reply) => {
-    if (!store.deleteMcpServer(idOf(req))) notFound('Servidor MCP');
+    if (!store.deleteMcpServer(idOf(req))) notFound('mcpServer');
     await ctx.mcp.sync(idOf(req));
     return reply.status(204).send();
   });
 
-  app.post('/api/mcp/servers/:id/reconnect', async (req) => (await ctx.mcp.reconnect(idOf(req))) ?? notFound('Servidor MCP'));
+  app.post('/api/mcp/servers/:id/reconnect', async (req) => (await ctx.mcp.reconnect(idOf(req))) ?? notFound('mcpServer'));
 
   /** Ejecuta una herramienta manualmente (banco de pruebas de la interfaz). */
   app.post('/api/tools/:name/invoke', async (req) => {
     const name = (req.params as { name: string }).name;
-    if (!tools.get(name)) notFound('Herramienta');
+    if (!tools.get(name)) notFound('tool');
     const { args } = invokeToolSchema.parse(req.body);
     const started = Date.now();
     try {
@@ -573,7 +561,7 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
       });
       return { ok: true, durationMs: Date.now() - started, result: stringifyResult(result) };
     } catch (err) {
-      return { ok: false, durationMs: Date.now() - started, error: errorMessage(err) };
+      return { ok: false, durationMs: Date.now() - started, ...failureOf(err) };
     }
   });
 
@@ -582,15 +570,15 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
 
   app.get('/api/workspace/file', async (req) => {
     const rel = String((req.query as { path?: string }).path ?? '');
-    if (!rel) throw new HttpError(400, 'Falta el parámetro path.');
+    if (!rel) throw new HttpError(400, msg('pathRequired'));
     let target: string;
     try {
       target = resolveInWorkspace(ctx.config.workspaceDir, rel);
     } catch (err) {
-      throw new HttpError(400, errorMessage(err));
+      throw new HttpError(400, codedOf(err));
     }
     const stat = await fsp.stat(target).catch(() => null);
-    if (!stat?.isFile()) notFound('Archivo');
+    if (!stat?.isFile()) notFound('file');
     // Se lee como mucho el tramo que se va a mostrar: un archivo enorme no se carga entero en memoria.
     const maxBytes = 500_000;
     const handle = await fsp.open(target, 'r');
@@ -609,21 +597,21 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
     try {
       target = resolveInWorkspace(ctx.config.workspaceDir, rel);
     } catch (err) {
-      throw new HttpError(400, errorMessage(err));
+      throw new HttpError(400, codedOf(err));
     }
     const stat = await fsp.stat(target).catch(() => null);
-    if (!rel || !stat?.isFile()) notFound('Archivo');
+    if (!rel || !stat?.isFile()) notFound('file');
     await fsp.unlink(target);
     return reply.status(204).send();
   });
 
   // ---------- Workflows ----------
   app.get('/api/workflows', async () => store.listWorkflows());
-  app.get('/api/workflows/:id', async (req) => store.getWorkflow(idOf(req)) ?? notFound('Workflow'));
+  app.get('/api/workflows/:id', async (req) => store.getWorkflow(idOf(req)) ?? notFound('workflow'));
 
   app.post('/api/workflows', async (req, reply) => reply.status(201).send(store.createWorkflow(workflowSchema.parse(req.body))));
 
-  app.put('/api/workflows/:id', async (req) => store.updateWorkflow(idOf(req), workflowSchema.parse(req.body)) ?? notFound('Workflow'));
+  app.put('/api/workflows/:id', async (req) => store.updateWorkflow(idOf(req), workflowSchema.parse(req.body)) ?? notFound('workflow'));
 
   app.post('/api/workflows/validate', async (req) => {
     const wf = workflowSchema.parse(req.body);
@@ -633,31 +621,31 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   });
 
   app.post('/api/workflows/:id/duplicate', async (req, reply) => {
-    const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = store.getWorkflow(idOf(req)) ?? notFound('Workflow');
+    const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = store.getWorkflow(idOf(req)) ?? notFound('workflow');
     return reply.status(201).send(store.createWorkflow({ ...rest, name: `${rest.name} (copia)` }));
   });
 
   app.delete('/api/workflows/:id', async (req, reply) => {
     const used = store.workflowsUsingWorkflow(idOf(req));
     if (used.length) {
-      throw new HttpError(409, `No se puede eliminar: lo usan como subworkflow ${used.map((w) => `«${w.name}»`).join(', ')}.`);
+      throw new HttpError(409, msg('workflowUsedAsSubworkflow', { names: used.map((w) => `«${w.name}»`).join(', ') }));
     }
-    if (!store.deleteWorkflow(idOf(req))) notFound('Workflow');
+    if (!store.deleteWorkflow(idOf(req))) notFound('workflow');
     return reply.status(204).send();
   });
 
   // ---------- Exportación e importación ----------
   /** Workflow como archivo portable: su definición más los agentes que usa (sin proveedor ni claves). */
   // ---------- Exportar e importar ----------
-  app.get('/api/workflows/:id/export', async (req): Promise<WorkflowExport> => exportWorkflow(store, store.getWorkflow(idOf(req)) ?? notFound('Workflow')));
-  app.get('/api/agents/:id/export', async (req): Promise<AgentExport> => exportAgent(store, store.getAgent(idOf(req)) ?? notFound('Agente')));
+  app.get('/api/workflows/:id/export', async (req): Promise<WorkflowExport> => exportWorkflow(store, store.getWorkflow(idOf(req)) ?? notFound('workflow')));
+  app.get('/api/agents/:id/export', async (req): Promise<AgentExport> => exportAgent(store, store.getAgent(idOf(req)) ?? notFound('agent')));
 
   /** Valida un archivo exportado, sea de workflow o de agentes. */
   function parseBundle(raw: unknown): ExportBundle {
     const format = (raw as { format?: unknown } | null)?.format;
     if (format === WORKFLOW_EXPORT_FORMAT) return workflowImportSchema.parse(raw) as ExportBundle;
     if (format === AGENT_EXPORT_FORMAT) return agentImportSchema.parse(raw) as ExportBundle;
-    throw new HttpError(400, 'El archivo no es un workflow ni un agente exportado de AgentForge.');
+    throw new HttpError(400, msg('notExportBundle'));
   }
   const importDeps = { store, tools };
 
@@ -685,7 +673,7 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   app.get('/api/triggers', async () => store.listTriggers());
 
   app.get('/api/workflows/:id/triggers', async (req) => {
-    if (!store.getWorkflow(idOf(req))) notFound('Workflow');
+    if (!store.getWorkflow(idOf(req))) notFound('workflow');
     return store.listTriggers(idOf(req));
   });
 
@@ -696,10 +684,10 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   });
 
   app.post('/api/workflows/:id/triggers', async (req, reply) => {
-    const workflow = store.getWorkflow(idOf(req)) ?? notFound('Workflow');
+    const workflow = store.getWorkflow(idOf(req)) ?? notFound('workflow');
     const input = triggerSchema.parse(req.body);
     if (store.listTriggers(workflow.id).length >= MAX_TRIGGERS_PER_WORKFLOW) {
-      throw new HttpError(409, `Un workflow admite como máximo ${MAX_TRIGGERS_PER_WORKFLOW} disparadores.`);
+      throw new HttpError(409, msg('tooManyTriggers', { max: MAX_TRIGGERS_PER_WORKFLOW }));
     }
     // El secreto de un webhook se genera aquí y solo se devuelve en esta respuesta.
     const secret = input.kind === 'webhook' ? newWebhookSecret() : undefined;
@@ -708,33 +696,33 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   });
 
   app.put('/api/triggers/:id', async (req) => {
-    const existing = store.getTrigger(idOf(req)) ?? notFound('Disparador');
+    const existing = store.getTrigger(idOf(req)) ?? notFound('trigger');
     const input = triggerSchema.parse(req.body);
     if ((existing.kind === 'webhook') !== (input.kind === 'webhook')) {
-      throw new HttpError(400, 'Un webhook no se puede convertir en un disparador con horario, ni al revés. Crea uno nuevo.');
+      throw new HttpError(400, msg('triggerKindChange'));
     }
     return store.updateTrigger(existing.id, input, firstOccurrence(input));
   });
 
   app.delete('/api/triggers/:id', async (req, reply) => {
-    if (!store.deleteTrigger(idOf(req))) notFound('Disparador');
+    if (!store.deleteTrigger(idOf(req))) notFound('trigger');
     return reply.status(204).send();
   });
 
   /** Lanza ahora el disparador, con su entrada guardada (para probarlo sin esperar a la hora). */
   app.post('/api/triggers/:id/run', async (req, reply) => {
-    const trigger = store.getTrigger(idOf(req)) ?? notFound('Disparador');
+    const trigger = store.getTrigger(idOf(req)) ?? notFound('trigger');
     try {
       return reply.status(202).send(ctx.scheduler.fire(trigger));
     } catch (err) {
-      throw new HttpError(422, errorMessage(err));
+      throw new HttpError(422, codedOf(err));
     }
   });
 
   /** Cambia el secreto de un webhook: el anterior deja de valer y el nuevo solo se devuelve aquí. */
   app.post('/api/triggers/:id/secret', async (req): Promise<TriggerWithSecret> => {
-    const trigger = store.getTrigger(idOf(req)) ?? notFound('Disparador');
-    if (trigger.kind !== 'webhook') throw new HttpError(400, 'Solo los webhooks tienen secreto.');
+    const trigger = store.getTrigger(idOf(req)) ?? notFound('trigger');
+    if (trigger.kind !== 'webhook') throw new HttpError(400, msg('onlyWebhooksHaveSecret'));
     const secret = newWebhookSecret();
     store.setTriggerSecret(trigger.id, secret);
     return { ...store.getTrigger(trigger.id)!, secret };
@@ -766,9 +754,9 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
       const authorized = signature ? same(signature, createHmac('sha256', expected).update(body).digest('hex')) : same(plain, expected);
       if (!trigger || !secret || !authorized) {
         app.log.warn({ ip: req.ip, triggerId: idOf(req) }, 'Llamada a un webhook rechazada');
-        throw new HttpError(401, 'Webhook desconocido o secreto incorrecto.');
+        throw new HttpError(401, msg('webhookUnauthorized'));
       }
-      if (!trigger.enabled) throw new HttpError(409, 'Este webhook está desactivado.');
+      if (!trigger.enabled) throw new HttpError(409, msg('webhookDisabled'));
       // Entrada: el campo «input» de un cuerpo JSON si lo hay; si no, el cuerpo como texto.
       let text = body.toString('utf8');
       try {
@@ -777,23 +765,23 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
       } catch {
         /* no es JSON: se usa el texto tal cual */
       }
-      if (text.length > 100_000) throw new HttpError(413, 'El cuerpo es demasiado grande (máximo 100 000 caracteres).');
+      if (text.length > 100_000) throw new HttpError(413, msg('webhookBodyTooLarge'));
       const input = trigger.input.trim() ? trigger.input.replace(/\{\{\s*body\s*\}\}/g, () => text) : text;
       try {
         const run = ctx.scheduler.fire(trigger, input);
         return reply.status(202).send({ runId: run.id, status: run.status });
       } catch (err) {
-        throw new HttpError(422, errorMessage(err));
+        throw new HttpError(422, codedOf(err));
       }
     });
   });
 
   app.post('/api/workflows/:id/run', async (req, reply) => {
-    const workflow = store.getWorkflow(idOf(req)) ?? notFound('Workflow');
+    const workflow = store.getWorkflow(idOf(req)) ?? notFound('workflow');
     const { input } = runInputSchema.parse(req.body);
     const issues = workflowIssues(workflow, workflow.id);
     const errors = issues.filter((i) => i.level === 'error');
-    if (errors.length) throw new HttpError(422, `El workflow tiene errores: ${errors[0].message}`, { issues });
+    if (errors.length) throw new HttpError(422, msg('workflowHasErrors', { detail: issueParam(errors[0]) }), { issues });
     return reply.status(202).send(runs.startWorkflowRun(workflow, input));
   });
 
@@ -817,30 +805,34 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
     return { dismissed: store.clearInterrupted(ids) };
   });
 
-  app.get('/api/runs/:id', async (req) => store.getRun(idOf(req)) ?? notFound('Ejecución'));
+  // Los pasos llegan con su estado ya calculado (también el consumo de los que siguen en curso) y con `lastSeq`:
+  // el monitor no necesita reproducir los eventos para saber cómo va la ejecución.
+  app.get('/api/runs/:id', async (req) => runs.withLiveUsage(store.getRun(idOf(req)) ?? notFound('run')));
 
+  /** Eventos guardados, por páginas: `after` y `before` son cursores por `seq` y `limit` el tamaño de la página. */
   app.get('/api/runs/:id/events', async (req) => {
-    if (!store.getRunSummary(idOf(req))) notFound('Ejecución');
-    return store.listEvents(idOf(req), eventsQuerySchema.parse(req.query).after ?? 0);
+    if (!store.getRunSummary(idOf(req))) notFound('run');
+    const { after, before, limit } = eventsQuerySchema.parse(req.query);
+    return store.listEvents(idOf(req), after ?? 0, limit ?? -1, before);
   });
 
   app.post('/api/runs/:id/cancel', async (req) => {
-    const run = store.getRunSummary(idOf(req)) ?? notFound('Ejecución');
-    if (!runs.cancel(run.id)) throw new HttpError(409, 'La ejecución ya había terminado.');
+    const run = store.getRunSummary(idOf(req)) ?? notFound('run');
+    if (!runs.cancel(run.id)) throw new HttpError(409, msg('runAlreadyFinished'));
     return { ok: true };
   });
 
   app.post('/api/runs/:id/retry', async (req, reply) => {
-    const run = store.getRun(idOf(req)) ?? notFound('Ejecución');
-    if (runs.isActive(run.id)) throw new HttpError(409, 'La ejecución todavía está en curso.');
+    const run = store.getRun(idOf(req)) ?? notFound('run');
+    if (runs.isActive(run.id)) throw new HttpError(409, msg('runStillActive'));
     const { mode } = retrySchema.parse(req.body ?? {});
     return reply.status(202).send(runs.retryRun(run, mode));
   });
 
   app.delete('/api/runs/:id', async (req, reply) => {
     const id = idOf(req);
-    if (runs.isActive(id)) throw new HttpError(409, 'Cancela la ejecución antes de eliminarla.');
-    if (!store.deleteRun(id)) notFound('Ejecución');
+    if (runs.isActive(id)) throw new HttpError(409, msg('runCancelFirst'));
+    if (!store.deleteRun(id)) notFound('run');
     return reply.status(204).send();
   });
 
@@ -848,14 +840,14 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
 
   /** Subejecuciones que lanzó una ejecución (subworkflows), de la más antigua a la más reciente. */
   app.get('/api/runs/:id/children', async (req) => {
-    if (!store.getRunSummary(idOf(req))) notFound('Ejecución');
+    if (!store.getRunSummary(idOf(req))) notFound('run');
     return store.listChildRuns(idOf(req));
   });
 
   /** Resultado de cada elemento de un nodo «para cada». */
   app.get('/api/runs/:id/steps/:nodeId/items', async (req) => {
     const { id, nodeId } = req.params as { id: string; nodeId: string };
-    if (!store.getRunSummary(id)) notFound('Ejecución');
+    if (!store.getRunSummary(id)) notFound('run');
     return store.listStepItems(id, nodeId);
   });
 
@@ -882,8 +874,9 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   /** Eventos de una ejecución en tiempo real. Reproduce primero el historial (desde Last-Event-ID). */
   app.get('/api/runs/:id/stream', async (req, reply) => {
     const runId = idOf(req);
-    if (!store.getRunSummary(runId)) notFound('Ejecución');
-    const after = Number(req.headers['last-event-id'] ?? (req.query as { after?: string }).after ?? 0) || 0;
+    if (!store.getRunSummary(runId)) notFound('run');
+    // Se valida antes de abrir el canal: un valor no válido es un 400, igual que en `/events`, y no un «desde 0».
+    const after = lastEventIdSchema.parse(req.headers)['last-event-id'] ?? streamQuerySchema.parse(req.query).after ?? 0;
     const sse = openSse(req, reply);
     const send = (ev: RunEvent) => sse.send('run-event', ev, ev.seq);
     // El historial se reproduce por tandas, cediendo el control entre ellas: conectar a una ejecución con miles

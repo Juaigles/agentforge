@@ -294,6 +294,14 @@ const MIGRATIONS: Migration[] = [
     updated_at TEXT NOT NULL
   );
   `,
+  // v7: junto al texto de un error se guardan el código y los parámetros con los que la interfaz lo muestra en
+  // otro idioma (JSON). Lo anterior a esta versión queda sin ellos (NULL) y se muestra con su texto, como siempre.
+  `
+  ALTER TABLE runs ADD COLUMN error_i18n TEXT;
+  ALTER TABLE run_steps ADD COLUMN error_i18n TEXT;
+  ALTER TABLE run_step_items ADD COLUMN error_i18n TEXT;
+  ALTER TABLE triggers ADD COLUMN last_error_i18n TEXT;
+  `,
 ];
 
 /** Versión de esquema que conoce este código. */

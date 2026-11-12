@@ -1,6 +1,6 @@
 {
   "name": "agentforge",
-  "version": "0.5.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Plataforma local para crear, gestionar y ejecutar sistemas de agentes de IA",

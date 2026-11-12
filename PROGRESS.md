@@ -1,6 +1,7 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-12 (hito 5 completo, fases 1 a 10; informe final en `docs/informe-hito5.md`)._
+_Última actualización: 2026-11-12 (versión 1.0.0: hito 5 completo, fases 1 a 10, más la pasada de cierre; informe
+del hito en `docs/informe-hito5.md`, cambios de la 1.0 en `CHANGELOG.md`)._
 
 ## Estado real
 
@@ -412,6 +413,8 @@ Defectos encontrados al verificar y corregidos:
 - **Errores de la API con código estable** (`code` en todas las respuestas de error: `not_found`, `validation`,
   `rate_limited`, `auth_required`, `payload_too_large`, `provider_error`, `tool_error`, `config_error`,
   `internal`). En inglés, los genéricos se muestran traducidos; el resto conserva el texto del servidor.
+  (Ampliado en la pasada de cierre de la 1.0: todos los textos del servidor llevan código y parámetros; ver
+  «Idiomas» en «Pendiente y limitaciones».)
 - **Salvaguardas**: un test comprueba que inglés y español tienen las mismas claves, los mismos huecos y las
   mismas formas de plural, y que toda clave escrita en el código existe; la suite e2e recorre todas las pantallas
   en los dos idiomas buscando claves sin traducir.
@@ -540,10 +543,14 @@ Defectos encontrados al verificar la propia fase 10:
 ## Pendiente y limitaciones
 
 - **Lo que deja abierto la segunda auditoría (fase 10)** — medios sin resolver o resueltos en parte:
-  - El monitor no pagina los eventos y reconstruye la actividad entera con cada evento: lento con ejecuciones de
-    cientos de pasos.
-  - El primer guardado de un workflow o agente nuevo vuelve a montar la pantalla (se pierden deshacer, selección
-    y foco).
+  - ~~El monitor no pagina los eventos y reconstruye la actividad entera con cada evento.~~ Resuelto en la pasada
+    de cierre de la 1.0: el servidor entrega el estado de los pasos ya calculado y los eventos por páginas, y el
+    registro de actividad es incremental y pinta las 100 entradas más recientes. Lo que queda: con un paso
+    elegido, «Cargar anteriores» sigue trayendo páginas de toda la ejecución (no solo de ese paso), y la lista de
+    pasos y el grafo sí se pintan enteros (un workflow de cientos de nodos sigue siendo pesado).
+  - ~~El primer guardado de un workflow o agente nuevo vuelve a montar la pantalla.~~ Resuelto en la 1.0: la
+    pantalla adopta la dirección del elemento creado sin volver a montarse (se conservan deshacer, selección y
+    foco). La posición del lienzo solo está comprobada en jsdom (mismo elemento y misma transformación).
   - Archivos que han crecido mucho (constructor, almacén, rutas, motor) y lógica duplicada en el motor.
   - `GET /api/runs` sigue calculando el total exacto y no hay índice por tipo de ejecución.
   - Las confirmaciones destructivas leen su mensaje (`aria-describedby`) pero no usan `role="alertdialog"`.
@@ -563,8 +570,8 @@ Defectos encontrados al verificar la propia fase 10:
     respuestas HTTP se pierde al reiniciar.
   - En la especificación, los esquemas de las respuestas están escritos a mano a partir de los tipos; solo los
     cuerpos de entrada salen de los esquemas de validación. Los tests de contrato cubren 24 respuestas, no todas.
-  - `GET /api/runs/:id/stream?after=` no valida su parámetro (un valor no válido se toma como 0), a diferencia de
-    `GET /api/runs/:id/events`. «Probar» un proveedor exige un nombre aunque no haga falta para probar la dirección.
+  - «Probar» un proveedor exige un nombre aunque no haga falta para probar la dirección. (`GET
+    /api/runs/:id/stream` ya valida `?after=` y `Last-Event-ID` como `/events`: un valor no válido es un 400.)
   - La documentación está solo en español.
 
 - **Pruebas (fase 8)**:
@@ -580,11 +587,45 @@ Defectos encontrados al verificar la propia fase 10:
   - El nombre repetido de una herramienta HTTP se avisa en el mensaje general del diálogo, no junto al campo.
 
 - **Idiomas (fase 7)**:
-  - *Siguen en español en la interfaz en inglés* los textos que escribe el servidor: el detalle de los errores de
-    validación de formularios («El nombre es obligatorio»), los errores de configuración, de proveedores y de
-    herramientas, el motivo de fallo de una ejecución o de un paso, los avisos del plan de importación, los
-    títulos, categorías y descripciones de las herramientas integradas (que además son las que lee el modelo), los
-    datos de ejemplo y los registros del servidor.
+  - ~~Siguen en español en la interfaz en inglés los textos que escribe el servidor.~~ Resuelto en su mayor parte
+    en la pasada de cierre de la 1.0. El servidor acompaña ahora cada texto que llega a la pantalla de su código
+    y sus parámetros, y la interfaz en inglés lo traduce; el texto en español sigue en la respuesta (y en la base
+    de datos) como respaldo:
+    - Tabla única de textos del servidor, `shared/server-messages.ts` (260 códigos), con su traducción en
+      `web/src/lib/server-messages-en.ts`; el tipo y un test exigen los mismos códigos y los mismos parámetros en
+      los dos idiomas, otro test del servidor comprueba que no queda ningún `HttpError`, `ConfigError`,
+      `LimitError`, `LlmError` ni `CronError` construido con un texto suelto y que todos los códigos se usan.
+    - *Validación de formularios y de parámetros*: cada problema de `issues` lleva `code` y `params` además de
+      `path` y `message`, también los que zod detecta sin mensaje propio del esquema (longitud, rango, tipo,
+      opción), que antes salían en inglés incluso con la interfaz en español. La interfaz los muestra junto al
+      campo en el idioma activo.
+    - *Errores de la API*: toda respuesta de error trae `i18n: { code, params }`. `code` sigue siendo la clase
+      de error (`not_found`, `validation`…), sin cambios para quien ya lo usaba.
+    - *Motivo de fallo de una ejecución, de un paso y de un elemento de «para cada»*: se guarda la referencia
+      junto al texto (columnas `error_i18n`, esquema v7; lo anterior queda en `NULL` y se muestra con su texto) y
+      viaja en la API (`errorI18n`) y en los eventos (`step.finished`, `step.retry`, `step.skipped`,
+      `foreach.item`, `tool.result`, `run.finished`). La causa va anidada (`El nodo «X» falló: <causa>`) y se
+      traduce también; lo que viene de fuera (respuesta de un proveedor, de una API o de un servidor MCP, el
+      error de un programa) es un parámetro y se muestra tal cual dentro de la frase traducida. Lo mismo para el
+      motivo por el que un disparador no se lanzó (`lastErrorI18n`), el resultado de probar un proveedor o una
+      herramienta, el estado del contenedor y la pérdida de conexión de un servidor MCP.
+    - *Herramientas integradas*: título, categoría, descripción y descripción de cada parámetro se rotulan en la
+      interfaz por nombre de herramienta (`web/src/i18n/{es,en}/builtinTools.ts`; un test comprueba que el español
+      coincide palabra por palabra con lo que entrega el servidor). La descripción que lee el modelo no cambia.
+    - *Importación*: los avisos del plan y del resultado y las notas de cada elemento llevan su referencia en
+      `warningsI18n` y `notesI18n` (misma posición que el texto).
+  - *Lo que sigue en español con la interfaz en inglés*: los datos de ejemplo (agentes y workflows con que nace
+    una instalación; se crean una vez y pasan a ser datos del usuario); lo que el motor escribe DENTRO de un
+    resultado (el resumen de un «para cada»: «⚠ No se pudo completar…», «N de M elementos no se pudieron
+    completar», su progreso en vivo «3 de 5 elementos completados», y la marca «[truncado: N caracteres más]»);
+    los errores que solo se devuelven al modelo dentro del bucle de un agente (herramienta no disponible, llamada
+    repetida, argumentos que no son JSON, delegación), que se ven en el registro de actividad como resultado de
+    la herramienta; el detalle de un error cuando lo escribe un programa de fuera o el propio entorno aislado
+    («La red está desactivada en el entorno aislado»); las comillas «» de las listas de nombres dentro de una
+    frase traducida; las ejecuciones y los disparadores anteriores a esta versión (sin referencia guardada); la
+    página de «interfaz no compilada», `/api/health/ready`, la documentación de la API y los registros del
+    servidor. Los textos del registro de actividad se fijan al cargar: al cambiar de idioma con el monitor
+    abierto, el detalle de cada entrada no cambia hasta recargar (el motivo de la ejecución y del paso, sí).
   - La traducción al inglés no la ha revisado una persona nativa.
   - Las etiquetas por defecto de un nodo nuevo se crean en el idioma activo y pasan a ser datos del workflow (no
     cambian al cambiar de idioma). En el monitor de una ejecución, las etiquetas «sí»/«no» de las ramas se fijan
@@ -594,8 +635,10 @@ Defectos encontrados al verificar la propia fase 10:
     de mensajes, su tabla de validación y su glosario.
 
 - **De la fase 6 (auditorías de accesibilidad y UX), sin hacer**:
-  - *Historial*: comparar dos ejecuciones, filtrar por workflow, agente o fecha, ordenar por columnas; el filtro
-    «En curso» no incluye las que están en cola; cada evento en vivo vuelve a pedir la página entera.
+  - *Historial*: comparar dos ejecuciones, ordenar por columnas; cada evento en vivo vuelve a pedir la página
+    entera. (Hechos en la pasada de cierre de la 1.0: filtros por workflow, agente e intervalo de fechas, y «En
+    curso» incluye las que están en cola o en espera. El filtro por agente solo ve sus ejecuciones directas, no
+    las de los workflows que lo usan.)
   - *Constructor*: menú contextual, botón «×» sobre una conexión, insertar un nodo sobre una conexión, crear un
     agente sin salir del lienzo; por debajo de 1100 px el inspector queda bajo el lienzo; un workflow nuevo nace
     «Sin guardar»; «Exportar» guarda antes sin preguntar.
@@ -696,10 +739,15 @@ Defectos encontrados al verificar la propia fase 10:
 
 Por orden de valor, a juicio de la segunda auditoría y de lo anotado arriba:
 
-1. Decidir la licencia y, si se publica, estrenar la integración continua y construir la imagen de Docker.
-2. Una pasada con un lector de pantalla real (NVDA) por los flujos principales.
-3. Traducir lo que escribe el servidor (errores de validación, motivos de fallo, herramientas integradas).
+Hechos en la pasada de cierre de la 1.0 (2026-11-12): traducir lo que escribe el servidor, paginar los eventos
+con actividad incremental, filtrar el historial por workflow, agente y fecha, y el primer guardado sin volver a
+montar la pantalla. Lo que queda, por orden de valor:
+
+1. **Decisiones del autor**: elegir la licencia y, si se publica, estrenar la integración continua, construir la
+   imagen de Docker y poner un contacto real en `SECURITY.md`.
+2. **Comprobaciones que piden algo que esta máquina no tiene**: un proveedor de pago con clave real, Docker en
+   marcha (aislamiento en contenedor), Safari real y una pasada con un lector de pantalla (NVDA o VoiceOver).
+3. **Instalación para quien no programa**: hoy hace falta Node 22.13+, `npm install` y `npm run build`.
 4. Dividir los archivos que más han crecido (constructor, almacén, rutas, motor) y unificar en el motor la
    invocación de herramientas y los reintentos, hoy duplicados.
-5. Paginar los eventos de una ejecución y construir la actividad del monitor de forma incremental.
-6. Comparar ejecuciones y filtrar el historial por workflow, agente y fecha.
+5. Comparar dos ejecuciones; datos de ejemplo en el idioma de la interfaz.

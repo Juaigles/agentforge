@@ -10,6 +10,7 @@ import net from 'node:net';
 import os from 'node:os';
 import { pipeline, type Readable } from 'node:stream';
 import zlib from 'node:zlib';
+import { msg } from '../../../shared/server-messages';
 import { ToolError } from '../errors';
 
 function isPrivateV4(ip: string): boolean {
@@ -121,10 +122,10 @@ export async function resolveTarget(rawUrl: string, allowPrivate: boolean, looku
   try {
     url = new URL(rawUrl);
   } catch {
-    throw new ToolError(`URL no válida: ${rawUrl}`);
+    throw new ToolError(msg('urlNotValid', { url: rawUrl }));
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new ToolError(`Protocolo no permitido: ${url.protocol} (solo http y https).`);
+    throw new ToolError(msg('protocolNotAllowed', { protocol: url.protocol }));
   }
   const host = url.hostname.replace(/^\[|\]$/g, '');
   let addresses: string[];
@@ -133,18 +134,18 @@ export async function resolveTarget(rawUrl: string, allowPrivate: boolean, looku
     try {
       addresses = await lookupHost(host);
     } catch {
-      throw new ToolError(`No se pudo resolver el host: ${host}`);
+      throw new ToolError(msg('hostUnresolved', { host }));
     }
     addresses = addresses.filter((a) => net.isIP(a));
-    if (!addresses.length) throw new ToolError(`No se pudo resolver el host: ${host}`);
+    if (!addresses.length) throw new ToolError(msg('hostUnresolved', { host }));
   }
   // Basta una dirección privada entre las respuestas para rechazar el nombre entero.
   if (!allowPrivate && addresses.some(isPrivateAddress)) {
-    throw new ToolError(`Acceso bloqueado a red privada o local (${host}). Puede habilitarse en Ajustes → "Permitir redes privadas".`);
+    throw new ToolError(msg('privateNetworkBlocked', { host }));
   }
   const port = Number(url.port) || (url.protocol === 'https:' ? 443 : 80);
   if (protectedPorts.has(port) && addresses.some(isOwnAddress)) {
-    throw new ToolError(`Acceso bloqueado: las herramientas no pueden llamar a la propia API de AgentForge (${url.host}).`);
+    throw new ToolError(msg('ownApiBlocked', { host: url.host }));
   }
   const address = addresses.find((a) => net.isIPv4(a)) ?? addresses[0];
   return { url, address, family: net.isIPv4(address) ? 4 : 6 };
@@ -258,8 +259,8 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
       });
     } catch (err) {
       if (opts.signal.aborted) throw opts.signal.reason;
-      if (signal.aborted) throw new ToolError(`La petición a ${url.host} superó el tiempo de espera.`, { retryable: true });
-      throw new ToolError(`Fallo de red al conectar con ${url.host}: ${(err as Error).message}`, { retryable: true });
+      if (signal.aborted) throw new ToolError(msg('requestTimeout', { host: url.host }), { retryable: true });
+      throw new ToolError(msg('networkConnectFailed', { host: url.host, detail: (err as Error).message }), { retryable: true });
     }
 
     const status = res.statusCode ?? 0;
@@ -268,7 +269,7 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
       res.destroy();
       const next = new URL(location, url);
       if (url.protocol === 'https:' && next.protocol === 'http:') {
-        throw new ToolError(`Redirección rechazada: ${url.host} redirige de https a http (${next.host}).`);
+        throw new ToolError(msg('redirectDowngrade', { host: url.host, target: next.host }));
       }
       current = next.toString();
       if (status === 303 || ((status === 301 || status === 302) && method === 'POST')) {
@@ -294,8 +295,8 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
       }
     } catch (err) {
       if (opts.signal.aborted) throw opts.signal.reason;
-      if (signal.aborted) throw new ToolError(`La petición a ${url.host} superó el tiempo de espera.`, { retryable: true });
-      throw new ToolError(`Fallo de red al leer la respuesta de ${url.host}: ${(err as Error).message}`, { retryable: true });
+      if (signal.aborted) throw new ToolError(msg('requestTimeout', { host: url.host }), { retryable: true });
+      throw new ToolError(msg('networkReadFailed', { host: url.host, detail: (err as Error).message }), { retryable: true });
     } finally {
       res.destroy();
     }
@@ -312,7 +313,7 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
       truncated,
     };
   }
-  throw new ToolError('Demasiadas redirecciones.');
+  throw new ToolError(msg('tooManyRedirects'));
 }
 
 /** HTML que se convierte como mucho: lo que sobra no aporta a un modelo y solo cuesta tiempo. */

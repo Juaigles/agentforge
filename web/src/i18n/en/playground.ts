@@ -4,6 +4,8 @@ export default {
   task: 'Task',
   taskPlaceholder: 'Write a task to check how the agent responds…',
   starting: 'Starting…',
+  saveAndRun: 'Save and run',
+  savesFirst: 'Unsaved changes are saved before running.',
   shortcut: 'Ctrl + Enter',
   tokens: 'tokens',
   reasoning: 'Reasoning…',

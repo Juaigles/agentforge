@@ -1,14 +1,58 @@
 <script setup lang="ts">
 // Registro de actividad de una ejecución: mensajes del modelo, llamadas a herramientas y cambios de estado.
-import type { RunEvent } from '@shared/types';
 import { Brain, ChevronRight, MessageSquareText, Wrench } from 'lucide-vue-next';
-import { computed, reactive } from 'vue';
+import { computed, nextTick, reactive, ref, watch } from 'vue';
 import { t, tn } from '@/i18n';
 import { formatDuration, formatNumber, formatTime } from '@/lib/format';
-import { buildActivity } from '@/lib/run-state';
+import type { ActivityItem, ActivityLog } from '@/lib/run-state';
 
-const props = defineProps<{ events: RunEvent[]; nodeId?: string | null; labels?: Record<string, string> }>();
-const items = computed(() => buildActivity(props.events, props.nodeId));
+/** Entradas que se pintan de entrada y que añade cada «Cargar anteriores»: una ejecución larga no pinta miles de filas. */
+const WINDOW = 100;
+
+const props = defineProps<{
+  /** Registro de actividad ya construido (se amplía solo con cada evento). */
+  log: ActivityLog;
+  nodeId?: string | null;
+  labels?: Record<string, string>;
+  /** Quedan eventos más antiguos en el servidor que aún no están en el registro. */
+  hasOlder?: boolean;
+  loadingOlder?: boolean;
+}>();
+const emit = defineEmits<{ older: [] }>();
+
+const visible = ref(WINDOW);
+watch(
+  () => props.nodeId,
+  () => (visible.value = WINDOW),
+);
+/** Las últimas `visible` entradas (del nodo elegido, si lo hay): solo se recorre el final del registro. */
+const shown = computed(() => {
+  const all = props.log.items;
+  if (!props.nodeId) return all.slice(Math.max(0, all.length - visible.value));
+  const picked: ActivityItem[] = [];
+  for (let i = all.length - 1; i >= 0 && picked.length < visible.value; i--) if (all[i].nodeId === props.nodeId) picked.push(all[i]);
+  return picked.reverse();
+});
+/** Entradas ya cargadas que no se están pintando. */
+const hidden = computed(() => (props.nodeId ? (props.log.counts[props.nodeId] ?? 0) : props.log.items.length) - shown.value.length);
+const canShowOlder = computed(() => hidden.value > 0 || !!props.hasOlder);
+
+const list = ref<HTMLElement | null>(null);
+const olderButton = ref<HTMLButtonElement | null>(null);
+function showOlder(): void {
+  // Si lo cargado no da para otra tanda, se pide además la página anterior al servidor.
+  if (hidden.value < WINDOW && props.hasOlder) emit('older');
+  visible.value += WINDOW;
+}
+// Al cargar lo último el botón desaparece: el foco pasa a la lista para no perderse al principio de la página.
+watch(
+  canShowOlder,
+  (can) => {
+    if (can || document.activeElement !== olderButton.value) return;
+    void nextTick(() => list.value?.focus());
+  },
+  { flush: 'pre' },
+);
 const expanded = reactive(new Set<string>());
 const toggle = (key: string) => (expanded.has(key) ? expanded.delete(key) : expanded.add(key));
 const pretty = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value, null, 2));
@@ -18,8 +62,14 @@ const where = (nodeId: string | null) => (!props.nodeId && nodeId ? (props.label
 </script>
 
 <template>
-  <ol v-if="items.length" class="activity">
-    <li v-for="item in items" :key="item.key" :class="[item.kind, item.kind === 'marker' ? item.tone : '']">
+  <div v-if="canShowOlder" class="older">
+    <button ref="olderButton" class="btn btn-sm" type="button" :disabled="loadingOlder" @click="showOlder">
+      {{ loadingOlder ? t('common.actions.loading') : t('runActivity.older') }}
+    </button>
+    <span class="tiny muted" role="status">{{ tn('runActivity.showing', shown.length) }}</span>
+  </div>
+  <ol v-if="shown.length" ref="list" class="activity" tabindex="-1" :aria-label="t('runActivity.label')">
+    <li v-for="item in shown" :key="item.key" :class="[item.kind, item.kind === 'marker' ? item.tone : '']">
       <time class="tiny faint num">{{ formatTime(item.ts) }}</time>
 
       <div v-if="item.kind === 'marker'" class="line">
@@ -81,12 +131,21 @@ const where = (nodeId: string | null) => (!props.nodeId && nodeId ? (props.label
       </div>
     </li>
   </ol>
-  <p v-else class="faint small" style="padding: 12px 0">{{ t('runActivity.empty') }}</p>
+  <p v-else class="faint small" style="padding: 12px 0">{{ canShowOlder ? t('runActivity.emptyLoaded') : t('runActivity.empty') }}</p>
 </template>
 
 <style scoped>
 .marker-link {
   text-decoration: underline;
+}
+.older {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.activity:focus {
+  outline: none;
 }
 .activity {
   list-style: none;

@@ -186,7 +186,7 @@ proceso muere de golpe. Un segundo Ctrl+C fuerza la salida.
   condicionales, reintentos con backoff, timeout por nodo, duración máxima, límite de llamadas al modelo,
   política de error (detener/continuar), cancelación, cola global, delegación entre agentes y memoria
   compartida por ejecución.
-- **Ejecuciones**: historial con filtros y búsqueda en el contenido (nombre, entrada y resultado), monitor en vivo (grafo con estados, streaming de tokens,
+- **Ejecuciones**: historial con filtros (estado, tipo, workflow, agente y fechas) y búsqueda en el contenido (nombre, entrada y resultado), monitor en vivo (grafo con estados, streaming de tokens,
   registro de actividad con llamadas a herramientas), cancelar, repetir y **reintentar desde el fallo**
   reutilizando los pasos completados (y los elementos ya hechos de un «para cada»). Si el servidor se apaga con
   ejecuciones a medias, al volver la interfaz ofrece **reanudarlas** (o descartarlas) desde cualquier pantalla, o
@@ -262,10 +262,21 @@ La interfaz está en **español e inglés**. El selector está al pie de la barr
 instante, se recuerda en el navegador y, si no se ha elegido, se usa el idioma del navegador. Números, fechas y
 duraciones siguen al idioma.
 
-Lo que escribe el servidor sigue en español también con la interfaz en inglés: el detalle de los errores de
-validación, los motivos de fallo de una ejecución, las descripciones de las herramientas integradas y los datos de
-ejemplo. Los errores genéricos (no encontrado, demasiadas peticiones, falta la clave…) y la validación de los
-workflows sí se traducen, porque el servidor los envía con un código.
+El servidor escribe sus textos en español y acompaña cada uno que llega a la pantalla de su **código y sus
+parámetros**; con ellos la interfaz en inglés lo traduce: los errores de validación de un formulario (junto a su
+campo), los errores de la API, el motivo de fallo de una ejecución o de un paso, los errores de las herramientas y
+los avisos de una importación. El texto en español sigue en la respuesta como respaldo para quien no traduzca, y
+lo que viene de fuera (la respuesta de un proveedor o de una API) se muestra tal cual dentro de la frase
+traducida. Los títulos y descripciones de las herramientas integradas se traducen en la interfaz por nombre de
+herramienta; la descripción que lee el modelo no cambia.
+
+Siguen en español con la interfaz en inglés: los datos de ejemplo, las ejecuciones anteriores a esta versión (no
+tienen código guardado), lo que el motor escribe dentro de un resultado (el resumen de un «para cada») y los
+errores que solo se devuelven al modelo. El detalle está en `PROGRESS.md`.
+
+Para añadir un texto del servidor: una entrada en `shared/server-messages.ts` y su traducción en
+`web/src/lib/server-messages-en.ts` (el compilador y un test exigen los mismos códigos), y en el servidor
+`msg('código', { parámetros })` al construir el error o el aviso.
 
 Para añadir textos: `web/src/i18n/es/<ámbito>.ts` y `web/src/i18n/en/<ámbito>.ts` con las mismas claves (un test lo
 comprueba), y en el código `t('ámbito.clave')` o `tn('ámbito.clave', n)` para plurales, importados de `@/i18n`.
@@ -319,7 +330,9 @@ evidencias de pruebas en [TEST_RESULTS.md](TEST_RESULTS.md).
 
 Crea un objeto `ToolDefinition` (nombre, descripción, esquema de parámetros y `execute`) y añádelo a
 `BUILTIN_TOOLS` en `server/src/tools/builtin.ts`, o regístralo con `registry.register(...)`. Aparecerá en
-el catálogo, en el editor de agentes y en el constructor sin tocar el frontend.
+el catálogo, en el editor de agentes y en el constructor. Para una integrada, añade también su título, descripción
+y parámetros en `web/src/i18n/es/builtinTools.ts` y `en/builtinTools.ts`, y su categoría en
+`web/src/lib/tool-text.ts` (un test lo exige): así se rotula en el idioma de la interfaz.
 
 ## Seguridad
 

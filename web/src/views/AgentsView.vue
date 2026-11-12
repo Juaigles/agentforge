@@ -7,6 +7,7 @@ import AgentAvatar from '@/components/AgentAvatar.vue';
 import ImportModal from '@/components/ImportModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import { t, tn } from '@/i18n';
 import { downloadJson, exportFileName, importSummary, readJsonFile } from '@/lib/transfer';
 import { agentDeleteMessage, workflowsUsingAgent } from '@/lib/usage';
@@ -73,7 +74,7 @@ async function onImported(result: ImportResult): Promise<void> {
   if (result.workflow)
     ui.success(summary ? t('agents.toast.importedWith', { name: result.workflow.name, summary }) : t('agents.toast.imported', { name: result.workflow.name }));
   else ui.success(summary ? t('agents.toast.importDone', { summary }) : t('agents.toast.importNothing'));
-  for (const warning of result.warnings) ui.info(warning);
+  result.warnings.forEach((warning, i) => ui.info(serverText(warning, result.warningsI18n?.[i])));
   if (result.workflow) await router.push(`/workflows/${result.workflow.id}`);
 }
 

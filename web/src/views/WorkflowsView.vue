@@ -11,6 +11,7 @@ import ImportModal from '@/components/ImportModal.vue';
 import TriggersModal from '@/components/TriggersModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import { relativeTime } from '@/lib/format';
 import { t, tn } from '@/i18n';
 import { downloadJson, exportFileName, importSummary, readJsonFile, summarizeTriggers } from '@/lib/transfer';
@@ -83,7 +84,7 @@ async function onImported(result: ImportResult): Promise<void> {
       summary ? t('workflows.toast.importedWith', { name: result.workflow.name, summary }) : t('workflows.toast.imported', { name: result.workflow.name }),
     );
   else ui.success(summary ? t('workflows.toast.importDone', { summary }) : t('workflows.toast.importNothingNew'));
-  for (const warning of result.warnings) ui.info(warning);
+  result.warnings.forEach((warning, i) => ui.info(serverText(warning, result.warningsI18n?.[i])));
   await router.push(result.workflow ? `/workflows/${result.workflow.id}` : '/agents');
 }
 

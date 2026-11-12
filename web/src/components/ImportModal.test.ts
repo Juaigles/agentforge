@@ -6,6 +6,7 @@ import type { Agent, ExportBundle, ImportResult, Provider } from '@shared/types'
 import { DOMWrapper, flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { addAgent, edges, node, workflow } from '../../../server/test/helpers';
+import { setLocale } from '@/i18n';
 import { freshPinia, setTouchDevice, startApi, testRouter, until, type TestApi } from '@/test/harness';
 import ImportModal from './ImportModal.vue';
 
@@ -576,5 +577,36 @@ describe('ImportModal: cancelar y fallos al aplicar', () => {
     const result = await applyImport();
     expect(result.createdProviders.map((p) => p.name)).toEqual(['Ollama fuente']);
     expect(api.ctx.store.listWorkflows()).toHaveLength(1);
+  });
+});
+
+describe('ImportModal: avisos y notas en el idioma de la interfaz', () => {
+  afterEach(() => setLocale('es', false));
+
+  it('en inglés traduce los avisos del plan y las notas de cada elemento; en español muestra los del servidor', async () => {
+    const source = await seedSource();
+    const bundle = await exportWorkflow(source.workflowId);
+    wipe(source);
+    setLocale('en', false);
+    await open(bundle);
+    const warnings = () => [...body().querySelectorAll('.callout.warning')].map((w) => w.textContent?.trim());
+    expect(warnings()).toEqual([
+      'This file uses tools that act outside the conversation (http_request). Review the agents before running it if you do not know where it comes from.',
+      'It brings one trigger, which will be created paused.',
+    ]);
+    const notes = () => [...body().querySelectorAll('.note')].map((n) => n.textContent?.trim());
+    expect(notes().sort()).toEqual([
+      'It carries credentials that do not travel in the file: you will have to enter Authorization when editing it.',
+      'It sends GET requests to api.ejemplo.test.',
+      `It will be created pointing to ${SOURCE_URL}.`,
+    ]);
+
+    setLocale('es', false);
+    await flushPromises();
+    expect(warnings()).toEqual([
+      'Este archivo usa herramientas que actúan fuera de la conversación (http_request). Revisa los agentes antes de ejecutarlo si no conoces su origen.',
+      'Trae un disparador, que se creará en pausa.',
+    ]);
+    expect(notes()).toContain(`Se creará apuntando a ${SOURCE_URL}.`);
   });
 });

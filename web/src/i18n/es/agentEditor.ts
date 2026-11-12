@@ -88,8 +88,4 @@ export default {
     leaveMessage: 'Si sales ahora perderás los cambios de este agente.',
     leaveLabel: 'Salir sin guardar',
   },
-  playground: {
-    saveFirst: 'Guarda el agente para poder probarlo.',
-    saveChanges: 'Guarda los cambios para probar la versión actual.',
-  },
 };

@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Router } from 'vue-router';
 import { edges, node, workflow } from '../../../server/test/helpers';
 import { setLocale } from '@/i18n';
+import { editorMount } from '@/lib/editor-mount';
 import { useCatalog } from '@/stores/catalog';
+import { useUi } from '@/stores/ui';
 import { freshPinia, setTouchDevice, startApi, testRouter, until, type TestApi } from '@/test/harness';
 import WorkflowBuilderView from './WorkflowBuilderView.vue';
 
@@ -24,17 +26,29 @@ class DOMMatrixStub {
   m22 = 1;
 }
 
-async function open(path: string): Promise<void> {
+async function open(path: string, cameFrom?: string): Promise<void> {
   const pinia = freshPinia();
+  // Las mismas rutas y el mismo envoltorio que en la aplicación (router.ts): de él depende cuándo se vuelve a
+  // montar la pantalla.
+  const builder = editorMount(WorkflowBuilderView);
   router = testRouter([
-    { path: '/workflows/new', component: WorkflowBuilderView },
-    { path: '/workflows/:id', component: WorkflowBuilderView },
+    { path: '/workflows/new', component: builder },
+    { path: '/workflows/:id', component: builder },
   ]);
+  if (cameFrom) await router.push(cameFrom);
   await router.push(path);
   wrapper = mount({ template: '<RouterView />' }, { global: { plugins: [pinia, router] }, attachTo: document.body });
   await until(() => wrapper.find('.canvas').exists());
 }
 const labels = () => [...document.body.querySelectorAll('.vue-flow__node')].map((n) => n.textContent ?? '');
+const button = (label: string) => document.body.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+const nameField = () => document.body.querySelector<HTMLInputElement>('input[aria-label="Nombre del workflow"]')!;
+const unsaved = () => [...document.body.querySelectorAll('.bar .badge')].some((b) => b.textContent?.includes('Sin guardar'));
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function type(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
+  el.value = value;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
 
 beforeEach(async () => {
   setTouchDevice(false);
@@ -114,6 +128,122 @@ describe('WorkflowBuilderView', () => {
     key('v');
     await until(() => labels().length === 3);
     await until(() => document.body.querySelector<HTMLInputElement>('#in-desc')?.value === 'Tema del informe');
+  });
+
+  it('un workflow nuevo sin tocar no figura como «Sin guardar» ni pide confirmación al salir; en cuanto se toca, sí', async () => {
+    await open('/workflows/new');
+    await until(() => labels().length === 2);
+    // Se deja pasar el tiempo en que Vue Flow mide los nodos y el historial anota cambios: nada de eso cuenta.
+    await pause(500);
+    expect(unsaved()).toBe(false);
+    // Aun así se puede guardar: es la forma de crearlo.
+    const save = [...document.body.querySelectorAll<HTMLButtonElement>('.bar button')].find((b) => b.textContent?.includes('Guardar'))!;
+    expect(save.disabled).toBe(false);
+    await router.push('/workflows');
+    expect(router.currentRoute.value.path).toBe('/workflows');
+    expect(useUi().confirmState).toBeNull();
+    wrapper.unmount();
+    document.body.innerHTML = '';
+
+    await open('/workflows/new');
+    await until(() => labels().length === 2);
+    type(nameField(), 'Con un cambio');
+    await until(unsaved);
+    const leaving = router.push('/workflows');
+    await until(() => useUi().confirmState !== null);
+    expect(useUi().confirmState!.title).toBe('Cambios sin guardar');
+    useUi().answer(false);
+    await leaving;
+    expect(router.currentRoute.value.path).toBe('/workflows/new');
+    expect(nameField().value).toBe('Con un cambio');
+  });
+
+  it('el primer guardado conserva la pantalla: deshacer, selección, lienzo y foco, ya en la dirección del workflow creado', async () => {
+    await open('/workflows/new', '/workflows');
+    await until(() => labels().length === 2);
+    // Un nodo nuevo queda seleccionado; se le cambia la etiqueta y se espera a que el historial lo anote.
+    [...document.body.querySelectorAll<HTMLButtonElement>('.palette .pal-item')].find((b) => b.textContent?.includes('Transformación'))!.click();
+    await until(() => document.body.querySelector('#in-label') !== null);
+    const label = document.body.querySelector<HTMLInputElement>('#in-label')!;
+    await until(() => !button('Deshacer').disabled);
+    await pause(400); // los cambios seguidos se agrupan en un solo paso: añadir y renombrar van por separado
+    type(label, 'Resumen');
+    await pause(400);
+    const firstNode = document.body.querySelector('.vue-flow__node')!;
+    const pane = document.body.querySelector<HTMLElement>('.vue-flow__transformationpane')!;
+    const transform = pane.style.transform;
+    label.focus();
+
+    // Ctrl+S con el foco en un campo: se crea el workflow.
+    label.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true }));
+    await until(() => api.ctx.store.listWorkflows().length === 1);
+    const { id } = api.ctx.store.listWorkflows()[0];
+    await until(() => router.currentRoute.value.path === `/workflows/${id}`);
+    await flushPromises();
+
+    // Los mismos elementos del DOM: la pantalla no se ha destruido y vuelto a crear.
+    expect(document.body.querySelector('.vue-flow__node')).toBe(firstNode);
+    expect(document.body.querySelector('.vue-flow__transformationpane')).toBe(pane);
+    expect(pane.style.transform).toBe(transform);
+    expect(document.body.querySelector('#in-label')).toBe(label);
+    expect(document.activeElement).toBe(label);
+    expect(label.value).toBe('Resumen');
+    expect(labels()).toHaveLength(3);
+    expect(unsaved()).toBe(false);
+    // Ya es un workflow guardado: aparecen programar y exportar.
+    expect(button('Exportar')).not.toBeNull();
+
+    // El historial sigue ahí: deshacer devuelve la etiqueta anterior y deja cambios pendientes sobre lo guardado.
+    expect(button('Deshacer').disabled).toBe(false);
+    button('Deshacer').click();
+    await until(() => document.body.querySelector<HTMLInputElement>('#in-label')?.value === 'Transformación');
+    await until(unsaved);
+    // Guardar de nuevo actualiza el mismo workflow, no crea otro.
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true }));
+    await until(() => api.ctx.store.getWorkflow(id)?.nodes.some((n) => n.label === 'Transformación') === true);
+    expect(api.ctx.store.listWorkflows()).toHaveLength(1);
+
+    // «Atrás» no vuelve a «nuevo», sino a donde se estaba antes de abrirlo.
+    await until(() => !unsaved());
+    router.back();
+    await until(() => router.currentRoute.value.path !== `/workflows/${id}`);
+    expect(router.currentRoute.value.path).toBe('/workflows');
+  });
+
+  it('de un workflow a otro, y de uno existente a «nuevo», la pantalla empieza limpia', async () => {
+    const first = api.ctx.store.createWorkflow({
+      ...workflow(
+        [node('entrada', 'input'), node('paso', 'transform', { template: '{{entrada}}' }), node('salida', 'output')],
+        edges('entrada>paso', 'paso>salida'),
+      ),
+      name: 'Primero',
+    });
+    const second = api.ctx.store.createWorkflow({
+      ...workflow([node('entrada', 'input'), node('salida', 'output', { template: '{{entrada}}' })], edges('entrada>salida')),
+      name: 'Segundo',
+    });
+    await open(`/workflows/${first.id}`);
+    await until(() => labels().length === 3);
+    document.body.querySelector<HTMLElement>('.vue-flow__node')!.click();
+    await until(() => document.body.querySelector('#in-label') !== null);
+    const before = nameField();
+
+    await router.push(`/workflows/${second.id}`);
+    await until(() => nameField() !== null && nameField() !== before && nameField().value === 'Segundo');
+    await until(() => labels().length === 2);
+    // Sin la selección ni el historial del anterior.
+    expect(document.body.querySelector('#in-label')).toBeNull();
+    expect(document.body.querySelector('#wf-desc')).not.toBeNull();
+    expect(button('Deshacer').disabled).toBe(true);
+    expect(unsaved()).toBe(false);
+
+    const existing = nameField();
+    await router.push('/workflows/new');
+    await until(() => nameField() !== null && nameField() !== existing && nameField().value === 'Nuevo workflow');
+    await until(() => labels().length === 2);
+    expect(button('Deshacer').disabled).toBe(true);
+    expect(document.body.querySelector('button[aria-label="Exportar"]')).toBeNull();
+    expect(unsaved()).toBe(false);
   });
 
   it('muestra «Reintentar» si falla la carga y se recupera solo al volver la conexión', async () => {

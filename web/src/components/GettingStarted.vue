@@ -6,6 +6,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Term from '@/components/Term.vue';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import { safeStorage } from '@/lib/storage';
 import { useCatalog } from '@/stores/catalog';
 import { useRuns } from '@/stores/runs';
@@ -127,7 +128,9 @@ function hide(): void {
             <p v-for="h in failing" :key="h.providerId" class="small problem">
               <CircleAlert aria-hidden="true" />
               <span>{{
-                h.error ? t('guide.model.notRespondingWith', { name: h.name, error: h.error }) : t('guide.model.notResponding', { name: h.name })
+                h.error
+                  ? t('guide.model.notRespondingWith', { name: h.name, error: serverText(h.error, h.errorI18n) })
+                  : t('guide.model.notResponding', { name: h.name })
               }}</span>
             </p>
             <template v-if="ollama">

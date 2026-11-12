@@ -44,6 +44,7 @@ export default {
     label: 'Run views',
     result: 'Result',
     activity: 'Activity',
+    activityPartial: 'Loaded entries; there are earlier ones',
     input: 'Input',
   },
   result: {

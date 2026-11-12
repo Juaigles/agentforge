@@ -4,6 +4,7 @@ import type { ModelInfo, Provider, ProviderInput, ProviderKind, ProviderTestResu
 import { CircleAlert, CircleCheck, KeyRound, LoaderCircle, PlugZap } from 'lucide-vue-next';
 import { computed, reactive, ref } from 'vue';
 import { api, ApiError, errorText } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import { t, tn } from '@/i18n';
 import { formatDuration } from '@/lib/format';
 import { useCatalog } from '@/stores/catalog';
@@ -264,7 +265,7 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
       </div>
       <div v-else-if="testResult" class="callout danger" role="alert">
         <CircleAlert />
-        <span>{{ testResult.error ?? t('providerModal.connectFailed') }}</span>
+        <span>{{ testResult.error ? serverText(testResult.error, testResult.errorI18n) : t('providerModal.connectFailed') }}</span>
       </div>
       <div v-if="formError" class="callout danger" role="alert">
         <CircleAlert /> <span>{{ formError }}</span>

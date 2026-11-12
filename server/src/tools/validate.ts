@@ -1,4 +1,5 @@
 import type { JsonSchema } from '../../../shared/types';
+import { msg, type CodedMessage } from '../../../shared/server-messages';
 import { ToolError } from '../errors';
 
 /**
@@ -7,10 +8,10 @@ import { ToolError } from '../errors';
  */
 export function validateArgs(schema: JsonSchema, raw: unknown): Record<string, any> {
   if (raw === null || raw === undefined) raw = {};
-  if (typeof raw !== 'object' || Array.isArray(raw)) throw new ToolError('Los argumentos deben ser un objeto JSON.');
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw new ToolError(msg('toolArgsNotObject'));
   const input = raw as Record<string, unknown>;
   const out: Record<string, any> = {};
-  const problems: string[] = [];
+  const problems: CodedMessage[] = [];
 
   for (const [key, prop] of Object.entries(schema.properties ?? {})) {
     let value = input[key];
@@ -19,7 +20,7 @@ export function validateArgs(schema: JsonSchema, raw: unknown): Record<string, a
       else if (schema.required?.includes(key)) {
         // Una cadena vacía es un valor válido para un parámetro obligatorio de tipo string solo si se envió explícitamente.
         if (value === '' && prop.type === 'string') out[key] = '';
-        else problems.push(`falta el parámetro obligatorio "${key}"`);
+        else problems.push(msg('argMissing', { name: key }));
         continue;
       } else continue;
     }
@@ -32,11 +33,11 @@ export function validateArgs(schema: JsonSchema, raw: unknown): Record<string, a
       case 'integer': {
         const n = typeof value === 'number' ? value : Number(String(value).trim());
         if (!Number.isFinite(n)) {
-          problems.push(`"${key}" debe ser un número`);
+          problems.push(msg('argNotNumber', { name: key }));
           continue;
         }
         if (prop.type === 'integer' && !Number.isInteger(n)) {
-          problems.push(`"${key}" debe ser un número entero`);
+          problems.push(msg('argNotInteger', { name: key }));
           continue;
         }
         value = n;
@@ -45,7 +46,7 @@ export function validateArgs(schema: JsonSchema, raw: unknown): Record<string, a
       case 'boolean':
         if (typeof value === 'string' && /^(true|false)$/i.test(value.trim())) value = /^true$/i.test(value.trim());
         if (typeof value !== 'boolean') {
-          problems.push(`"${key}" debe ser true o false`);
+          problems.push(msg('argNotBoolean', { name: key }));
           continue;
         }
         break;
@@ -55,24 +56,24 @@ export function validateArgs(schema: JsonSchema, raw: unknown): Record<string, a
           try {
             value = JSON.parse(value);
           } catch {
-            problems.push(`"${key}" debe ser JSON válido`);
+            problems.push(msg('argNotJson', { name: key }));
             continue;
           }
         }
         if (prop.type === 'array' ? !Array.isArray(value) : typeof value !== 'object' || Array.isArray(value)) {
-          problems.push(`"${key}" debe ser de tipo ${prop.type}`);
+          problems.push(msg('argWrongType', { name: key, type: prop.type }));
           continue;
         }
         break;
     }
 
     if (prop.enum && !prop.enum.includes(value as string | number)) {
-      problems.push(`"${key}" debe ser uno de: ${prop.enum.join(', ')}`);
+      problems.push(msg('argNotInEnum', { name: key, options: prop.enum.join(', ') }));
       continue;
     }
     out[key] = value;
   }
 
-  if (problems.length) throw new ToolError(`Argumentos no válidos: ${problems.join('; ')}.`);
+  if (problems.length) throw new ToolError(msg('toolArgsInvalid', { problems }));
   return out;
 }

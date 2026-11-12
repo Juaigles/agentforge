@@ -1,4 +1,5 @@
 // Tipos del dominio compartidos entre el servidor y el frontend.
+import type { ServerMessage } from './server-messages';
 import type { IssueParams, ValidationCode } from './validation-messages';
 
 // ---------- Proveedores LLM ----------
@@ -36,6 +37,8 @@ export interface ModelInfo {
 }
 
 export interface ProviderTestResult {
+  /** Código y parámetros de `error`, para mostrarlo en otro idioma. */
+  errorI18n?: ServerMessage;
   ok: boolean;
   latencyMs: number;
   modelCount?: number;
@@ -309,6 +312,8 @@ export interface RunSummary {
   input: string;
   output: string | null;
   error: string | null;
+  /** Código y parámetros de `error`, para mostrarlo en otro idioma (null en lo anterior a la 1.0 o si el texto viene de fuera). */
+  errorI18n?: ServerMessage | null;
   usage: Usage;
   retryOf: string | null;
   /** Quedó a medias por un apagado del servidor y aún no se ha reanudado ni descartado. */
@@ -336,6 +341,8 @@ export interface RunStep {
   input: string | null;
   output: string | null;
   error: string | null;
+  /** Código y parámetros de `error`, para mostrarlo en otro idioma (null en lo anterior a la 1.0 o si el texto viene de fuera). */
+  errorI18n?: ServerMessage | null;
   usage: Usage;
   startedAt: string | null;
   finishedAt: string | null;
@@ -350,6 +357,8 @@ export interface RunStepItem {
   status: 'completed' | 'failed';
   output: string | null;
   error: string | null;
+  /** Código y parámetros de `error`, para mostrarlo en otro idioma. */
+  errorI18n?: ServerMessage | null;
 }
 
 /** Petición de aprobación humana de una ejecución. */
@@ -370,6 +379,11 @@ export interface Approval {
 export interface Run extends RunSummary {
   snapshot: RunSnapshot;
   steps: RunStep[];
+  /**
+   * Número de secuencia del último evento guardado cuando se leyó la ejecución (0 si no hay ninguno). El estado de
+   * los pasos ya incluye todo lo ocurrido hasta ese evento: quien sigue la ejecución en vivo continúa desde ahí.
+   */
+  lastSeq: number;
 }
 
 export type RunEventType =
@@ -469,6 +483,8 @@ export interface Trigger {
   lastRunId: string | null;
   /** Motivo por el que la última ocasión no llegó a lanzarse (workflow con errores, solape…). */
   lastError: string | null;
+  /** Código y parámetros de `lastError`, para mostrarlo en otro idioma. */
+  lastErrorI18n?: ServerMessage | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -509,6 +525,8 @@ export interface McpServer {
   headerKeys: string[];
   enabled: boolean;
   status: McpStatus;
+  /** Código y parámetros de `error` cuando el texto es del propio AgentForge (lo que responde el servidor MCP no los tiene). */
+  errorI18n?: ServerMessage | null;
   /** Motivo del último fallo de conexión. */
   error: string | null;
   /** Herramientas que ofrece (nombre con el que las ven los agentes). */
@@ -616,6 +634,8 @@ export interface ImportItem {
   recommendedTargetId?: string;
   /** Explicaciones para quien decide. */
   notes: string[];
+  /** Código y parámetros de cada nota (misma posición que en `notes`), para mostrarlas en otro idioma. */
+  notesI18n?: ServerMessage[];
 }
 
 /** Lo que haría una importación, para revisarlo antes de aplicarla. */
@@ -625,6 +645,8 @@ export interface ImportPlan {
   name: string;
   items: ImportItem[];
   warnings: string[];
+  /** Código y parámetros de cada aviso (misma posición que en `warnings`), para mostrarlos en otro idioma. */
+  warningsI18n?: ServerMessage[];
 }
 
 export interface ImportDecision {
@@ -652,6 +674,8 @@ export interface ImportResult {
   triggers: number;
   /** Avisos de la importación (herramientas que no existen aquí, cabeceras por rellenar, agentes sin proveedor…). */
   warnings: string[];
+  /** Código y parámetros de cada aviso (misma posición que en `warnings`), para mostrarlos en otro idioma. */
+  warningsI18n?: ServerMessage[];
   /** Problemas de validación del workflow importado. */
   issues: ValidationIssue[];
 }
@@ -666,6 +690,8 @@ export interface ProviderHealth {
   latencyMs: number;
   modelCount: number;
   error?: string;
+  /** Código y parámetros de `error`, para mostrarlo en otro idioma. */
+  errorI18n?: ServerMessage;
 }
 
 export interface DashboardStats {
@@ -715,6 +741,8 @@ export interface SandboxStatus {
     image: string;
     imagePresent: boolean;
     error: string | null;
+    /** Código y parámetros de `error`, para mostrarlo en otro idioma. */
+    errorI18n?: ServerMessage | null;
   };
 }
 

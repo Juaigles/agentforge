@@ -6,6 +6,7 @@ import { CalendarClock, CircleAlert, Copy, KeyRound, LoaderCircle, Pencil, Play,
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, ApiError, errorText } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import { t } from '@/i18n';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { describeTrigger, splitInterval, toMinutes, weekdays, type IntervalUnit } from '@/lib/transfer';
@@ -407,7 +408,7 @@ async function save(): Promise<void> {
               <span v-else class="muted">{{ t('triggers.never') }}</span>
             </span>
           </div>
-          <p v-if="trg.lastError" class="last-error small"><CircleAlert /> {{ trg.lastError }}</p>
+          <p v-if="trg.lastError" class="last-error small"><CircleAlert /> {{ serverText(trg.lastError, trg.lastErrorI18n) }}</p>
 
           <div class="row wrap actions">
             <button class="btn btn-sm" type="button" :disabled="!!busy" :title="t('triggers.runNowTitle')" @click="runNow(trg)">

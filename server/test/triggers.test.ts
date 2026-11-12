@@ -452,6 +452,7 @@ describe('disparadores de un workflow', () => {
     // Se devuelve la base al esquema v5 y se le pone una programación como las de entonces.
     const raw = new DatabaseSync(path.join(dataDir, 'agentforge.db'));
     raw.exec(`
+      ALTER TABLE runs DROP COLUMN error_i18n; ALTER TABLE run_steps DROP COLUMN error_i18n; ALTER TABLE run_step_items DROP COLUMN error_i18n;
       DROP TABLE mcp_servers; DROP TABLE triggers; ALTER TABLE runs DROP COLUMN trigger_kind;
       CREATE TABLE schedules (workflow_id TEXT PRIMARY KEY REFERENCES workflows(id) ON DELETE CASCADE, kind TEXT NOT NULL, interval_minutes INTEGER,
         time TEXT, input TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, next_run_at TEXT, last_run_at TEXT, last_run_id TEXT,

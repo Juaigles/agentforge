@@ -12,6 +12,7 @@ import Term from '@/components/Term.vue';
 import { t, tn } from '@/i18n';
 import { announce } from '@/lib/a11y';
 import { api, errorText } from '@/lib/api';
+import { serverText } from '@/lib/server-messages-en';
 import { elapsedMs, formatCompact, formatDateTime, formatDuration, formatNumber, NODE_LABEL, STATUS_LABEL } from '@/lib/format';
 import { useRunStream } from '@/lib/useRunStream';
 import { useCatalog } from '@/stores/catalog';
@@ -25,7 +26,7 @@ const runsStore = useRuns();
 const catalog = useCatalog();
 
 const runId = computed(() => String(route.params.id));
-const { run, live, loading, error, usage, isActive, reload } = useRunStream(runId);
+const { run, live, loading, error, usage, isActive, reload, hasOlder, loadingOlder, loadOlder } = useRunStream(runId);
 // El reloj solo corre mientras la ejecución está en curso: con una terminada no hay nada que repintar cada 500 ms.
 const now = ref(Date.now());
 let ticker: ReturnType<typeof setInterval> | undefined;
@@ -131,8 +132,12 @@ const runningSteps = computed(() => steps.value.filter((s) => s.status === 'runn
 const waitingSteps = computed(() => steps.value.filter((s) => s.status === 'waiting'));
 const isWorkflow = computed(() => run.value?.kind === 'workflow');
 const duration = computed(() => (live.value ? elapsedMs(live.value.startedAt, live.value.finishedAt, now.value) : null));
-/** Pasos con actividad registrada, para la insignia de la pestaña (se recalcula solo cuando cambian los eventos o la selección). */
-const activityCount = computed(() => (live.value ? live.value.events.filter((e) => !selected.value || e.nodeId === selected.value).length : 0));
+/** Entradas de actividad cargadas (de la selección, si la hay) para la insignia de la pestaña; el registro ya lleva la cuenta. */
+const activityCount = computed(() => {
+  if (!live.value) return 0;
+  return selected.value ? (live.value.activity.counts[selected.value] ?? 0) : live.value.activity.items.length;
+});
+const olderActivity = () => loadOlder().catch((err) => ui.error(errorText(err)));
 const progress = computed(() => {
   const done = steps.value.filter((s) => ['completed', 'failed', 'skipped', 'cancelled'].includes(s.status)).length;
   return { done, total: steps.value.length };
@@ -304,7 +309,7 @@ async function copy(text: string): Promise<void> {
       </div>
 
       <div v-if="live.error" class="callout" :class="live.status === 'cancelled' ? 'warning' : 'danger'" role="alert" style="margin-bottom: 14px">
-        <CircleAlert /> <span>{{ live.error }}</span>
+        <CircleAlert /> <span>{{ serverText(live.error, live.errorI18n) }}</span>
       </div>
 
       <section class="stats card">
@@ -407,7 +412,9 @@ async function copy(text: string): Promise<void> {
                 @click="tab = 'activity'"
               >
                 {{ t('runDetail.tabs.activity') }}
-                <span class="badge" style="height: 18px">{{ activityCount }}</span>
+                <span class="badge" style="height: 18px" :title="hasOlder ? t('runDetail.tabs.activityPartial') : undefined"
+                  >{{ activityCount }}<template v-if="hasOlder">+</template></span
+                >
               </button>
               <button
                 id="run-tab-input"
@@ -429,7 +436,7 @@ async function copy(text: string): Promise<void> {
             <!-- Resultado -->
             <template v-if="tab === 'result'">
               <div v-if="step?.error" class="callout danger" role="alert">
-                <CircleAlert /> <span>{{ step.error }}</span>
+                <CircleAlert /> <span>{{ serverText(step.error, step.errorI18n) }}</span>
               </div>
 
               <template v-if="resultText">
@@ -513,7 +520,15 @@ async function copy(text: string): Promise<void> {
             </template>
 
             <!-- Actividad -->
-            <RunActivity v-else-if="tab === 'activity'" :events="live.events" :node-id="selected" :labels="labels" />
+            <RunActivity
+              v-else-if="tab === 'activity'"
+              :log="live.activity"
+              :node-id="selected"
+              :labels="labels"
+              :has-older="hasOlder"
+              :loading-older="loadingOlder"
+              @older="olderActivity"
+            />
 
             <!-- Entrada -->
             <template v-else>
