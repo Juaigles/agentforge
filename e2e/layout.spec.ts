@@ -205,6 +205,9 @@ test.describe('Vista móvil (375 × 812)', () => {
 
   test('un término del glosario muestra su definición al tocarlo y lleva al glosario al segundo toque', async ({ page }) => {
     await page.goto('/runs');
+    // Se toca con la página ya cargada (en la CI de Linux el toque llegaba mientras se cargaba la lista).
+    await expect(page.locator('tbody tr, main .empty').first()).toBeVisible();
+    await page.waitForLoadState('networkidle');
     const term = page.locator('main a.term').first();
     await term.tap();
     const tip = page.getByRole('tooltip');

@@ -503,3 +503,17 @@ describe('disparadores y avisos de la importación', () => {
     applied.warnings.forEach((warning: string, i: number) => expectCoded(warning, applied.warningsI18n[i]));
   });
 });
+
+describe('tabla de mensajes en español', () => {
+  it('cada código produce un texto completo con cualquier valor de sus parámetros (sin «undefined» ni huecos)', () => {
+    // Un valor reconocible para cualquier parámetro que pida el mensaje, sea cual sea su nombre.
+    const sample = new Proxy({} as Record<string, string>, { get: (_t, key) => (typeof key === 'string' ? `«${key.toUpperCase()}»` : undefined) });
+    const problems: string[] = [];
+    for (const code of Object.keys(SERVER_MESSAGES) as ServerCode[]) {
+      const text = (SERVER_MESSAGES[code] as (p: Record<string, string>) => string)(sample);
+      if (typeof text !== 'string' || !text.trim()) problems.push(`${code}: texto vacío`);
+      else if (/undefined|null|\[object Object\]/.test(text)) problems.push(`${code}: ${text}`);
+    }
+    expect(problems).toEqual([]);
+  });
+});
