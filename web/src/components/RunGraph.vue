@@ -11,7 +11,9 @@ import { localizeFlow } from '@/lib/a11y';
 import { NODE_LABEL, STATUS_LABEL } from '@/lib/format';
 import { toFlowEdge, toFlowNode } from '@/lib/flow';
 import type { RunLive } from '@/lib/run-state';
+import { hasOpenTool, stepActivity } from '@/lib/agent-activity';
 import FlowNode from './FlowNode.vue';
+import ParticleEdge from './ParticleEdge.vue';
 
 const props = defineProps<{ snapshot: RunSnapshot; live: RunLive; selected: string | null }>();
 const emit = defineEmits<{ select: [nodeId: string | null] }>();
@@ -27,9 +29,11 @@ const nodes = computed(() =>
     // El subworkflow se muestra con el nombre que tenía al lanzar la ejecución (instantánea), no con el actual.
     const childId = nodeSubworkflowId(n);
     const workflowName = childId ? props.snapshot.subworkflows?.[childId]?.name : undefined;
-    const status = props.live.steps[n.id]?.status ?? 'pending';
+    const step = props.live.steps[n.id];
+    const status = step?.status ?? 'pending';
+    const activity = agent ? stepActivity(step, hasOpenTool(props.live.activity, n.id)) : undefined;
     return {
-      ...toFlowNode(n, { status, agentName: agent?.name, agentColor: agent?.color, workflowName }),
+      ...toFlowNode(n, { status, agentName: agent?.name, agentColor: agent?.color, workflowName, activity }),
       // Lo que oye un lector de pantalla al enfocar el nodo: tipo, etiqueta y estado del paso.
       ariaLabel: t('runGraph.node', { type: NODE_LABEL[n.type], label: n.label || n.id, status: STATUS_LABEL[status].toLowerCase() }),
       domAttributes: { 'aria-roledescription': t('runGraph.stepRole') },
@@ -68,8 +72,10 @@ const edges = computed(() =>
     const key = e.sourceHandle === 'true' ? 'runGraph.edgeYes' : e.sourceHandle === 'false' ? 'runGraph.edgeNo' : 'runGraph.edge';
     return {
       ...edge,
+      // Arista propia (ParticleEdge): en vez del trazo discontinuo de Vue Flow, partículas que viajan al nodo activo.
+      type: 'particle',
+      data: { flowing: target === 'running' },
       ariaLabel: t(key, { from: labelOf(e.source), to: labelOf(e.target) }),
-      animated: target === 'running',
       class: classes.filter(Boolean).join(' '),
     };
   }),
@@ -91,6 +97,7 @@ const edges = computed(() =>
       @pane-click="emit('select', null)"
     >
       <template #node-af="p"><FlowNode :id="p.id" :data="p.data" :selected="p.id === selected" /></template>
+      <template #edge-particle="p"><ParticleEdge v-bind="p" /></template>
       <Background :gap="20" :size="1.2" />
       <Controls :show-interactive="false" position="bottom-left" />
     </VueFlow>

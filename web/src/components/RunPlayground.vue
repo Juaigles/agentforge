@@ -10,8 +10,11 @@ import { serverText } from '@/lib/server-messages-en';
 import { elapsedMs, formatCompact, formatDuration, relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
 import { useRunStream } from '@/lib/useRunStream';
+import { hasOpenTool, stepActivity } from '@/lib/agent-activity';
+import { useCatalog } from '@/stores/catalog';
 import { useRuns } from '@/stores/runs';
 import { useUi } from '@/stores/ui';
+import AgentAvatar from './AgentAvatar.vue';
 import MarkdownView from './MarkdownView.vue';
 import RunActivity from './RunActivity.vue';
 import StatusBadge from './StatusBadge.vue';
@@ -25,6 +28,7 @@ const props = defineProps<{
 }>();
 const ui = useUi();
 const runsStore = useRuns();
+const catalog = useCatalog();
 const now = useNow();
 
 const task = ref('');
@@ -37,6 +41,9 @@ const step = computed(() => live.value?.steps.agent ?? null);
 const text = computed(() => (live.value?.output ?? step.value?.streamText ?? '').trim());
 const thinking = computed(() => step.value?.thinkingText ?? '');
 const hasTools = computed(() => (usage.value?.toolCalls ?? 0) > 0);
+const agent = computed(() => (props.agentId ? catalog.agentById.get(props.agentId) : undefined));
+/** Animación del orbe: qué hace el agente en la ejecución de prueba (en el playground el paso se llama «agent»). */
+const activity = computed(() => (live.value ? stepActivity(step.value ?? undefined, hasOpenTool(live.value.activity, 'agent')) : undefined));
 const olderActivity = () => loadOlder().catch((err) => ui.error(errorText(err)));
 
 async function loadHistory(): Promise<void> {
@@ -94,7 +101,10 @@ async function cancel(): Promise<void> {
 <template>
   <section class="card playground">
     <div class="card-head">
-      <h2>{{ t('playground.title') }}</h2>
+      <h2 class="row" style="gap: 10px">
+        <AgentAvatar v-if="agent" :name="agent.name" :color="agent.color" :size="28" :activity="activity ?? 'idle'" />
+        {{ t('playground.title') }}
+      </h2>
       <StatusBadge v-if="live" :status="live.status" />
     </div>
     <div class="card-pad col" style="gap: 12px">

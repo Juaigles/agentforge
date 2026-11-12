@@ -2,6 +2,7 @@
 import type { NodeType, StepStatus, WorkflowEdge, WorkflowNode } from '@shared/types';
 import { MarkerType, type Edge, type Node } from '@vue-flow/core';
 import { t, te } from '@/i18n';
+import type { AgentActivity } from './agent-activity';
 
 export interface FlowNodeData {
   kind: NodeType;
@@ -11,6 +12,8 @@ export interface FlowNodeData {
   status?: StepStatus;
   agentName?: string;
   agentColor?: string;
+  /** Qué hace ahora el agente del nodo (monitor): anima su orbe. */
+  activity?: AgentActivity;
   /** Nombre del subworkflow tal como era al lanzar la ejecución (monitor). */
   workflowName?: string;
   /** Nº de errores de validación (constructor). */

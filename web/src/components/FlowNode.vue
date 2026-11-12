@@ -9,6 +9,7 @@ import type { FlowNodeData } from '@/lib/flow';
 import { OPERATOR_LABEL } from '@/lib/flow';
 import { NODE_LABEL } from '@/lib/format';
 import { useCatalog } from '@/stores/catalog';
+import AgentAvatar from './AgentAvatar.vue';
 import StatusBadge from './StatusBadge.vue';
 
 const props = defineProps<{ id: string; data: FlowNodeData; selected?: boolean }>();
@@ -88,7 +89,8 @@ const subtitle = computed(() => {
     <Handle v-if="data.kind !== 'input'" type="target" :position="Position.Left" />
 
     <div class="head">
-      <span class="ico"><component :is="ICONS[data.kind]" /></span>
+      <AgentAvatar v-if="usesAgent && data.status" :name="agentLabel" :color="tint" :size="22" :activity="data.activity" />
+      <span v-else class="ico"><component :is="ICONS[data.kind]" /></span>
       <span class="type">{{ NODE_LABEL[data.kind] }}</span>
       <StatusBadge v-if="data.status && data.status !== 'pending'" :status="data.status" icon-only />
       <span v-else-if="data.errors" class="warn" :title="tn('flowNode.configErrors', data.errors)">
