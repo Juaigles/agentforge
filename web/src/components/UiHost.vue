@@ -9,22 +9,36 @@ const ICONS = { success: CircleCheck, danger: CircleAlert, info: Info };
 </script>
 
 <template>
-  <div class="toasts" role="status" aria-live="polite">
-    <TransitionGroup name="toast">
-      <div v-for="t in ui.toasts" :key="t.id" class="toast" :class="t.tone">
-        <component :is="ICONS[t.tone]" class="icon" aria-hidden="true" />
-        <span class="grow">{{ t.message }}</span>
-        <RouterLink v-if="t.action" :to="t.action.to" class="action" @click="ui.dismiss(t.id)">{{ t.action.label }}</RouterLink>
-        <button type="button" aria-label="Descartar aviso" @click="ui.dismiss(t.id)"><X /></button>
-      </div>
-    </TransitionGroup>
-  </div>
+  <Teleport to="body">
+    <div class="toasts" role="region" aria-label="Avisos">
+      <!-- Los errores interrumpen (alert); el resto se anuncia cuando el lector termina lo que estaba diciendo. -->
+      <TransitionGroup name="toast">
+        <div
+          v-for="t in ui.toasts"
+          :key="t.id"
+          class="toast"
+          :class="t.tone"
+          :role="t.tone === 'danger' ? 'alert' : 'status'"
+          @mouseenter="ui.hold(t.id)"
+          @mouseleave="ui.release(t.id)"
+          @focusin="ui.hold(t.id)"
+          @focusout="ui.release(t.id)"
+        >
+          <component :is="ICONS[t.tone]" class="icon" aria-hidden="true" />
+          <span class="grow">{{ t.message }}</span>
+          <RouterLink v-if="t.action" :to="t.action.to" class="action" @click="ui.dismiss(t.id)">{{ t.action.label }}</RouterLink>
+          <button type="button" aria-label="Descartar aviso" @click="ui.dismiss(t.id)"><X /></button>
+        </div>
+      </TransitionGroup>
+    </div>
+  </Teleport>
 
   <AppModal v-if="ui.confirmState" :title="ui.confirmState.title" :width="440" @close="ui.answer(false)">
     <p class="muted">{{ ui.confirmState.message }}</p>
     <template #footer>
-      <button class="btn" type="button" @click="ui.answer(false)">Cancelar</button>
-      <button class="btn" :class="ui.confirmState.danger ? 'btn-danger' : 'btn-primary'" type="button" autofocus @click="ui.answer(true)">
+      <!-- En una acción destructiva el foco cae en «Cancelar»: Intro por costumbre no debe borrar nada. -->
+      <button class="btn" type="button" :autofocus="ui.confirmState.danger ? true : undefined" @click="ui.answer(false)">Cancelar</button>
+      <button class="btn" :class="ui.confirmState.danger ? 'btn-danger' : 'btn-primary'" type="button" :autofocus="ui.confirmState.danger ? undefined : true" @click="ui.answer(true)">
         {{ ui.confirmState.confirmLabel ?? 'Confirmar' }}
       </button>
     </template>
@@ -81,8 +95,13 @@ const ICONS = { success: CircleCheck, danger: CircleAlert, info: Info };
   background: none;
   color: var(--text-3);
   cursor: pointer;
-  padding: 1px;
-  display: flex;
+  /* Objetivo de 24 px aunque el icono mida 14. */
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
 }
 .toast button svg {
   width: 14px;

@@ -129,7 +129,7 @@ test.describe('Exportar e importar workflows', () => {
     // El agente se enlazó; el nodo de herramienta desconocida queda como error de validación.
     await expect(page.locator('.check-badge')).toContainText('1 error');
     await page.locator('.check-badge').click();
-    await expect(page.getByLabel('Propiedades').locator('.validation')).toContainText('herramienta desconocida: buscador_interno');
+    await expect(page.getByLabel('Propiedades').locator('.validation').first()).toContainText('herramienta desconocida: buscador_interno');
   });
 });
 

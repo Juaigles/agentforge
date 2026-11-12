@@ -92,8 +92,12 @@ proceso muere de golpe. Un segundo Ctrl+C fuerza la salida. Sondas para un orque
   ejecuciones en curso (en vivo), salud de los proveedores, agentes y herramientas más usados.
 - **Agentes**: editor con proveedor/modelo (lista real del proveedor), temperatura, límites, razonamiento,
   instrucciones y herramientas; **banco de pruebas** con respuesta en streaming.
+- **Panel**, primera sesión: una guía de tres pasos (conectar un modelo, probar un agente, ejecutar un workflow)
+  que se marca sola y explica cómo instalar Ollama si no responde.
 - **Workflows**: constructor visual (Vue Flow) con paleta, inspector, plantillas `{{input}}`,
-  `{{upstream}}`, `{{id_nodo}}`, validación en vivo (ciclos, referencias, agentes eliminados…).
+  `{{upstream}}`, `{{id_nodo}}`, validación en vivo (ciclos, referencias, agentes eliminados…),
+  **deshacer y rehacer**, copiar y pegar, ordenado automático y manejo completo **con teclado** (ver «Teclado y
+  accesibilidad»).
   Nodos: entrada, agente, herramienta, condición (ramas sí/no), **para cada** (repite con cada elemento de una
   lista un agente, una herramienta o un subworkflow, varios a la vez), **subworkflow** (otro workflow como un
   paso), **aprobación** (la ejecución espera a que una persona apruebe o rechace), transformación y salida.
@@ -175,6 +179,30 @@ agentes o se usan en nodos de herramienta como cualquier otra. Las variables de 
 cifradas y no se vuelven a mostrar. Si el servidor se cae, sus herramientas siguen existiendo y la siguiente
 llamada intenta reconectar. Solo se usan sus herramientas (no sus recursos ni sus plantillas de prompt), y no hay
 inicio de sesión OAuth: la autenticación HTTP es por cabeceras.
+
+## Teclado y accesibilidad
+
+La interfaz está pensada para cumplir WCAG 2.1 AA: todo se puede hacer sin ratón, el foco siempre se ve, los
+diálogos lo atrapan, los cambios de estado se anuncian a los lectores de pantalla y el contraste se ha medido en
+los dos temas. Lo que falta está en `PROGRESS.md` («Pendiente y limitaciones»).
+
+| Dónde | Tecla | Qué hace |
+|---|---|---|
+| Cualquier página | Tab (primera parada) | «Saltar al contenido» |
+| Diálogos | Esc | Cierra el diálogo de arriba y devuelve el foco |
+| Constructor | Ctrl+Z / Ctrl+Mayús+Z (o Ctrl+Y) | Deshacer / rehacer |
+| Constructor | Ctrl+C, Ctrl+V, Ctrl+D | Copiar, pegar y duplicar los nodos seleccionados |
+| Constructor | Supr | Borrar el nodo o la conexión seleccionados |
+| Constructor | Ctrl+S | Guardar (también mientras se escribe en un campo) |
+| Constructor, sobre un nodo | Intro o Espacio | Abrir sus propiedades; Esc vuelve al nodo |
+| Constructor, sobre un nodo | Flechas | Moverlo |
+| Cuadros de tarea | Ctrl+Intro | Ejecutar |
+
+Para **conectar nodos sin arrastrar**, abre un nodo y usa el bloque «Conexiones» de sus propiedades. La lista
+«Nodos» de los ajustes del workflow lleva a cualquier nodo sin pasar por el lienzo.
+
+Si el servidor deja de responder, una franja lo avisa en todas las pantallas y la interfaz se reconecta sola.
+Los filtros del historial se guardan en la dirección (`/runs?estado=failed&tipo=workflow&q=informe`).
 
 ## Arquitectura
 

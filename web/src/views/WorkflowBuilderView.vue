@@ -4,7 +4,7 @@ import { ancestorsOf, foreachBody, isBranchingNode, slugifyNodeId, topologicalOr
 import { DEFAULT_WORKFLOW_SETTINGS, type NodeType, type Trigger, type ValidationIssue, type WorkflowInput, type WorkflowSettings } from '@shared/types';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
-import { useVueFlow, VueFlow, type Connection, type Edge } from '@vue-flow/core';
+import { useVueFlow, VueFlow, type Connection, type Edge, type NodeChange } from '@vue-flow/core';
 import { MiniMap } from '@vue-flow/minimap';
 import {
   ArrowLeft,
@@ -16,26 +16,33 @@ import {
   Download,
   Flag,
   GitBranch,
+  LayoutGrid,
+  Link2,
   LogIn,
   Play,
+  Redo2,
   Repeat,
   Save,
   Settings2,
   Shuffle,
   Trash2,
   TriangleAlert,
+  Undo2,
+  Unlink,
   UserCheck,
   Workflow as WorkflowIcon,
   Wrench,
 } from 'lucide-vue-next';
-import { computed, nextTick, onMounted, reactive, ref, watch, type Ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect, type Ref } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import AgentAvatar from '@/components/AgentAvatar.vue';
 import AppModal from '@/components/AppModal.vue';
 import FlowNode from '@/components/FlowNode.vue';
 import TriggersModal from '@/components/TriggersModal.vue';
 import Term from '@/components/Term.vue';
+import { announce, localizeFlow } from '@/lib/a11y';
 import { api, errorText } from '@/lib/api';
+import { autoLayout, cloneNodes, connectionOptions, useHistory } from '@/lib/builder';
 import { fromFlow, NODE_HINT, OPERATOR_LABEL, toFlowEdge, toFlowNode, type FlowNode as FlowNodeT, type FlowNodeData } from '@/lib/flow';
 import { NODE_LABEL } from '@/lib/format';
 import { downloadJson, exportFileName, summarizeTriggers } from '@/lib/transfer';
@@ -48,7 +55,7 @@ const catalog = useCatalog();
 const ui = useUi();
 
 const flowId = `builder-${Math.random().toString(36).slice(2)}`;
-const { screenToFlowCoordinate, viewport, fitView, removeNodes, onNodesInitialized } = useVueFlow(flowId);
+const { screenToFlowCoordinate, viewport, fitView, removeNodes, onNodesInitialized, getSelectedNodes, getSelectedEdges } = useVueFlow(flowId);
 // Encuadre inicial: solo la primera vez que Vue Flow termina de medir los nodos.
 let framed = false;
 onNodesInitialized(() => {
@@ -193,10 +200,218 @@ onMounted(async () => {
     loading.value = false;
     await nextTick();
     saved.value = workflowId.value ? serialized.value : '';
+    history.reset(serialized.value);
   } catch (err) {
     loadError.value = errorText(err);
     loading.value = false;
   }
+});
+
+// ---------- Deshacer y rehacer ----------
+// Cada estado es la definición completa serializada. Los cambios seguidos (escribir en un campo, arrastrar un
+// nodo) se agrupan en un solo paso esperando a que haya una pausa.
+const history = useHistory<string>();
+let restoring = false;
+let historyTimer: ReturnType<typeof setTimeout> | undefined;
+watch(serialized, (next) => {
+  if (loading.value || restoring) return;
+  clearTimeout(historyTimer);
+  historyTimer = setTimeout(() => history.record(next), 350);
+});
+/** Anota ya el cambio que estuviera esperando su pausa (antes de deshacer o de salir). */
+function flushHistory(): void {
+  clearTimeout(historyTimer);
+  if (!loading.value) history.record(serialized.value);
+}
+function restore(snapshot: string | null, message: string): void {
+  if (!snapshot) return;
+  restoring = true;
+  const def = JSON.parse(snapshot) as WorkflowInput;
+  meta.name = def.name;
+  meta.description = def.description;
+  Object.assign(settings, def.settings);
+  nodes.value = def.nodes.map((n) => toFlowNode(n));
+  edges.value = def.edges.map(toFlowEdge);
+  announce(message);
+  void nextTick(() => {
+    restoring = false;
+  });
+}
+function undo(): void {
+  flushHistory();
+  restore(history.undo(), 'Cambio deshecho.');
+}
+function redo(): void {
+  flushHistory();
+  restore(history.redo(), 'Cambio rehecho.');
+}
+
+// ---------- Accesibilidad del lienzo ----------
+const nodeName = (id: string): string => {
+  const n = nodes.value.find((x) => x.id === id);
+  return n?.data?.label || id;
+};
+// Nombre que oye un lector de pantalla al enfocar cada nodo: tipo, etiqueta y errores.
+watchEffect(() => {
+  for (const n of nodes.value) {
+    const errorCount = n.data?.errors ?? 0;
+    const label = `${NODE_LABEL[n.data!.kind]}: ${n.data!.label || n.id}${errorCount ? `, ${errorCount} ${errorCount === 1 ? 'error' : 'errores'}` : ''}`;
+    if (n.ariaLabel !== label) n.ariaLabel = label;
+    if (!n.domAttributes) n.domAttributes = { 'aria-roledescription': 'nodo' };
+  }
+});
+watchEffect(() => {
+  for (const e of edges.value) {
+    const branch = e.sourceHandle === 'true' ? ' (rama sí)' : e.sourceHandle === 'false' ? ' (rama no)' : '';
+    const label = `Conexión de ${nodeName(e.source)} a ${nodeName(e.target)}${branch}`;
+    if (e.ariaLabel !== label) e.ariaLabel = label;
+  }
+});
+let unlocalize: (() => void) | null = null;
+watch(canvas, (el) => {
+  unlocalize?.();
+  unlocalize = el
+    ? localizeFlow(
+        el,
+        'Pulsa Intro o Espacio para seleccionar el nodo y editar sus propiedades. Con las flechas se mueve y con Suprimir se borra.',
+        'Pulsa Intro o Espacio para seleccionar la conexión. Con Suprimir se borra.',
+      )
+    : null;
+});
+
+/** Selecciona un nodo y lleva el foco a sus propiedades (alternativa de teclado al clic en el lienzo). */
+function editNode(id: string): void {
+  selectedId.value = id;
+  void nextTick(() => document.getElementById('in-label')?.focus());
+}
+/** Devuelve el foco al nodo en el lienzo (Escape desde sus propiedades). */
+function focusNodeOnCanvas(): void {
+  if (!selectedId.value) return;
+  canvas.value?.querySelector<HTMLElement>(`.vue-flow__node[data-id="${CSS.escape(selectedId.value)}"]`)?.focus();
+}
+/** La selección de Vue Flow (clic, teclado, selección múltiple) decide qué nodo muestra el inspector. */
+function onNodesChange(changes: NodeChange[]): void {
+  for (const change of changes) if (change.type === 'select' && change.selected) selectedId.value = change.id;
+}
+function onCanvasKey(ev: KeyboardEvent): void {
+  const target = ev.target as HTMLElement;
+  if ((ev.key === 'Enter' || ev.key === ' ') && target.classList.contains('vue-flow__node') && target.dataset.id) {
+    ev.preventDefault();
+    editNode(target.dataset.id);
+  }
+}
+
+// ---------- Conexiones sin arrastrar ----------
+const outgoing = computed(() => edges.value.filter((e) => e.source === selectedId.value));
+const incoming = computed(() => edges.value.filter((e) => e.target === selectedId.value));
+const connectOptions = computed(() => (selectedId.value ? connectionOptions(definition.value.nodes, definition.value.edges, selectedId.value) : []));
+const connectChoice = ref('');
+watch([selectedId, connectOptions], () => {
+  connectChoice.value = '';
+});
+const optionKey = (o: { target: string; branch: string | null }): string => `${o.branch ?? ''}|${o.target}`;
+const branchText = (branch: string | null | undefined): string => (branch === 'true' ? ' por la rama «sí»' : branch === 'false' ? ' por la rama «no»' : '');
+function connectChosen(): void {
+  const option = connectOptions.value.find((o) => optionKey(o) === connectChoice.value);
+  if (!option || !selectedId.value) return;
+  onConnect({ source: selectedId.value, target: option.target, sourceHandle: option.branch, targetHandle: null });
+  announce(`${nodeName(selectedId.value)} conectado con ${nodeName(option.target)}${branchText(option.branch)}.`);
+}
+function removeEdge(edge: Edge): void {
+  edges.value = edges.value.filter((e) => e.id !== edge.id);
+  announce(`Conexión entre ${nodeName(edge.source)} y ${nodeName(edge.target)} quitada.`);
+}
+
+// ---------- Copiar, pegar y ordenar ----------
+let clipboard: { nodes: ReturnType<typeof fromFlow>['nodes']; edges: ReturnType<typeof fromFlow>['edges'] } | null = null;
+let pasteCount = 0;
+/** Nodos sobre los que actúan copiar y duplicar: la selección del lienzo o, si no hay, el nodo del inspector. */
+function selectionIds(): string[] {
+  const chosen = getSelectedNodes.value.map((n) => n.id);
+  return chosen.length ? chosen : selectedId.value ? [selectedId.value] : [];
+}
+function copySelection(): boolean {
+  const ids = new Set(selectionIds());
+  if (!ids.size) return false;
+  const def = definition.value;
+  clipboard = { nodes: def.nodes.filter((n) => ids.has(n.id)), edges: def.edges };
+  pasteCount = 0;
+  ui.info(ids.size === 1 ? 'Nodo copiado. Pégalo con Ctrl+V.' : `${ids.size} nodos copiados. Pégalos con Ctrl+V.`);
+  return true;
+}
+function paste(): void {
+  if (!clipboard?.nodes.length) return;
+  pasteCount++;
+  const copy = cloneNodes(clipboard.nodes, clipboard.edges, nodes.value.map((n) => n.id), { x: 40 * pasteCount, y: 60 * pasteCount });
+  nodes.value = [...nodes.value, ...copy.nodes.map((n) => toFlowNode(n))];
+  edges.value = [...edges.value, ...copy.edges.map(toFlowEdge)];
+  selectedId.value = copy.nodes[0].id;
+  announce(copy.nodes.length === 1 ? `Nodo ${copy.nodes[0].label || copy.nodes[0].id} pegado.` : `${copy.nodes.length} nodos pegados.`);
+}
+function tidy(): void {
+  const def = definition.value;
+  const positions = autoLayout(def.nodes, def.edges);
+  for (const n of nodes.value) if (positions[n.id]) n.position = positions[n.id];
+  void nextTick(() => fitView({ padding: 0.2, maxZoom: 1, duration: 200 }));
+  announce('Nodos ordenados de izquierda a derecha.');
+}
+
+// ---------- Atajos de teclado ----------
+function onShortcut(ev: KeyboardEvent): void {
+  if (loading.value || loadError.value || document.querySelector('.backdrop')) return;
+  const mod = ev.ctrlKey || ev.metaKey;
+  const key = ev.key.toLowerCase();
+  // Guardar funciona también mientras se escribe en un campo.
+  if (mod && key === 's') {
+    ev.preventDefault();
+    if (!saving.value && (dirty.value || !workflowId.value)) void save();
+    return;
+  }
+  const target = ev.target as HTMLElement | null;
+  const typing = !!target?.closest('input, textarea, select, [contenteditable="true"]');
+  if (typing) {
+    // Escape en las propiedades de un nodo devuelve el foco al nodo en el lienzo.
+    if (ev.key === 'Escape' && target?.closest('.inspector')) focusNodeOnCanvas();
+    return;
+  }
+  if (mod && key === 'z') {
+    ev.preventDefault();
+    if (ev.shiftKey) redo();
+    else undo();
+  } else if (mod && key === 'y') {
+    ev.preventDefault();
+    redo();
+  } else if (mod && key === 'c') {
+    // Con texto seleccionado en la página, Ctrl+C copia ese texto como siempre.
+    if (!window.getSelection()?.toString() && copySelection()) ev.preventDefault();
+  } else if (mod && key === 'v') {
+    if (clipboard) {
+      ev.preventDefault();
+      paste();
+    }
+  } else if (mod && key === 'd') {
+    if (selectedId.value) {
+      ev.preventDefault();
+      duplicateSelected();
+    }
+  } else if ((ev.key === 'Delete' || ev.key === 'Backspace') && selectedId.value && !getSelectedNodes.value.length && !getSelectedEdges.value.length && !target?.closest('button, a')) {
+    // Un nodo recién añadido está seleccionado en el inspector pero no en Vue Flow: Suprimir también lo borra.
+    ev.preventDefault();
+    removeSelected();
+  }
+}
+onMounted(() => document.addEventListener('keydown', onShortcut));
+
+// Cerrar o recargar la pestaña con cambios sin guardar pide confirmación al navegador.
+function onBeforeUnload(ev: BeforeUnloadEvent): void {
+  if (dirty.value && !loadError.value) ev.preventDefault();
+}
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload));
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onShortcut);
+  window.removeEventListener('beforeunload', onBeforeUnload);
+  clearTimeout(historyTimer);
+  unlocalize?.();
 });
 
 // ---------- Edición del grafo ----------
@@ -241,6 +456,8 @@ function addNode(kind: NodeType, position?: { x: number; y: number }, agentId?: 
     if (!branches || branch) onConnect({ source: anchor.id, target: id, sourceHandle: branch, targetHandle: null });
   }
   selectedId.value = id;
+  const connected = edges.value.some((e) => e.source === anchor?.id && e.target === id);
+  announce(`Nodo ${label} añadido${connected ? ` y conectado a ${nodeName(anchor!.id)}` : ''}.`);
   void nextTick(() => ensureVisible(pos!));
 }
 
@@ -291,7 +508,9 @@ function onConnect(c: Connection): void {
 }
 
 function removeSelected(): void {
-  if (selectedId.value) removeNodes([selectedId.value]);
+  if (!selectedId.value) return;
+  announce(`Nodo ${nodeName(selectedId.value)} eliminado. Puedes deshacerlo con Ctrl+Z.`);
+  removeNodes([selectedId.value]);
 }
 
 function duplicateSelected(): void {
@@ -303,6 +522,7 @@ function duplicateSelected(): void {
     toFlowNode({ id, type: src.data.kind, label: src.data.label, position: { x: src.position.x + 40, y: src.position.y + 60 }, config: src.data.config }),
   ];
   selectedId.value = id;
+  announce(`Nodo ${src.data.label || src.id} duplicado.`);
 }
 
 function insertRef(refName: string): void {
@@ -480,9 +700,15 @@ onBeforeRouteLeave(async (to) => {
 
 <template>
   <div class="builder">
+    <h1 class="sr-only">Editor del workflow {{ meta.name ? `«${meta.name}»` : 'nuevo' }}</h1>
     <header class="bar">
       <RouterLink class="btn btn-ghost btn-icon" to="/workflows" aria-label="Volver a workflows"><ArrowLeft /></RouterLink>
       <input v-model="meta.name" class="name" aria-label="Nombre del workflow" placeholder="Nombre del workflow" maxlength="120" />
+      <div v-if="!loading && !loadError" class="row edit-tools" role="group" aria-label="Edición del lienzo">
+        <button class="btn btn-ghost btn-icon" type="button" aria-label="Deshacer" title="Deshacer (Ctrl+Z)" :disabled="!history.canUndo.value" @click="undo"><Undo2 /></button>
+        <button class="btn btn-ghost btn-icon" type="button" aria-label="Rehacer" title="Rehacer (Ctrl+Mayús+Z)" :disabled="!history.canRedo.value" @click="redo"><Redo2 /></button>
+        <button class="btn btn-ghost btn-icon" type="button" aria-label="Ordenar los nodos" title="Ordenar los nodos de izquierda a derecha" :disabled="nodes.length < 2" @click="tidy"><LayoutGrid /></button>
+      </div>
       <span class="grow" />
       <span v-if="dirty" class="badge warning">Sin guardar</span>
       <button
@@ -509,7 +735,7 @@ onBeforeRouteLeave(async (to) => {
         </button>
         <button class="btn btn-icon" type="button" aria-label="Exportar" title="Exportar a un archivo" @click="exportWorkflow"><Download /></button>
       </template>
-      <button class="btn" type="button" :disabled="saving || loading || (!dirty && !!workflowId)" @click="save"><Save /> {{ saving ? 'Guardando…' : 'Guardar' }}</button>
+      <button class="btn" type="button" :disabled="saving || loading || (!dirty && !!workflowId)" title="Guardar (Ctrl+S)" @click="save"><Save /> {{ saving ? 'Guardando…' : 'Guardar' }}</button>
       <button class="btn btn-primary" type="button" :disabled="loading || !!loadError" @click="openRun"><Play /> Ejecutar</button>
     </header>
 
@@ -549,11 +775,19 @@ onBeforeRouteLeave(async (to) => {
           <span class="pal-ico"><component :is="item.icon" /></span>
           <span class="truncate">{{ NODE_LABEL[item.kind] }}</span>
         </button>
-        <p class="tiny faint help">Con un <Term id="nodo">nodo</Term> seleccionado, el siguiente que añadas se conecta a él (desde una <Term id="condicion">condición</Term>, a su primera rama libre). También puedes unir los puntos a mano. Supr borra el nodo o la conexión seleccionados.</p>
+        <p class="tiny faint help">Con un <Term id="nodo">nodo</Term> seleccionado, el siguiente que añadas se conecta a él (desde una <Term id="condicion">condición</Term>, a su primera rama libre). También puedes unir los puntos a mano o, sin ratón, desde «Conexiones» en las propiedades del nodo.</p>
+        <p class="tiny faint help">
+          Atajos: <kbd>Ctrl</kbd>+<kbd>Z</kbd> deshacer, <kbd>Ctrl</kbd>+<kbd>Mayús</kbd>+<kbd>Z</kbd> rehacer, <kbd>Ctrl</kbd>+<kbd>C</kbd> y <kbd>Ctrl</kbd>+<kbd>V</kbd> copiar y pegar,
+          <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicar, <kbd>Supr</kbd> borrar, <kbd>Ctrl</kbd>+<kbd>S</kbd> guardar.
+        </p>
       </aside>
 
       <!-- Lienzo -->
-      <div ref="canvas" class="canvas" @dragover.prevent @drop.prevent="onDrop">
+      <div ref="canvas" class="canvas" role="region" aria-label="Lienzo del workflow" aria-describedby="canvas-help" @dragover.prevent @drop.prevent="onDrop" @keydown.capture="onCanvasKey">
+        <p id="canvas-help" class="sr-only">
+          Cada nodo es un paso del workflow. Tabula para recorrerlos; Intro o Espacio abre sus propiedades, donde también se conecta con otros nodos. La lista «Nodos» de
+          los ajustes del workflow permite llegar a cualquiera sin usar el lienzo.
+        </p>
         <div v-if="loading" class="skeleton" style="position: absolute; inset: 16px" aria-busy="true" />
         <VueFlow
           v-else
@@ -566,6 +800,7 @@ onBeforeRouteLeave(async (to) => {
           :snap-to-grid="true"
           :snap-grid="[10, 10]"
           @connect="onConnect"
+          @nodes-change="onNodesChange"
           @node-click="selectedId = $event.node.id"
           @pane-click="selectedId = null"
         >
@@ -854,6 +1089,29 @@ onBeforeRouteLeave(async (to) => {
               </div>
             </div>
           </template>
+
+          <!-- Conexiones: la alternativa a arrastrar de un punto a otro en el lienzo. -->
+          <section class="connections" aria-label="Conexiones del nodo">
+            <div class="eyebrow">Conexiones</div>
+            <ul v-if="incoming.length || outgoing.length" class="edge-list">
+              <li v-for="e in incoming" :key="e.id">
+                <span class="small">Recibe de <strong>{{ nodeName(e.source) }}</strong>{{ branchText(e.sourceHandle) }}</span>
+                <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Quitar la conexión que llega de ${nodeName(e.source)}`" title="Quitar conexión" @click="removeEdge(e)"><Unlink /></button>
+              </li>
+              <li v-for="e in outgoing" :key="e.id">
+                <span class="small">Envía a <strong>{{ nodeName(e.target) }}</strong>{{ branchText(e.sourceHandle) }}</span>
+                <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Quitar la conexión con ${nodeName(e.target)}`" title="Quitar conexión" @click="removeEdge(e)"><Unlink /></button>
+              </li>
+            </ul>
+            <p v-else class="small faint" style="margin: 0">Este nodo no está conectado con ningún otro.</p>
+            <div v-if="connectOptions.length" class="row connect-row">
+              <select v-model="connectChoice" class="select" aria-label="Conectar la salida de este nodo con">
+                <option value="">Conectar la salida con…</option>
+                <option v-for="o in connectOptions" :key="optionKey(o)" :value="optionKey(o)">{{ nodeName(o.target) }}{{ o.branch === 'true' ? ' (rama sí)' : o.branch === 'false' ? ' (rama no)' : '' }}</option>
+              </select>
+              <button class="btn btn-sm" type="button" :disabled="!connectChoice" @click="connectChosen"><Link2 /> Conectar</button>
+            </div>
+          </section>
         </template>
 
         <!-- Ajustes del workflow -->
@@ -905,7 +1163,18 @@ onBeforeRouteLeave(async (to) => {
               <span>{{ issue.message }}</span>
             </button>
           </div>
-          <p class="tiny faint">Selecciona un nodo del lienzo para editar sus propiedades.</p>
+          <div class="validation node-index">
+            <div class="eyebrow">Nodos</div>
+            <ul class="node-list" aria-label="Nodos del workflow">
+              <li v-for="n in nodes" :key="n.id">
+                <button class="issue" type="button" @click="editNode(n.id)">
+                  <span class="grow">{{ n.data!.label || n.id }}</span>
+                  <span class="tiny faint">{{ NODE_LABEL[n.data!.kind] }}</span>
+                </button>
+              </li>
+            </ul>
+          </div>
+          <p class="tiny faint">Selecciona un nodo del lienzo o de la lista para editar sus propiedades.</p>
         </template>
       </aside>
     </div>
@@ -984,6 +1253,49 @@ onBeforeRouteLeave(async (to) => {
 }
 .sched-text {
   font-size: 12.5px;
+}
+.edit-tools {
+  gap: 2px;
+}
+.connections {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.edge-list,
+.node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.edge-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+.edge-list li span {
+  overflow-wrap: anywhere;
+}
+.connect-row {
+  gap: 6px;
+}
+.connect-row .select {
+  min-width: 0;
+}
+kbd {
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
 }
 .name {
   flex: 1 1 220px;

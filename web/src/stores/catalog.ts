@@ -13,6 +13,19 @@ export const useCatalog = defineStore('catalog', () => {
   const loaded = ref(false);
   const loadError = ref<string | null>(null);
   let loading: Promise<void> | null = null;
+  /** false cuando el servidor de AgentForge ha dejado de responder (no un proveedor de modelos: el propio servidor). */
+  const online = ref(true);
+
+  /** Comprueba si el servidor responde. Devuelve true si está en línea. */
+  async function checkServer(): Promise<boolean> {
+    try {
+      const res = await fetch('/api/health/live', { signal: AbortSignal.timeout(4000), cache: 'no-store' });
+      online.value = res.ok;
+    } catch {
+      online.value = false;
+    }
+    return online.value;
+  }
 
   async function reload(): Promise<void> {
     try {
@@ -39,8 +52,10 @@ export const useCatalog = defineStore('catalog', () => {
   async function refreshHealth(force = false): Promise<void> {
     try {
       health.value = await api.providers.health(force);
+      online.value = true;
     } catch {
-      /* el aviso de conexión ya lo muestra la carga del catálogo */
+      // Puede ser un error puntual o que el servidor haya caído: se comprueba aparte.
+      void checkServer();
     }
   }
 
@@ -70,6 +85,8 @@ export const useCatalog = defineStore('catalog', () => {
     health,
     loaded,
     loadError,
+    online,
+    checkServer,
     reload,
     ensure,
     refreshHealth,

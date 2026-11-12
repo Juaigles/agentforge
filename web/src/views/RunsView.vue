@@ -2,7 +2,7 @@
 import type { RunKind, RunStatus, RunSummary } from '@shared/types';
 import { Activity, Bot, CircleAlert, RefreshCw, Search, Square, Trash2, Workflow } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
@@ -22,6 +22,7 @@ const STATUSES: Array<{ value: RunStatus | ''; label: string }> = [
   { value: 'cancelled', label: 'Canceladas' },
 ];
 
+const route = useRoute();
 const router = useRouter();
 const runsStore = useRuns();
 const ui = useUi();
@@ -31,9 +32,21 @@ const items = ref<RunSummary[]>([]);
 const total = ref(0);
 /** La búsqueda encontró más coincidencias de las que examina: `total` es solo la parte examinada. */
 const capped = ref(false);
-const status = ref<RunStatus | ''>('');
-const kind = ref<RunKind | ''>('');
-const search = ref('');
+// Los filtros viven en la URL (?estado=&tipo=&q=): se conservan al abrir una ejecución y volver, al recargar
+// y al compartir o guardar el enlace.
+const queryText = (value: unknown): string => (typeof value === 'string' ? value : '');
+const fromQuery = <T extends string>(value: unknown, allowed: readonly T[]): T | '' => (allowed.includes(queryText(value) as T) ? (queryText(value) as T) : '');
+const status = ref<RunStatus | ''>(fromQuery(route.query.estado, ['running', 'completed', 'failed', 'cancelled'] as const));
+const kind = ref<RunKind | ''>(fromQuery(route.query.tipo, ['workflow', 'agent'] as const));
+const search = ref(queryText(route.query.q));
+function syncUrl(): void {
+  const query: Record<string, string> = {};
+  if (status.value) query.estado = status.value;
+  if (kind.value) query.tipo = kind.value;
+  if (search.value.trim()) query.q = search.value.trim();
+  // `replace`: escribir en el buscador no llena el historial del navegador de pasos intermedios.
+  void router.replace({ query });
+}
 const loading = ref(true);
 const loadingMore = ref(false);
 const error = ref<string | null>(null);
@@ -70,10 +83,16 @@ function resetAndLoad(): void {
   void load();
 }
 onMounted(load);
-watch([status, kind], resetAndLoad);
+watch([status, kind], () => {
+  syncUrl();
+  resetAndLoad();
+});
 watch(search, () => {
   if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(resetAndLoad, 250);
+  searchTimer = setTimeout(() => {
+    syncUrl();
+    resetAndLoad();
+  }, 250);
 });
 // Cualquier cambio en una ejecución (canal SSE global) refresca la lista.
 watch(
@@ -122,7 +141,7 @@ async function clearFinished(): Promise<void> {
   if (!ok) return;
   try {
     const { deleted } = await api.runs.clearFinished();
-    ui.success(`${deleted} ejecuciones eliminadas.`);
+    ui.success(deleted === 1 ? '1 ejecución eliminada.' : `${deleted} ejecuciones eliminadas.`);
     resetAndLoad();
   } catch (err) {
     ui.error(errorText(err));

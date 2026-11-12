@@ -166,11 +166,16 @@ reales y un commit local.
   *Hecho el 2026-11-12 (detalle en `PROGRESS.md`, «Hito 5 · Fase 5»). Añadido sobre lo previsto: subworkflows y
   disparadores en el archivo, y cifrado de las cabeceras con credenciales. No viajan los servidores MCP ni el
   historial.*
-- [ ] **F6 · Interfaz.** Accesibilidad AA completa (constructor operable con teclado, trampa de foco, contraste,
+- [x] **F6 · Interfaz.** Accesibilidad AA completa (constructor operable con teclado, trampa de foco, contraste,
   foco y anuncios); constructor con deshacer/rehacer, atajos, copiar/pegar y alineación automática; protección
   frente a pérdida de trabajo; primera sesión guiada; estado de conexión real; historial con filtros en la URL,
   paginación, búsqueda en el contenido y comparación de ejecuciones; pulido visual y tokens de tipografía y
   espaciado; datos de ejemplo corregidos (agente «Redactor»).
+  *Hecho el 2026-11-12 (detalle en `PROGRESS.md`, «Hito 5 · Fase 6»). Resueltos los 2 críticos y los 8 altos de
+  accesibilidad y los 3 críticos de UX. **No se ha hecho** y queda anotado en «Pendiente y limitaciones»: la
+  comparación de ejecuciones y los filtros por workflow, agente y fecha; los tokens de tipografía y espaciado;
+  el inspector superpuesto en ventanas estrechas; «guardar y ejecutar» en el banco de pruebas; el menú contextual
+  del lienzo; y varios hallazgos medios y bajos de las dos auditorías (lista completa en `PROGRESS.md`).*
 - [ ] **F7 · Inglés además de español.** Códigos de error con parámetros desde el servidor, `vue-i18n`, formato
   dependiente del idioma y selector de idioma.
 - [ ] **F8 · Calidad y pruebas.** ESLint y Prettier limpios; cobertura con umbrales; tests de componentes para

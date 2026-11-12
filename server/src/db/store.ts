@@ -216,7 +216,7 @@ export class Store {
   }
 
   listProviders(): Provider[] {
-    return this.all('SELECT * FROM providers ORDER BY created_at').map((r) => this.mapProvider(r));
+    return this.all('SELECT * FROM providers ORDER BY created_at, rowid').map((r) => this.mapProvider(r));
   }
 
   getProvider(id: string): Provider | null {
@@ -303,7 +303,7 @@ export class Store {
   }
 
   listAgents(): Agent[] {
-    return this.all('SELECT * FROM agents ORDER BY created_at').map((r) => this.mapAgent(r));
+    return this.all('SELECT * FROM agents ORDER BY created_at, rowid').map((r) => this.mapAgent(r));
   }
 
   getAgent(id: string): Agent | null {
@@ -510,7 +510,7 @@ export class Store {
   }
 
   listWorkflows(): Workflow[] {
-    return this.all('SELECT * FROM workflows ORDER BY created_at').map((r) => this.mapWorkflow(r));
+    return this.all('SELECT * FROM workflows ORDER BY created_at, rowid').map((r) => this.mapWorkflow(r));
   }
 
   getWorkflow(id: string): Workflow | null {
@@ -585,8 +585,8 @@ export class Store {
   /** Todos los disparadores, o los de un workflow, del más antiguo al más reciente. */
   listTriggers(workflowId?: string): Trigger[] {
     const rows = workflowId
-      ? this.all('SELECT * FROM triggers WHERE workflow_id = ? ORDER BY created_at, id', workflowId)
-      : this.all('SELECT * FROM triggers ORDER BY workflow_id, created_at, id');
+      ? this.all('SELECT * FROM triggers WHERE workflow_id = ? ORDER BY created_at, rowid', workflowId)
+      : this.all('SELECT * FROM triggers ORDER BY workflow_id, created_at, rowid');
     return rows.map((r) => this.mapTrigger(r));
   }
 

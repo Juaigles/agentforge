@@ -10,16 +10,18 @@
   --border-strong: #cfc8ba;
   --text: #1d1b18;
   --text-2: #5c574e;
-  --text-3: #8a8479;
-  --accent: #c2410c;
+  --text-3: #6b665c;
+  /* Borde de campos, casillas e interruptores: es lo único que los delimita, así que llega a 3:1. */
+  --control-border: #8f887b;
+  --accent: #b53c0b;
   --accent-hover: #a83608;
   --accent-soft: #fbe9dc;
   --accent-text: #ffffff;
-  --success: #15803d;
+  --success: #137539;
   --success-soft: #dcf5e4;
   --danger: #b91c1c;
   --danger-soft: #fde4e4;
-  --warning: #a16207;
+  --warning: #946005;
   --warning-soft: #fdf1cf;
   --info: #1d4ed8;
   --info-soft: #dfe9fd;
@@ -46,7 +48,8 @@
   --border-strong: #48443c;
   --text: #f2efe9;
   --text-2: #b3ada2;
-  --text-3: #7f796e;
+  --text-3: #989286;
+  --control-border: #7d776b;
   --accent: #f97316;
   --accent-hover: #fb8a3c;
   --accent-soft: #3a2413;
@@ -76,7 +79,8 @@
     --border-strong: #48443c;
     --text: #f2efe9;
     --text-2: #b3ada2;
-    --text-3: #7f796e;
+    --text-3: #989286;
+  --control-border: #7d776b;
     --accent: #f97316;
     --accent-hover: #fb8a3c;
     --accent-soft: #3a2413;
@@ -147,6 +151,13 @@ a {
 }
 a:hover {
   text-decoration: underline;
+}
+/* Un enlace dentro de un texto no se distingue solo por el color: va subrayado. */
+p a:not(.btn):not(.term),
+.callout a:not(.btn):not(.term),
+.hint a:not(.term) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 code,
 pre,
@@ -371,7 +382,7 @@ pre,
   width: 100%;
   min-height: 34px;
   padding: 6px 10px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
@@ -433,11 +444,11 @@ pre,
 }
 .switch {
   position: relative;
-  width: 36px;
-  height: 20px;
+  width: 42px;
+  height: 24px;
   flex: none;
   appearance: none;
-  background: var(--border-strong);
+  background: var(--control-border);
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.15s;
@@ -448,8 +459,8 @@ pre,
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
@@ -459,7 +470,7 @@ pre,
   background: var(--accent);
 }
 .switch:checked::after {
-  transform: translateX(16px);
+  transform: translateX(18px);
 }
 input[type='range'] {
   accent-color: var(--accent);

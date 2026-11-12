@@ -4,6 +4,7 @@ import { Activity, Bot, CircleAlert, Clock, Coins, Gauge, Play, Plus, RefreshCw,
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AgentAvatar from '@/components/AgentAvatar.vue';
+import GettingStarted from '@/components/GettingStarted.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
@@ -101,6 +102,8 @@ async function cancel(run: RunSummary): Promise<void> {
         <RouterLink to="/settings">Añade uno en Ajustes</RouterLink> para poder ejecutar agentes.
       </div>
     </div>
+
+    <GettingStarted />
 
     <template v-if="stats">
       <section class="kpis" aria-label="Indicadores">

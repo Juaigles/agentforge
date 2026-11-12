@@ -480,7 +480,8 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
   min-width: 0;
 }
 .tool.off {
-  opacity: 0.72;
+  background: var(--surface-2);
+  border-style: dashed;
 }
 .tool header {
   display: flex;

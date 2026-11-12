@@ -3,6 +3,7 @@
 import type { RunSummary } from '@shared/types';
 import { ArrowUpRight, Play, Square } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { announce } from '@/lib/a11y';
 import { api, errorText } from '@/lib/api';
 import { elapsedMs, formatCompact, formatDuration, relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
@@ -59,6 +60,17 @@ async function start(): Promise<void> {
   }
 }
 
+// El final de la respuesta se anuncia una vez; el texto en streaming no es una región viva (se releería entero).
+watch(
+  () => live.value?.status,
+  (status, previous) => {
+    if (!status || status === previous || !previous) return;
+    if (status === 'completed') announce('Respuesta completa.');
+    else if (status === 'failed') announce('La ejecución ha fallado.');
+    else if (status === 'cancelled') announce('Ejecución cancelada.');
+  },
+);
+
 async function cancel(): Promise<void> {
   if (!runId.value) return;
   try {
@@ -107,7 +119,7 @@ async function cancel(): Promise<void> {
       <template v-if="live">
         <div v-if="live.error" class="callout danger" role="alert">{{ live.error }}</div>
         <div v-if="thinking && !text" class="thinking small"><span class="eyebrow">Razonando…</span>{{ thinking.slice(-400) }}</div>
-        <div v-if="text" class="answer" aria-live="polite">
+        <div v-if="text" class="answer">
           <MarkdownView :source="text" />
           <span v-if="isActive" class="caret" aria-hidden="true" />
         </div>

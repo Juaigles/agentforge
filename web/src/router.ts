@@ -1,4 +1,6 @@
+import { nextTick } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
+import { announce } from './lib/a11y';
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -24,6 +26,19 @@ export const router = createRouter({
   },
 });
 
-router.afterEach((to) => {
-  document.title = `${String(to.meta.title ?? 'AgentForge')} · AgentForge`;
+router.afterEach((to, from) => {
+  const title = String(to.meta.title ?? 'AgentForge');
+  document.title = `${title} · AgentForge`;
+  // Primera carga, o solo cambia el ancla o la consulta (filtros): ni se mueve el foco ni se anuncia nada.
+  if (!from.matched.length || to.path === from.path) return;
+  void nextTick(() => {
+    const main = document.getElementById('contenido');
+    if (!main) return;
+    // El contenido se desplaza dentro de <main>, no en la ventana: cada página empieza arriba.
+    if (!to.hash) main.scrollTop = 0;
+    // El foco pasa al contenido nuevo: quien usa teclado no vuelve a recorrer el menú, y un lector de pantalla
+    // sabe que la página ha cambiado.
+    main.focus({ preventScroll: true });
+    announce(`Página: ${title}`);
+  });
 });

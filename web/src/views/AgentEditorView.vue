@@ -8,6 +8,7 @@ import RunPlayground from '@/components/RunPlayground.vue';
 import Term from '@/components/Term.vue';
 import { api, ApiError, errorText } from '@/lib/api';
 import { formatBytes } from '@/lib/format';
+import { agentDeleteMessage, workflowsUsingAgent } from '@/lib/usage';
 import { useCatalog } from '@/stores/catalog';
 import { useRuns } from '@/stores/runs';
 import { useUi } from '@/stores/ui';
@@ -160,7 +161,7 @@ async function duplicate(): Promise<void> {
 
 async function remove(): Promise<void> {
   if (!agentId.value) return;
-  const ok = await ui.confirm({ title: 'Eliminar agente', message: `Se eliminará «${form.name}». Esta acción no se puede deshacer.`, confirmLabel: 'Eliminar', danger: true });
+  const ok = await ui.confirm({ title: 'Eliminar agente', message: agentDeleteMessage(form.name, workflowsUsingAgent(catalog.workflows, agentId.value)), confirmLabel: 'Eliminar agente', danger: true });
   if (!ok) return;
   try {
     await api.agents.remove(agentId.value);

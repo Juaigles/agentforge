@@ -61,15 +61,15 @@ export async function seedIfEmpty(ctx: AppContext): Promise<boolean> {
   const redactor = store.createAgent({
     ...base,
     name: 'Redactor',
-    role: 'redactor de informes ejecutivos',
-    description: 'Sintetiza el trabajo de otros agentes en un informe claro.',
+    role: 'redactor que convierte material en textos claros',
+    description: 'Sintetiza el trabajo de otros agentes en el formato que pida la tarea.',
     color: '#8b5cf6',
     temperature: 0.7,
     tools: [],
     systemPrompt:
-      'Escribes informes ejecutivos en español, en Markdown, a partir del material que te proporcionen. ' +
-      'Estructura: título, resumen (2-3 frases), hallazgos clave, riesgos y oportunidades, y recomendación final. ' +
-      'Usa únicamente la información recibida; no inventes datos. Máximo 350 palabras.',
+      'Redactas textos claros en español, en Markdown, a partir del material que te proporcionen. ' +
+      'Sigue el formato, el tono y la extensión que pida la tarea; si no indica ninguno, responde con un texto breve y bien ordenado. ' +
+      'Usa únicamente la información recibida; no inventes datos.',
   });
   const revisor = store.createAgent({
     ...base,
@@ -108,7 +108,7 @@ export async function seedIfEmpty(ctx: AppContext): Promise<boolean> {
       { id: 'tema', type: 'input', label: 'Tema', position: { x: 0, y: 160 }, config: { description: 'Tema sobre el que elaborar el informe', defaultValue: 'El impacto de los agentes de IA en las pequeñas empresas' } },
       { id: 'investigar', type: 'agent', label: 'Investigar hechos', position: { x: 250, y: 40 }, config: { agentId: investigador.id, prompt: 'Reúne los hechos y el contexto clave sobre este tema:\n\n{{input}}' } },
       { id: 'analizar', type: 'agent', label: 'Analizar riesgos', position: { x: 250, y: 280 }, config: { agentId: analista.id, prompt: 'Analiza las oportunidades y los riesgos de este tema:\n\n{{input}}' } },
-      { id: 'redactar', type: 'agent', label: 'Redactar informe', position: { x: 500, y: 160 }, config: { agentId: redactor.id, prompt: 'Escribe un informe ejecutivo sobre "{{input}}" usando este material:\n\n## Hechos\n{{investigar}}\n\n## Análisis\n{{analizar}}' } },
+      { id: 'redactar', type: 'agent', label: 'Redactar informe', position: { x: 500, y: 160 }, config: { agentId: redactor.id, prompt: 'Escribe un informe ejecutivo sobre "{{input}}" usando este material. Estructura: título, resumen (2-3 frases), hallazgos clave, riesgos y oportunidades, y recomendación final. Máximo 350 palabras.\n\n## Hechos\n{{investigar}}\n\n## Análisis\n{{analizar}}' } },
       { id: 'revisar', type: 'agent', label: 'Revisar calidad', position: { x: 750, y: 160 }, config: { agentId: revisor.id, prompt: 'Revisa este borrador de informe:\n\n{{redactar}}' } },
       { id: 'aprobado', type: 'condition', label: '¿Aprobado?', position: { x: 1000, y: 160 }, config: { left: '{{revisar}}', operator: 'contains', right: 'APROBADO' } },
       { id: 'corregir', type: 'agent', label: 'Aplicar correcciones', position: { x: 1250, y: 290 }, config: { agentId: redactor.id, prompt: 'Reescribe el siguiente informe aplicando los cambios que pide el revisor. Devuelve solo el informe final.\n\n## Informe\n{{redactar}}\n\n## Comentarios del revisor\n{{revisar}}' } },

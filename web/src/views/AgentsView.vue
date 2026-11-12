@@ -9,6 +9,7 @@ import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
 import { plural } from '@/lib/format';
 import { downloadJson, exportFileName, importSummary, readJsonFile } from '@/lib/transfer';
+import { agentDeleteMessage, workflowsUsingAgent } from '@/lib/usage';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 
@@ -32,7 +33,7 @@ const filtered = computed(() => {
   return catalog.agents.filter((a) => [a.name, a.role, a.description, a.model].some((v) => v.toLowerCase().includes(q)));
 });
 
-const usedIn = (agent: Agent) => catalog.workflows.filter((w) => w.nodes.some((n) => (n.type === 'agent' || n.type === 'foreach') && n.config?.agentId === agent.id)).length;
+const usedIn = (agent: Agent) => workflowsUsingAgent(catalog.workflows, agent.id).length;
 const providerName = (agent: Agent) => catalog.providerById.get(agent.providerId)?.name ?? 'Proveedor eliminado';
 const providerMissing = (agent: Agent) => !catalog.providerById.has(agent.providerId);
 
@@ -89,8 +90,8 @@ async function duplicate(agent: Agent): Promise<void> {
 async function remove(agent: Agent): Promise<void> {
   const ok = await ui.confirm({
     title: 'Eliminar agente',
-    message: `Se eliminará «${agent.name}». Las ejecuciones anteriores se conservan en el historial.`,
-    confirmLabel: 'Eliminar',
+    message: agentDeleteMessage(agent.name, workflowsUsingAgent(catalog.workflows, agent.id)),
+    confirmLabel: 'Eliminar agente',
     danger: true,
   });
   if (!ok) return;

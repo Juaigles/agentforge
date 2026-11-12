@@ -5,7 +5,9 @@ import type { RunSnapshot } from '@shared/types';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import { useVueFlow, VueFlow } from '@vue-flow/core';
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { localizeFlow } from '@/lib/a11y';
+import { NODE_LABEL, STATUS_LABEL } from '@/lib/format';
 import { toFlowEdge, toFlowNode } from '@/lib/flow';
 import type { RunLive } from '@/lib/run-state';
 import FlowNode from './FlowNode.vue';
@@ -24,9 +26,31 @@ const nodes = computed(() =>
     // El subworkflow se muestra con el nombre que tenía al lanzar la ejecución (instantánea), no con el actual.
     const childId = nodeSubworkflowId(n);
     const workflowName = childId ? props.snapshot.subworkflows?.[childId]?.name : undefined;
-    return toFlowNode(n, { status: props.live.steps[n.id]?.status ?? 'pending', agentName: agent?.name, agentColor: agent?.color, workflowName });
+    const status = props.live.steps[n.id]?.status ?? 'pending';
+    return {
+      ...toFlowNode(n, { status, agentName: agent?.name, agentColor: agent?.color, workflowName }),
+      // Lo que oye un lector de pantalla al enfocar el nodo: tipo, etiqueta y estado del paso.
+      ariaLabel: `${NODE_LABEL[n.type]}: ${n.label || n.id}, ${STATUS_LABEL[status].toLowerCase()}`,
+      domAttributes: { 'aria-roledescription': 'paso' },
+    };
   }),
 );
+const labelOf = (id: string): string => props.snapshot.workflow.nodes.find((n) => n.id === id)?.label || id;
+
+const root = ref<HTMLElement | null>(null);
+let unlocalize: (() => void) | null = null;
+onMounted(() => {
+  if (root.value) unlocalize = localizeFlow(root.value, 'Pulsa Intro o Espacio para ver el resultado de este paso.', 'Conexión entre dos pasos.');
+});
+onBeforeUnmount(() => unlocalize?.());
+/** Intro o Espacio sobre un nodo enfocado lo selecciona (Vue Flow no emite el clic con el teclado). */
+function onKey(ev: KeyboardEvent): void {
+  const target = ev.target as HTMLElement;
+  if ((ev.key === 'Enter' || ev.key === ' ') && target.classList.contains('vue-flow__node') && target.dataset.id) {
+    ev.preventDefault();
+    emit('select', target.dataset.id);
+  }
+}
 
 const edges = computed(() =>
   props.snapshot.workflow.edges.map((e) => {
@@ -36,12 +60,14 @@ const edges = computed(() =>
     const classes = [edge.class as string | undefined];
     if (target === 'running') classes.push('flowing');
     if (source === 'skipped' || target === 'skipped' || target === 'cancelled') classes.push('dimmed');
-    return { ...edge, animated: target === 'running', class: classes.filter(Boolean).join(' ') };
+    const branch = e.sourceHandle === 'true' ? ' (rama sí)' : e.sourceHandle === 'false' ? ' (rama no)' : '';
+    return { ...edge, ariaLabel: `Conexión de ${labelOf(e.source)} a ${labelOf(e.target)}${branch}`, animated: target === 'running', class: classes.filter(Boolean).join(' ') };
   }),
 );
 </script>
 
 <template>
+  <div ref="root" class="run-graph" role="region" aria-label="Grafo de la ejecución" @keydown.capture="onKey">
   <VueFlow
     :id="flowId"
     :nodes="nodes"
@@ -58,4 +84,12 @@ const edges = computed(() =>
     <Background :gap="20" :size="1.2" />
     <Controls :show-interactive="false" position="bottom-left" />
   </VueFlow>
+  </div>
 </template>
+
+<style scoped>
+.run-graph {
+  width: 100%;
+  height: 100%;
+}
+</style>

@@ -9,8 +9,9 @@ import RunActivity from '@/components/RunActivity.vue';
 import RunGraph from '@/components/RunGraph.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import Term from '@/components/Term.vue';
+import { announce } from '@/lib/a11y';
 import { api, errorText } from '@/lib/api';
-import { elapsedMs, formatCompact, formatDateTime, formatDuration, formatNumber, NODE_LABEL } from '@/lib/format';
+import { elapsedMs, formatCompact, formatDateTime, formatDuration, formatNumber, NODE_LABEL, STATUS_LABEL } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
 import { useRunStream } from '@/lib/useRunStream';
 import { useCatalog } from '@/stores/catalog';
@@ -25,7 +26,15 @@ const catalog = useCatalog();
 const now = useNow(500);
 
 const runId = computed(() => String(route.params.id));
-const { run, live, loading, error, usage, isActive } = useRunStream(runId);
+const { run, live, loading, error, usage, isActive, reload } = useRunStream(runId);
+// Al recuperar la conexión con el servidor, una ejecución que seguía en curso se vuelve a cargar: lo ocurrido
+// mientras tanto no llegó por el flujo de eventos.
+watch(
+  () => catalog.online,
+  (online, was) => {
+    if (online && was === false && isActive.value) void reload();
+  },
+);
 
 const selected = ref<string | null>(null);
 const tab = ref<'result' | 'activity' | 'input'>('result');
@@ -44,6 +53,41 @@ watch(
 onBeforeUnmount(() => (runsStore.watching = null));
 
 const steps = computed(() => (live.value ? live.value.order.map((id) => live.value!.steps[id]) : []));
+
+// Los cambios de estado se anuncian a los lectores de pantalla: en esta pantalla no hay aviso emergente de fin.
+watch(
+  () => live.value?.status,
+  (status, previous) => {
+    if (!status || !previous || status === previous || !live.value) return;
+    const took = elapsedMs(live.value.startedAt, live.value.finishedAt, Date.now());
+    const ended = ['completed', 'failed', 'cancelled'].includes(status);
+    announce(`Ejecución: ${STATUS_LABEL[status].toLowerCase()}${ended && took !== null ? ` en ${formatDuration(took)}` : ''}.`);
+  },
+);
+watch(
+  () => steps.value.map((s) => `${s.nodeId}:${s.status}`).join('|'),
+  (current, previous) => {
+    if (!previous || steps.value.length < 2) return;
+    const before = new Map(previous.split('|').map((entry) => [entry.slice(0, entry.lastIndexOf(':')), entry.slice(entry.lastIndexOf(':') + 1)]));
+    for (const s of steps.value) {
+      const was = before.get(s.nodeId);
+      if (was && was !== s.status && ['completed', 'failed', 'waiting'].includes(s.status)) announce(`Paso ${s.label}: ${STATUS_LABEL[s.status].toLowerCase()}.`);
+    }
+    void current;
+  },
+);
+// Una ejecución fallida se abre mostrando el paso que falló: ahí está el motivo y lo que llevaba hecho.
+watch(
+  () => [live.value?.status, loading.value] as const,
+  ([status, isLoading]) => {
+    // Mientras se carga otra ejecución (p. ej. el reintento de esta) el estado que se ve es todavía el de la anterior.
+    if (isLoading || run.value?.id !== runId.value) return;
+    if (status !== 'failed' || selected.value || steps.value.length < 2) return;
+    const failed = steps.value.find((s) => s.status === 'failed');
+    if (failed) selected.value = failed.nodeId;
+  },
+  { immediate: true },
+);
 const step = computed(() => (selected.value && live.value ? (live.value.steps[selected.value] ?? null) : null));
 const labels = computed(() => Object.fromEntries(steps.value.map((s) => [s.nodeId, s.label])));
 const runningSteps = computed(() => steps.value.filter((s) => s.status === 'running'));
@@ -173,7 +217,7 @@ async function copy(text: string): Promise<void> {
         </div>
       </header>
 
-      <div v-if="isActive && steps.length > 1" class="progress" role="progressbar" :aria-valuenow="progress.done" :aria-valuemax="progress.total" aria-label="Progreso">
+      <div v-if="isActive && steps.length > 1" class="progress" role="progressbar" :aria-valuenow="progress.done" aria-valuemin="0" :aria-valuemax="progress.total" :aria-valuetext="`${progress.done} de ${progress.total} pasos`" aria-label="Progreso">
         <span :style="{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }" />
       </div>
 

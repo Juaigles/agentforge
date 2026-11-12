@@ -1,6 +1,6 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-12 (hito 5, fases 1 a 5; ver «Hito 5» más abajo)._
+_Última actualización: 2026-11-12 (hito 5, fases 1 a 6; ver «Hito 5» más abajo)._
 
 ## Estado real
 
@@ -344,7 +344,82 @@ sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
   Las que una versión anterior guardó en claro se cifran al arrancar.
 - **Verificado con Ollama**: ver `TEST_RESULTS.md`, sección 1.1.
 
+### Fase 6 · Interfaz y accesibilidad — HECHA (2026-11-12)
+
+Parte de las auditorías de accesibilidad (WCAG 2.1 AA) y de UX. Resuelto:
+
+- **Constructor operable sin ratón** (los dos críticos de accesibilidad): Intro o Espacio sobre un nodo abre sus
+  propiedades y lleva allí el foco, y Escape lo devuelve al nodo; el bloque **«Conexiones»** del inspector une y
+  separa nodos sin arrastrar (solo ofrece destinos que no crean un ciclo, y una opción por rama en las
+  condiciones); la lista **«Nodos»** de los ajustes llega a cualquier nodo sin pasar por el lienzo. Nodos y
+  conexiones tienen nombre en español para los lectores de pantalla, el foco se ve y cada acción se anuncia.
+- **Deshacer y rehacer** (botones, Ctrl+Z, Ctrl+Mayús+Z): la escritura seguida y el arrastre se agrupan en un
+  paso. **Copiar, pegar y duplicar** (Ctrl+C, Ctrl+V, Ctrl+D), **Ordenar** (disposición automática por capas),
+  **Ctrl+S** y Supr. Lógica en `web/src/lib/builder.ts`.
+- **Sin pérdida de trabajo**: el navegador pide confirmación al cerrar o recargar con cambios sin guardar; un
+  diálogo en el que se ha escrito algo ya no se cierra al pulsar fuera.
+- **Diálogos**: atrapan el foco, dejan inerte lo de detrás (también con dos apilados), Escape cierra solo el de
+  arriba y, en las confirmaciones destructivas, el foco empieza en «Cancelar».
+- **Avisos**: los de error no desaparecen solos y se anuncian como alerta; los demás se detienen con el puntero
+  o el foco encima; cinco como máximo y sin duplicados.
+- **Navegación**: enlace «Saltar al contenido»; al cambiar de página el foco pasa al contenido, la página se
+  anuncia y el desplazamiento vuelve arriba (antes se conservaba el de la página anterior).
+- **Formularios**: cada campo queda enlazado con su pista y su error (`aria-describedby`, automático en toda la
+  aplicación) y, al enviar con errores, el foco va al primer campo no válido.
+- **Contraste**: el texto atenuado y los bordes de campos e interruptores alcanzan AA en los dos temas; los tonos
+  de acento, éxito y aviso del tema claro, 4,5:1 sobre su fondo suave; los enlaces dentro de un texto van
+  subrayados; los pasos omitidos y las herramientas apagadas ya no se atenúan con opacidad.
+- **Monitor de ejecuciones**: los cambios de estado de la ejecución y de cada paso se anuncian; una ejecución
+  fallida se abre en el paso que falló.
+- **Estado real de la conexión**: si el servidor deja de responder aparece una franja fija «Sin conexión con el
+  servidor», la barra lateral lo dice, se reintenta cada 3 s y, al volver, se recargan los datos y la ejecución
+  abierta. Antes la interfaz seguía mostrando «disponible».
+- **Primera sesión guiada**: tarjeta «Primeros pasos» en el Panel con tres pasos que se marcan solos (conectar un
+  modelo, probar un agente, ejecutar un workflow). Si Ollama no responde explica qué es, enlaza la descarga, da el
+  comando `ollama pull` con el modelo configurado y ofrece la alternativa de una API compatible con OpenAI.
+- **Historial**: los filtros (estado, tipo y búsqueda) viven en la URL y sobreviven a abrir una ejecución y
+  volver, a recargar y a compartir el enlace.
+- **Eliminar un agente** avisa de qué workflows dejarán de poder ejecutarse, con el mismo texto en la lista y en
+  la ficha.
+- **Datos de ejemplo**: el agente «Redactor» ya no fuerza un «informe ejecutivo»; el formato lo pide la tarea del
+  nodo. Solo afecta a instalaciones nuevas: una base de datos ya sembrada conserva el agente anterior.
+- Otros: `h1` en el constructor y en «No encontrado»; interruptores y botón de cerrar aviso de 24 px; en pantallas
+  estrechas (o con zoom al 200 %) siguen visibles el selector de tema y el estado del servidor.
+
+Defectos encontrados al verificar y corregidos:
+
+21. La selección automática del paso fallido se arrastraba a la ejecución del **reintento** (el monitor reutiliza
+    el componente): el reintento se abría mostrando solo la actividad de un paso. Lo destapó `runs.spec.ts`.
+22. Los disparadores, proveedores, agentes y workflows creados en el mismo milisegundo se listaban en **orden
+    aleatorio** (el desempate era el id, que es aleatorio): ahora es el orden de inserción. Lo destapó un fallo
+    intermitente de `portability.test.ts`.
+
 ## Pendiente y limitaciones
+
+- **De la fase 6 (auditorías de accesibilidad y UX), sin hacer**:
+  - *Historial*: comparar dos ejecuciones, filtrar por workflow, agente o fecha, ordenar por columnas; el filtro
+    «En curso» no incluye las que están en cola; cada evento en vivo vuelve a pedir la página entera.
+  - *Constructor*: menú contextual, botón «×» sobre una conexión, insertar un nodo sobre una conexión, crear un
+    agente sin salir del lienzo; por debajo de 1100 px el inspector queda bajo el lienzo; un workflow nuevo nace
+    «Sin guardar»; «Exportar» guarda antes sin preguntar.
+  - *Editor de agentes*: hay que guardar para probar (no hay «guardar y ejecutar» ni cabecera fija).
+  - *Sistema de diseño*: sin tokens de tipografía ni de espaciado; colores de nodo y de avatar fuera del sistema
+    (las iniciales de algunos avatares no alcanzan contraste en tema claro); terminología no unificada
+    («Ejecutar/Probar», «Eliminar/Quitar/Vaciar»); casi sin transiciones y esqueletos genéricos.
+  - *Accesibilidad media*: el gráfico del Panel no tiene tabla de datos alternativa y distingue los tramos solo
+    por color; la definición emergente del glosario no se puede recorrer con el puntero; los grupos de opciones y
+    las pestañas no responden a las flechas; tras borrar un elemento el foco vuelve al principio; los esqueletos
+    de carga no se anuncian; un término del glosario dentro de un formulario navega fuera de la página.
+  - *Accesibilidad baja*: títulos de pestaña sin el nombre del elemento, campos obligatorios sin marca, tablas
+    sin `caption`, datos que solo están en `title`, desplazamientos suaves que no respetan «reducir movimiento».
+  - *Otros*: sin búsqueda global ni paleta de comandos; cancelar desde una lista no pide confirmación; «Vaciar
+    historial» sigue en la cabecera; el Panel con datos mantiene las cuatro cifras sin tendencia.
+- **Con el servidor caído, el cronómetro de una ejecución abierta sigue corriendo** (la franja lo avisa y al
+  reconectar se recarga, pero el tiempo mostrado mientras tanto no es fiable).
+- **La guía de primeros pasos no bloquea «Ejecutar»** cuando el proveedor no responde: la ejecución falla con el
+  error del proveedor.
+- **Accesibilidad no comprobada con un lector de pantalla real** (NVDA, VoiceOver): están comprobados en el
+  navegador los roles, nombres, foco y regiones vivas, no lo que se oye.
 
 - **Sin multiusuario.** Una única clave de acceso opcional (obligatoria fuera de este equipo); no hay cuentas ni permisos.
 - **El apagado ordenado por señal no se ha podido ejercitar en Windows** (un proceso no puede enviar `SIGINT` a
@@ -353,7 +428,6 @@ sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
   probados los argumentos, la detección y el rechazo cuando no hay motor; el test que lo ejecuta se omite solo.
 - **El corte de red del proceso aislado no es una frontera del sistema operativo**: el proceso inutiliza sus
   propias API de red. Para código no confiable, el contenedor.
-- **Las cabeceras con credenciales de las herramientas HTTP siguen guardándose en claro** (previsto en la fase 5).
 - **La política de contenido admite estilos en línea** (`style-src 'unsafe-inline'`): Vue y Vue Flow los necesitan.
 - **Los workflows son DAG**: no hay bucles; la iteración sobre listas se hace con el nodo «para cada».
 - **Un subworkflow es una ejecución aparte**, no pasos anidados dentro de la misma: su detalle se ve abriendo la
@@ -374,7 +448,6 @@ sección nueva de Ajustes desbordaba en móvil (lo detectó la suite e2e).
 - **Webhooks**: sin protección frente a repeticiones (una petición firmada capturada se puede reenviar), sin lista
   de direcciones permitidas y sin respuesta síncrona con el resultado: devuelven el id de la ejecución. No aplican
   la regla de «sin solapes»: cada llamada es una ejecución, limitada por la cola y por el límite de peticiones.
-- **Los disparadores no viajan con el workflow exportado.**
 - **MCP**: solo herramientas (ni recursos, ni plantillas de prompt, ni muestreo); sin OAuth; el transporte SSE
   antiguo no está soportado. Un servidor local se ejecuta con los permisos del servidor de AgentForge, sin
   aislamiento. El resultado no textual (imágenes, audio) se sustituye por una nota. Renombrar un servidor cambia

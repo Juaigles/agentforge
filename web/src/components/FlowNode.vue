@@ -209,9 +209,10 @@ const subtitle = computed(() => {
   border-color: var(--danger);
   background: var(--danger-soft);
 }
+/* Omitido o cancelado: borde discontinuo y fondo apagado. Sin opacidad, que dejaba el texto sin contraste. */
 .st-skipped,
 .st-cancelled {
-  opacity: 0.55;
+  background: var(--surface-2);
   border-style: dashed;
 }
 @keyframes glow {

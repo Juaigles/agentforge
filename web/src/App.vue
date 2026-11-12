@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Activity, Bot, BookOpen, LayoutDashboard, Monitor, Moon, Settings, Sun, Workflow, Wrench } from 'lucide-vue-next';
-import { computed, onMounted, ref } from 'vue';
+import { Activity, Bot, BookOpen, LayoutDashboard, Monitor, Moon, Settings, Sun, Unplug, Workflow, Wrench } from 'lucide-vue-next';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { announce, announcement, installFormA11y } from '@/lib/a11y';
 import { api, authRequired } from '@/lib/api';
 import AccessGate from '@/components/AccessGate.vue';
 import ApprovalsBanner from '@/components/ApprovalsBanner.vue';
@@ -30,7 +31,8 @@ const THEMES: Array<{ value: Theme; label: string; icon: typeof Sun }> = [
 ];
 
 const providerStatus = computed(() => {
-  if (catalog.loadError) return { tone: 'danger', text: 'Servidor sin conexión' };
+  if (!catalog.online) return { tone: 'danger', text: 'Servidor sin conexión' };
+  if (catalog.loadError && !catalog.loaded) return { tone: 'danger', text: 'Servidor sin conexión' };
   if (!catalog.health.length) return { tone: '', text: catalog.providers.length ? 'Comprobando modelos…' : 'Sin proveedores' };
   const ok = catalog.health.filter((h) => h.ok).length;
   if (ok === catalog.health.length) return { tone: 'success', text: ok === 1 ? `${catalog.health[0].name} disponible` : `${ok} proveedores disponibles` };
@@ -41,6 +43,7 @@ const providerStatus = computed(() => {
 const ready = ref(false);
 
 onMounted(async () => {
+  installFormA11y();
   try {
     const status = await api.auth.status();
     if (status.required && !status.authenticated) authRequired.value = true;
@@ -59,13 +62,46 @@ onMounted(async () => {
     /* el estado de conexión se muestra en la barra lateral y en cada vista */
   }
   void catalog.refreshHealth();
-  setInterval(() => void catalog.refreshHealth(), 30_000);
+  healthTimer = setInterval(() => void catalog.refreshHealth(), 30_000);
+});
+
+// ---------- Estado real de la conexión con el servidor ----------
+// El canal de eventos se corta en cuanto el servidor cae: es la señal más rápida. Se confirma con una petición
+// (un corte breve del canal no es una caída) y, mientras no responda, se reintenta cada pocos segundos.
+let healthTimer: ReturnType<typeof setInterval> | undefined;
+let retryTimer: ReturnType<typeof setInterval> | undefined;
+watch(
+  () => runs.connected,
+  (connected, was) => {
+    if (was && !connected) void catalog.checkServer();
+  },
+);
+watch(
+  () => catalog.online,
+  (online) => {
+    clearInterval(retryTimer);
+    if (!online) {
+      announce('Se ha perdido la conexión con el servidor de AgentForge. Reintentando.');
+      retryTimer = setInterval(() => void catalog.checkServer(), 3000);
+      return;
+    }
+    announce('Conexión con el servidor recuperada.');
+    ui.success('Conexión con el servidor recuperada.');
+    // Lo que cambió mientras no había conexión no llegó por el canal de eventos: se vuelve a pedir.
+    void catalog.reload().catch(() => undefined);
+    void catalog.refreshHealth();
+  },
+);
+onBeforeUnmount(() => {
+  clearInterval(healthTimer);
+  clearInterval(retryTimer);
 });
 </script>
 
 <template>
   <AccessGate v-if="authRequired" />
   <div v-else-if="ready" class="shell">
+    <a class="skip-link" href="#contenido">Saltar al contenido</a>
     <aside class="sidebar">
       <RouterLink to="/" class="brand" aria-label="AgentForge, ir al panel">
         <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -86,7 +122,7 @@ onMounted(async () => {
 
       <div class="sidebar-foot">
         <RouterLink to="/glosario" class="nav-item subtle" aria-label="Glosario" title="Glosario"><BookOpen aria-hidden="true" /><span>Glosario</span></RouterLink>
-        <RouterLink to="/settings" class="status" :title="providerStatus.text">
+        <RouterLink to="/settings" class="status" :title="providerStatus.text" :aria-label="`Estado: ${providerStatus.text}`">
           <span class="dot" :class="[providerStatus.tone, { pulse: !providerStatus.tone && catalog.providers.length > 0 }]" />
           <span class="truncate">{{ providerStatus.text }}</span>
         </RouterLink>
@@ -107,7 +143,15 @@ onMounted(async () => {
       </div>
     </aside>
 
-    <main class="main">
+    <main id="contenido" class="main" tabindex="-1">
+      <div v-if="!catalog.online" class="offline" role="alert" data-testid="offline">
+        <Unplug aria-hidden="true" />
+        <div class="grow">
+          <strong>Sin conexión con el servidor de AgentForge.</strong>
+          Lo que ves puede no estar al día y los cambios no se guardarán. Se reintenta solo cada pocos segundos; comprueba que el servidor sigue en marcha.
+        </div>
+        <button class="btn btn-sm" type="button" @click="catalog.checkServer()">Reintentar ahora</button>
+      </div>
       <InterruptedBanner />
       <ApprovalsBanner />
       <RouterView v-slot="{ Component, route }">
@@ -115,6 +159,8 @@ onMounted(async () => {
       </RouterView>
     </main>
     <UiHost />
+    <!-- Mensajes de estado para lectores de pantalla (cambio de página, acciones del constructor, fin de una ejecución). -->
+    <div class="sr-only" role="status" aria-live="polite" data-testid="announcer">{{ announcement }}</div>
   </div>
 </template>
 
@@ -251,6 +297,47 @@ nav {
   min-width: 0;
   overflow-y: auto;
 }
+.offline {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-bottom: 1px solid var(--danger);
+  font-size: 13px;
+}
+.offline svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.offline .grow {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.main:focus {
+  outline: none;
+}
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 500;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  transform: translateY(-200%);
+}
+.skip-link:focus {
+  transform: none;
+}
 
 @media (max-width: 860px) {
   .shell {
@@ -266,11 +353,19 @@ nav {
     border-bottom: 1px solid var(--border);
     overflow-x: auto;
   }
+  /* El estado del servidor y el selector de tema siguen disponibles en pantallas estrechas y con zoom al 200 %:
+     el estado se reduce a su punto (el texto queda en el título del enlace). */
   .brand span,
-  .sidebar-foot .status,
-  .sidebar-foot .themes,
+  .sidebar-foot .status .truncate,
   .nav-item.subtle span {
     display: none;
+  }
+  .sidebar-foot .status {
+    flex: none;
+    padding: 0 8px;
+    min-height: 30px;
+    border: 0;
+    background: none;
   }
   nav {
     flex-direction: row;

@@ -6,12 +6,12 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 ## 1. Tests automatizados
 
 Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
-Resultados del 2026-11-12 (hito 5, tras la fase 5):
+Resultados del 2026-11-12 (hito 5, tras la fase 6):
 
 ```
 servidor     Test Files  17 passed (17)   Tests  379 passed | 1 skipped (380)
-frontend     Test Files  7 passed (7)     Tests   43 passed (43)
-end-to-end   56 passed (3.0m)
+frontend     Test Files  10 passed (10)   Tests   61 passed (61)
+end-to-end   66 passed (4.3m)
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
 npm audit    found 0 vulnerabilities
 ```
@@ -44,11 +44,14 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `web/src/lib/run-state.test.ts` | Reductor de eventos del monitor en vivo, emparejado de llamadas a herramientas, formato | Ninguno |
 | `web/src/lib/glossary.test.ts` | Coherencia del glosario: ids existentes, entradas usadas, términos fuera de botones/enlaces/código/títulos, definiciones aptas para tooltip | Ninguno (analiza las plantillas reales) |
 | `web/src/lib/transfer.test.ts` | Nombre del archivo exportado y descripción de la cadencia en lenguaje natural | Ninguno |
+| `web/src/lib/builder.test.ts` | Historial de deshacer/rehacer (agrupado, tope, rama descartada), disposición automática por capas, destinos de conexión válidos (sin ciclos, ramas de una condición) y copia de nodos con sus conexiones internas | Ninguno |
+| `web/src/lib/usage.test.ts` | Qué workflows usan un agente y el texto del aviso al eliminarlo (singular, plural, resumen) | Ninguno |
+| `web/src/components/GettingStarted.test.ts` | Guía de primeros pasos: proveedor Ollama caído (explicación, enlace de descarga, comando con el modelo configurado), «Probar conexión» antes y después de que responda, sin proveedores, y «Ocultar guía» recordado | Solo el proveedor LLM: usa la **API real** en memoria |
 | `web/src/components/Term.test.ts` | Tooltip del glosario: ratón, foco, Esc, clic fuera, scroll, dos toques en táctil, `aria-describedby` | `matchMedia` (jsdom no lo implementa) |
 | `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
 | `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
 | `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
-| `e2e/*.spec.ts` (56 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
+| `e2e/*.spec.ts` (66 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
 Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
 puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
@@ -134,6 +137,30 @@ Comprobado con el servidor real y Ollama tras la fase 5 del hito 5 (2026-11-12, 
   llama y la credencial por rellenar, el proveedor como «Ya existe» y los dos avisos (herramienta que actúa fuera
   y disparador en pausa). Se canceló sin crear nada. Sin desbordes a 375 px.
 - Al terminar se borraron el workflow importado, su ejecución y la copia del agente.
+
+Añadido en la fase 6 del hito 5 (`e2e/a11y.spec.ts`, 10 tests):
+
+| Requisito | Evidencia que exige |
+|---|---|
+| «Saltar al contenido» | Es la primera parada del tabulador, se ve al recibir el foco y lleva el foco a `<main>`; la siguiente parada ya está dentro del contenido |
+| Cambio de página | El foco pasa al contenido, la región viva dice «Página: Agentes» y el desplazamiento vuelve a 0 |
+| Trampa de foco | En «Eliminar agente» el foco empieza en «Cancelar», `#app` queda `inert`, el tabulador da la vuelta en los dos sentidos, Escape devuelve el foco al botón que abrió el diálogo y no borra nada; el texto nombra el workflow que usa al agente |
+| Avisos | Un error sigue visible 9 s después y tiene `role="alert"`; uno informativo caduca y tiene `role="status"` |
+| Deshacer y rehacer | Con los botones y con Ctrl+Z / Ctrl+Mayús+Z: añadir un nodo, renombrarlo (un solo paso) y borrarlo con Supr; al deshacer el borrado vuelve con su tarea |
+| Constructor sin ratón | Añadir desde la paleta con Intro, abrir un nodo con Intro (foco en la etiqueta), conectar y desconectar desde «Conexiones», no ofrecer el destino que crearía un ciclo, Escape devuelve el foco al nodo, lista «Nodos», Ctrl+S; la definición guardada tiene las dos conexiones |
+| Copiar, pegar, ordenar | Ctrl+C, Ctrl+V y Ctrl+D crean nodos; tras «Ordenar» ningún nodo se solapa con otro |
+| Filtros en la URL | `estado`, `tipo` y `q` en la dirección; se conservan al abrir una ejecución y volver y al recargar; un valor desconocido se ignora |
+| Guía de primeros pasos | «1 de 3» sin historial; pasa a «2 de 3» en vivo al ejecutar un agente; «Ocultar guía» se recuerda; desaparece al completar un workflow |
+| Servidor caído | Se mata el proceso: aparece la franja «Sin conexión…» y la barra lateral lo dice; al arrancarlo, la franja desaparece sola y se avisa de la reconexión |
+
+Verificado además con Ollama real (2026-11-12, `qwen3.5:4b-q4_K_M`) sobre una instalación nueva con los datos de
+ejemplo corregidos: al agente «Redactor» se le pidió «Escribe un haiku sobre el otoño. Solo el haiku.» y devolvió
+tres versos (0,5 s), no un informe; el workflow «Informe de investigación multiagente» terminó «Completado» en
+11,7 s con 4 llamadas al modelo y el informe con título, resumen y hallazgos (la estructura la pide ahora la tarea
+del nodo). En el navegador, sobre los datos reales: Intro sobre el nodo «Redactar informe» lleva el foco a su
+etiqueta, el nodo se anuncia como «Agente: Redactar informe», las conexiones como «Conexión de Tema a Investigar
+hechos», los botones de zoom se llaman «Acercar», «Alejar» y «Encuadrar todo el grafo», y el bloque «Conexiones»
+lista lo que recibe y envía; sin errores en la consola.
 
 ### 1.2 Prueba de carga (`npm run loadtest`)
 
@@ -332,6 +359,12 @@ de una ejecución anterior al reinicio.
   la creación de proveedores, herramientas y subworkflows y la sustitución están probadas en tests y e2e.
 - **Cifrado de cabeceras antiguas sobre los datos reales**: la instalación real no tiene herramientas HTTP
   personalizadas, así que el cifrado al arrancar solo se ha ejercitado en los tests.
+- **Lector de pantalla real**: los nombres, roles, foco y regiones vivas están comprobados en el DOM (e2e y
+  navegador); no se ha escuchado la interfaz con NVDA, JAWS ni VoiceOver.
+- **Guía de primeros pasos sin Ollama en el navegador**: el caso «proveedor caído» está probado en el test de
+  componente contra la API real, no apagando Ollama en esta máquina.
+- **Datos de ejemplo corregidos sobre la instalación real**: `data/` ya estaba sembrada y conserva el «Redactor»
+  anterior; lo nuevo se probó en una instalación temporal.
 - Navegadores distintos de Chromium (la suite e2e solo define el proyecto Chromium).
 - La suite e2e usa un modelo simulado: prueba la interfaz y el protocolo, no la calidad de las respuestas de
   un modelo real (eso lo cubren `ollama.integration.test.ts` y las comprobaciones manuales).
