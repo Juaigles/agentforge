@@ -122,7 +122,9 @@ function resetAndLoad(): void {
 }
 onMounted(load);
 // Los nombres de los workflows y agentes de los filtros salen del catálogo.
-onMounted(() => void catalog.ensure());
+// Los nombres de los desplegables de workflow y agente salen del catálogo. Si no carga (servidor caído), el
+// catálogo guarda el error y el historial sigue funcionando: aquí no hay nada más que hacer con él.
+onMounted(() => void catalog.ensure().catch(() => {}));
 // Una ejecución es de un workflow o de un agente: elegir uno quita el otro filtro y el tipo que lo contradiga.
 watch(workflowId, (id) => {
   if (!id) return;
