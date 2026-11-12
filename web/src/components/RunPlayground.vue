@@ -4,6 +4,7 @@ import type { RunSummary } from '@shared/types';
 import { ArrowUpRight, Play, Square } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { announce } from '@/lib/a11y';
+import { t } from '@/i18n';
 import { api, errorText } from '@/lib/api';
 import { elapsedMs, formatCompact, formatDuration, relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
@@ -65,9 +66,9 @@ watch(
   () => live.value?.status,
   (status, previous) => {
     if (!status || status === previous || !previous) return;
-    if (status === 'completed') announce('Respuesta completa.');
-    else if (status === 'failed') announce('La ejecución ha fallado.');
-    else if (status === 'cancelled') announce('Ejecución cancelada.');
+    if (status === 'completed') announce(t('playground.announce.completed'));
+    else if (status === 'failed') announce(t('playground.announce.failed'));
+    else if (status === 'cancelled') announce(t('playground.announce.cancelled'));
   },
 );
 
@@ -84,18 +85,18 @@ async function cancel(): Promise<void> {
 <template>
   <section class="card playground">
     <div class="card-head">
-      <h2>Banco de pruebas</h2>
+      <h2>{{ t('playground.title') }}</h2>
       <StatusBadge v-if="live" :status="live.status" />
     </div>
     <div class="card-pad col" style="gap: 12px">
       <div class="field">
-        <label for="pg-task">Tarea</label>
+        <label for="pg-task">{{ t('playground.task') }}</label>
         <textarea
           id="pg-task"
           v-model="task"
           class="textarea"
           rows="3"
-          placeholder="Escribe una tarea para comprobar cómo responde el agente…"
+          :placeholder="t('playground.taskPlaceholder')"
           :disabled="isActive"
           @keydown.ctrl.enter="start"
           @keydown.meta.enter="start"
@@ -103,14 +104,14 @@ async function cancel(): Promise<void> {
       </div>
       <div class="row wrap">
         <button v-if="!isActive" class="btn btn-primary" type="button" :disabled="!agentId || !!blocked || !task.trim() || starting" @click="start">
-          <Play /> {{ starting ? 'Lanzando…' : 'Ejecutar' }}
+          <Play /> {{ starting ? t('playground.starting') : t('common.actions.run') }}
         </button>
-        <button v-else class="btn btn-danger" type="button" @click="cancel"><Square /> Cancelar</button>
+        <button v-else class="btn btn-danger" type="button" @click="cancel"><Square /> {{ t('common.actions.cancel') }}</button>
         <span v-if="blocked" class="small muted">{{ blocked }}</span>
-        <span v-else-if="!isActive" class="tiny faint">Ctrl + Intro</span>
+        <span v-else-if="!isActive" class="tiny faint">{{ t('playground.shortcut') }}</span>
         <span v-if="live?.startedAt" class="small muted num" style="margin-left: auto">
           {{ formatDuration(elapsedMs(live.startedAt, live.finishedAt, now)) }}
-          <template v-if="usage"> · {{ formatCompact(usage.promptTokens + usage.completionTokens) }} <Term id="tokens">tokens</Term></template>
+          <template v-if="usage"> · {{ formatCompact(usage.promptTokens + usage.completionTokens) }} <Term id="tokens">{{ t('playground.tokens') }}</Term></template>
         </span>
       </div>
 
@@ -118,22 +119,22 @@ async function cancel(): Promise<void> {
 
       <template v-if="live">
         <div v-if="live.error" class="callout danger" role="alert">{{ live.error }}</div>
-        <div v-if="thinking && !text" class="thinking small"><span class="eyebrow">Razonando…</span>{{ thinking.slice(-400) }}</div>
+        <div v-if="thinking && !text" class="thinking small"><span class="eyebrow">{{ t('playground.reasoning') }}</span>{{ thinking.slice(-400) }}</div>
         <div v-if="text" class="answer">
           <MarkdownView :source="text" />
           <span v-if="isActive" class="caret" aria-hidden="true" />
         </div>
-        <p v-else-if="isActive && !thinking" class="small muted row"><span class="dot info pulse" /> Esperando al modelo…</p>
+        <p v-else-if="isActive && !thinking" class="small muted row"><span class="dot info pulse" /> {{ t('playground.waitingModel') }}</p>
 
         <details v-if="hasTools || !isActive" class="activity">
-          <summary>Actividad{{ hasTools ? ' y herramientas' : '' }}</summary>
+          <summary>{{ hasTools ? t('playground.activityTools') : t('playground.activity') }}</summary>
           <RunActivity :events="live.events" node-id="agent" />
         </details>
-        <RouterLink v-if="runId" class="small row" :to="`/runs/${runId}`" style="gap: 4px">Ver la ejecución completa <ArrowUpRight style="width: 13px; height: 13px" /></RouterLink>
+        <RouterLink v-if="runId" class="small row" :to="`/runs/${runId}`" style="gap: 4px">{{ t('playground.viewFull') }} <ArrowUpRight style="width: 13px; height: 13px" /></RouterLink>
       </template>
 
       <div v-if="history.length" class="history">
-        <div class="eyebrow">Pruebas recientes</div>
+        <div class="eyebrow">{{ t('playground.recent') }}</div>
         <RouterLink v-for="r in history" :key="r.id" :to="`/runs/${r.id}`" class="row small hist">
           <StatusBadge :status="r.status" icon-only />
           <span class="grow truncate">{{ r.input }}</span>

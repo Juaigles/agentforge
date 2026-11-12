@@ -1,6 +1,7 @@
 import { createPinia } from 'pinia';
 import { createApp } from 'vue';
 import App from './App.vue';
+import { i18n } from './i18n';
 import { router } from './router';
 import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
@@ -9,4 +10,4 @@ import '@vue-flow/minimap/dist/style.css';
 import './styles/main.css';
 import './styles/flow.css';
 
-createApp(App).use(createPinia()).use(router).mount('#app');
+createApp(App).use(createPinia()).use(i18n).use(router).mount('#app');

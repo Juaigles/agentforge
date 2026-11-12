@@ -1,5 +1,6 @@
 // Cliente tipado de la API de AgentForge.
 import { ref } from 'vue';
+import { locale, t } from '@/i18n';
 import type {
   Agent,
   AgentInput,
@@ -48,6 +49,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly issues: Array<{ path: string; message: string }> = [],
     readonly details?: { issues?: ValidationIssue[] },
+    /** Código estable del error que envía el servidor (`not_found`, `validation`…). */
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -61,6 +64,18 @@ export class ApiError extends Error {
 /** true cuando el servidor ha rechazado una petición por falta de clave de acceso: la aplicación muestra la pantalla de entrada. */
 export const authRequired = ref(false);
 
+/**
+ * Texto de un error de la API en el idioma de la interfaz. El servidor escribe sus mensajes en español; en otro
+ * idioma se muestra el texto genérico del código cuando existe y, si no, el mensaje original.
+ */
+function localizedError(message: unknown, code: string | undefined): string | undefined {
+  const original = typeof message === 'string' && message ? message : undefined;
+  if (locale.value === 'es' || !code || !GENERIC_CODES.has(code)) return original;
+  // En una validación se conserva el detalle del servidor (qué campo y por qué), tras el texto genérico.
+  return code === 'validation' && original ? `${t('app.errors.validation')} (${original})` : t(`app.errors.${code}`);
+}
+const GENERIC_CODES = new Set(['not_found', 'rate_limited', 'auth_required', 'validation', 'payload_too_large']);
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
@@ -70,7 +85,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError('No se pudo conectar con el servidor de AgentForge. ¿Está en marcha?', 0);
+    throw new ApiError(t('app.errors.network'), 0, [], undefined, 'network');
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -82,8 +97,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (res.status === 401 && json?.code === 'auth_required') authRequired.value = true;
   if (!res.ok) {
-    const message = json?.error ?? (res.status >= 500 ? 'El servidor de AgentForge no responde.' : `Error ${res.status}`);
-    throw new ApiError(message, res.status, json?.issues ?? [], json?.details);
+    const code = typeof json?.code === 'string' ? json.code : undefined;
+    const fallback = res.status >= 500 ? t('app.errors.server') : t('app.errors.status', { status: res.status });
+    throw new ApiError(localizedError(json?.error, code) ?? fallback, res.status, json?.issues ?? [], json?.details, code);
   }
   return json as T;
 }
@@ -141,7 +157,7 @@ export const api = {
       try {
         res = await fetch('/api/backups/upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
       } catch {
-        throw new ApiError('No se pudo conectar con el servidor de AgentForge. ¿Está en marcha?', 0);
+        throw new ApiError(t('app.errors.network'), 0, [], undefined, 'network');
       }
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new ApiError(json?.error ?? `Error ${res.status}`, res.status);

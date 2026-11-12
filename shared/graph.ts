@@ -2,6 +2,7 @@
 import type { ValidationIssue, WorkflowEdge, WorkflowNode } from './types';
 import { extractRefs, FOREACH_REFS, refNodeId, RESERVED_NODE_IDS } from './template';
 import { FOREACH_DEFAULTS, MAX_SUBWORKFLOW_DEPTH } from './types';
+import { VALIDATION_MESSAGES, type IssueParams, type ValidationCode } from './validation-messages';
 
 /** Orden topológico (Kahn). Devuelve null si hay un ciclo. */
 export function topologicalOrder(nodes: WorkflowNode[], edges: WorkflowEdge[]): string[] | null {
@@ -119,15 +120,16 @@ export interface ValidationContext {
 }
 
 /**
- * Comprueba la cadena de subworkflows que parte de `workflowId`. Devuelve un mensaje si vuelve a `selfId`
- * (ciclo) o si anida más niveles de los admitidos; null si es correcta.
+ * Comprueba la cadena de subworkflows que parte de `workflowId`. Devuelve el código del problema si vuelve a
+ * `selfId` (ciclo) o si anida más niveles de los admitidos; null si es correcta.
  */
-function subworkflowProblem(workflowId: string, ctx: ValidationContext): string | null {
+type SubworkflowProblem = 'subworkflowCycleSelf' | 'subworkflowCycle' | 'subworkflowDepth';
+function subworkflowProblem(workflowId: string, ctx: ValidationContext): SubworkflowProblem | null {
   const byId = new Map((ctx.workflows ?? []).map((w) => [w.id, w]));
-  const visit = (id: string, depth: number, path: string[]): string | null => {
-    if (ctx.selfId && id === ctx.selfId) return 'acaba llamando a este mismo workflow (ciclo entre workflows)';
-    if (path.includes(id)) return 'contiene un ciclo entre workflows';
-    if (depth > MAX_SUBWORKFLOW_DEPTH) return `anida más de ${MAX_SUBWORKFLOW_DEPTH} niveles de workflows`;
+  const visit = (id: string, depth: number, path: string[]): SubworkflowProblem | null => {
+    if (ctx.selfId && id === ctx.selfId) return 'subworkflowCycleSelf';
+    if (path.includes(id)) return 'subworkflowCycle';
+    if (depth > MAX_SUBWORKFLOW_DEPTH) return 'subworkflowDepth';
     const wf = byId.get(id);
     if (!wf) return null;
     for (const node of wf.nodes) {
@@ -149,14 +151,17 @@ export function validateWorkflow(
   ctx: ValidationContext,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  const err = (message: string, nodeId?: string) => issues.push({ level: 'error', message, nodeId });
-  const warn = (message: string, nodeId?: string) => issues.push({ level: 'warning', message, nodeId });
+  // Cada problema lleva su código y sus parámetros (para traducirlo) además del texto en español.
+  const add = (level: ValidationIssue['level'], code: ValidationCode, params: IssueParams, nodeId?: string) =>
+    issues.push({ level, message: VALIDATION_MESSAGES[code](params), nodeId, code, params });
+  const err = (code: ValidationCode, params: IssueParams = {}, nodeId?: string) => add('error', code, params, nodeId);
+  const warn = (code: ValidationCode, params: IssueParams = {}, nodeId?: string) => add('warning', code, params, nodeId);
   const agentIds = new Set(ctx.agentIds);
   const toolNames = new Set(ctx.toolNames);
   const { nodes, edges } = def;
 
   if (nodes.length === 0) {
-    err('El workflow no tiene nodos.');
+    err('empty');
     return issues;
   }
 
@@ -164,43 +169,43 @@ export function validateWorkflow(
   /** Valida la referencia de un nodo a otro workflow. */
   const checkSubworkflow = (n: WorkflowNode, name: string): void => {
     const id = String(n.config?.workflowId ?? '');
-    if (!id) return void err(`El nodo "${name}" no tiene workflow asignado.`, n.id);
-    if (ctx.selfId && id === ctx.selfId) return void err(`El nodo "${name}" no puede llamar al workflow del que forma parte.`, n.id);
+    if (!id) return void err('subworkflowUnset', { name }, n.id);
+    if (ctx.selfId && id === ctx.selfId) return void err('subworkflowSelf', { name }, n.id);
     if (!ctx.workflows) return;
-    if (!workflowNames.has(id)) return void err(`El nodo "${name}" usa un workflow que ya no existe.`, n.id);
+    if (!workflowNames.has(id)) return void err('subworkflowGone', { name }, n.id);
     const problem = subworkflowProblem(id, ctx);
-    if (problem) err(`El subworkflow «${workflowNames.get(id)}» de "${name}" ${problem}.`, n.id);
+    if (problem) err(problem, { workflow: workflowNames.get(id) ?? id, name, max: MAX_SUBWORKFLOW_DEPTH }, n.id);
   };
 
   const byId = new Map<string, WorkflowNode>();
   for (const n of nodes) {
-    if (!/^[A-Za-z0-9_-]+$/.test(n.id)) err(`Id de nodo no válido: "${n.id}" (solo letras, números, _ y -).`, n.id);
-    else if (RESERVED_NODE_IDS.has(n.id)) err(`El id de nodo "${n.id}" está reservado: cámbialo (chocaría con la referencia {{${n.id}}}).`, n.id);
-    if (byId.has(n.id)) err(`Id de nodo duplicado: "${n.id}".`, n.id);
+    if (!/^[A-Za-z0-9_-]+$/.test(n.id)) err('nodeIdInvalid', { id: n.id }, n.id);
+    else if (RESERVED_NODE_IDS.has(n.id)) err('nodeIdReserved', { id: n.id }, n.id);
+    if (byId.has(n.id)) err('nodeIdDuplicate', { id: n.id }, n.id);
     byId.set(n.id, n);
   }
 
   const inputs = nodes.filter((n) => n.type === 'input');
-  if (inputs.length > 1) err('Solo puede haber un nodo de entrada.');
+  if (inputs.length > 1) err('multipleInputs');
 
   const incoming = new Map<string, WorkflowEdge[]>(nodes.map((n) => [n.id, []]));
   const outgoing = new Map<string, WorkflowEdge[]>(nodes.map((n) => [n.id, []]));
   const seenPairs = new Set<string>();
   for (const e of edges) {
     if (!byId.has(e.source) || !byId.has(e.target)) {
-      err(`La conexión "${e.id}" apunta a un nodo inexistente.`);
+      err('edgeDangling', { id: e.id });
       continue;
     }
-    if (e.source === e.target) err('Un nodo no puede conectarse consigo mismo.', e.source);
+    if (e.source === e.target) err('selfLoop', {}, e.source);
     const key = `${e.source}|${e.sourceHandle ?? ''}|${e.target}`;
-    if (seenPairs.has(key)) warn('Hay conexiones duplicadas entre los mismos nodos.', e.source);
+    if (seenPairs.has(key)) warn('duplicateEdges', {}, e.source);
     seenPairs.add(key);
     incoming.get(e.target)!.push(e);
     outgoing.get(e.source)!.push(e);
   }
 
   if (topologicalOrder(nodes, edges.filter((e) => byId.has(e.source) && byId.has(e.target))) === null) {
-    err('El workflow contiene un ciclo; debe ser un grafo acíclico.');
+    err('cycle');
   }
 
   for (const n of nodes) {
@@ -211,93 +216,93 @@ export function validateWorkflow(
 
     switch (n.type) {
       case 'input':
-        if (ins.length) err(`El nodo de entrada "${name}" no puede tener conexiones entrantes.`, n.id);
-        if (!outs.length) warn(`El nodo de entrada "${name}" no está conectado.`, n.id);
+        if (ins.length) err('inputHasIncoming', { name }, n.id);
+        if (!outs.length) warn('inputUnconnected', { name }, n.id);
         break;
       case 'agent':
-        if (!c.agentId) err(`El nodo "${name}" no tiene agente asignado.`, n.id);
-        else if (!agentIds.has(c.agentId)) err(`El nodo "${name}" usa un agente que ya no existe.`, n.id);
-        if (!String(c.prompt ?? '').trim()) err(`El nodo "${name}" no tiene instrucciones (prompt).`, n.id);
+        if (!c.agentId) err('agentUnset', { name }, n.id);
+        else if (!agentIds.has(c.agentId)) err('agentGone', { name }, n.id);
+        if (!String(c.prompt ?? '').trim()) err('promptEmpty', { name }, n.id);
         break;
       case 'tool':
-        if (!c.tool) err(`El nodo "${name}" no tiene herramienta asignada.`, n.id);
-        else if (!toolNames.has(c.tool)) err(`El nodo "${name}" usa una herramienta desconocida: ${c.tool}.`, n.id);
+        if (!c.tool) err('toolUnset', { name }, n.id);
+        else if (!toolNames.has(c.tool)) err('toolUnknown', { name, tool: String(c.tool) }, n.id);
         break;
       case 'condition': {
-        if (!c.operator) err(`La condición "${name}" no tiene operador.`, n.id);
+        if (!c.operator) err('conditionNoOperator', { name }, n.id);
         if (c.operator === 'matches') {
           try {
             new RegExp(String(c.right ?? ''));
           } catch {
-            err(`La condición "${name}" tiene una expresión regular no válida.`, n.id);
+            err('conditionBadRegex', { name }, n.id);
           }
         }
         if (!UNARY_OPERATORS.has(c.operator) && String(c.right ?? '') === '') {
-          warn(`La condición "${name}" compara con un valor vacío.`, n.id);
+          warn('conditionEmptyRight', { name }, n.id);
         }
         for (const e of outs) {
           if (e.sourceHandle !== 'true' && e.sourceHandle !== 'false') {
-            err(`Las salidas de la condición "${name}" deben partir de "sí" o "no".`, n.id);
+            err('conditionBadBranch', { name }, n.id);
           }
         }
-        if (!outs.length) warn(`La condición "${name}" no tiene ramas conectadas.`, n.id);
-        if (!ins.length) err(`La condición "${name}" necesita una conexión entrante.`, n.id);
+        if (!outs.length) warn('conditionNoBranches', { name }, n.id);
+        if (!ins.length) err('conditionNoIncoming', { name }, n.id);
         break;
       }
       case 'transform':
-        if (!String(c.template ?? '').trim()) err(`El nodo "${name}" no tiene plantilla.`, n.id);
+        if (!String(c.template ?? '').trim()) err('templateEmpty', { name }, n.id);
         break;
       case 'foreach': {
         const body = foreachBody(n);
         if (body === 'agent') {
-          if (!c.agentId) err(`El nodo "${name}" no tiene agente asignado.`, n.id);
-          else if (!agentIds.has(c.agentId)) err(`El nodo "${name}" usa un agente que ya no existe.`, n.id);
+          if (!c.agentId) err('agentUnset', { name }, n.id);
+          else if (!agentIds.has(c.agentId)) err('agentGone', { name }, n.id);
           const prompt = String(c.prompt ?? '');
-          if (!prompt.trim()) err(`El nodo "${name}" no tiene la tarea que se aplica a cada elemento.`, n.id);
+          if (!prompt.trim()) err('foreachTaskEmpty', { name }, n.id);
           else if (!extractRefs(prompt).includes('item')) {
-            warn(`La tarea de "${name}" no usa {{item}}: todos los elementos recibirán exactamente la misma tarea.`, n.id);
+            warn('foreachTaskNoItem', { name }, n.id);
           }
         } else if (body === 'tool') {
-          if (!c.tool) err(`El nodo "${name}" no tiene herramienta asignada.`, n.id);
-          else if (!toolNames.has(c.tool)) err(`El nodo "${name}" usa una herramienta desconocida: ${c.tool}.`, n.id);
+          if (!c.tool) err('toolUnset', { name }, n.id);
+          else if (!toolNames.has(c.tool)) err('toolUnknown', { name, tool: String(c.tool) }, n.id);
           if (!foreachBodyTemplates(n).some((t) => extractRefs(t).includes('item'))) {
-            warn(`Los argumentos de "${name}" no usan {{item}}: la herramienta recibirá lo mismo con cada elemento.`, n.id);
+            warn('foreachArgsNoItem', { name }, n.id);
           }
         } else {
           checkSubworkflow(n, name);
         }
         if (c.onItemError !== undefined && c.onItemError !== 'fail' && c.onItemError !== 'continue') {
-          err(`"${name}": la política ante un elemento fallido debe ser «detener» o «continuar».`, n.id);
+          err('foreachBadPolicy', { name }, n.id);
         }
         const items = String(c.items ?? '');
-        if (!items.trim() && !ins.length) err(`El nodo "${name}" no tiene de dónde sacar la lista: conéctalo o indica una plantilla.`, n.id);
+        if (!items.trim() && !ins.length) err('foreachNoList', { name }, n.id);
         if (extractRefs(items).some((r) => FOREACH_REFS.has(r))) {
-          err(`La lista de "${name}" no puede usar {{item}}, {{index}} ni {{total}}: solo existen dentro de la tarea.`, n.id);
+          err('foreachListUsesItem', { name }, n.id);
         }
         const inRange = (value: unknown, max: number) => value === undefined || value === null || value === '' || (Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= max);
-        if (!inRange(c.concurrency, FOREACH_DEFAULTS.maxConcurrency)) err(`La concurrencia de "${name}" debe estar entre 1 y ${FOREACH_DEFAULTS.maxConcurrency}.`, n.id);
-        if (!inRange(c.maxItems, FOREACH_DEFAULTS.hardMaxItems)) err(`El máximo de elementos de "${name}" debe estar entre 1 y ${FOREACH_DEFAULTS.hardMaxItems}.`, n.id);
+        if (!inRange(c.concurrency, FOREACH_DEFAULTS.maxConcurrency)) err('foreachConcurrencyRange', { name, max: FOREACH_DEFAULTS.maxConcurrency }, n.id);
+        if (!inRange(c.maxItems, FOREACH_DEFAULTS.hardMaxItems)) err('foreachMaxItemsRange', { name, max: FOREACH_DEFAULTS.hardMaxItems }, n.id);
         break;
       }
       case 'subworkflow':
         checkSubworkflow(n, name);
-        if (!String(c.input ?? '').trim() && !ins.length) err(`El nodo "${name}" no tiene entrada que pasar al subworkflow: conéctalo o indica una plantilla.`, n.id);
+        if (!String(c.input ?? '').trim() && !ins.length) err('subworkflowNoInput', { name }, n.id);
         break;
       case 'approval':
-        if (!String(c.message ?? '').trim()) err(`La aprobación "${name}" no tiene el texto de lo que se pide aprobar.`, n.id);
+        if (!String(c.message ?? '').trim()) err('approvalNoMessage', { name }, n.id);
         for (const e of outs) {
           if (e.sourceHandle !== 'true' && e.sourceHandle !== 'false') {
-            err(`Las salidas de la aprobación "${name}" deben partir de "aprobado" o "rechazado".`, n.id);
+            err('approvalBadBranch', { name }, n.id);
           }
         }
-        if (!outs.length) warn(`La aprobación "${name}" no tiene ramas conectadas.`, n.id);
+        if (!outs.length) warn('approvalNoBranches', { name }, n.id);
         break;
       case 'output':
-        if (outs.length) err(`El nodo de salida "${name}" no puede tener conexiones salientes.`, n.id);
-        if (!ins.length) err(`El nodo de salida "${name}" necesita una conexión entrante.`, n.id);
+        if (outs.length) err('outputHasOutgoing', { name }, n.id);
+        if (!ins.length) err('outputNoIncoming', { name }, n.id);
         break;
       default:
-        err(`Tipo de nodo desconocido: ${(n as WorkflowNode).type}.`, n.id);
+        err('unknownNodeType', { type: String((n as WorkflowNode).type) }, n.id);
     }
 
     // Las referencias {{nodo}} deben apuntar a ancestros: solo ellos han terminado seguro antes.
@@ -307,25 +312,25 @@ export function validateWorkflow(
         const target = refNodeId(ref);
         if (target === null) {
           if (ref === 'upstream' && !ins.length) {
-            warn(`"${name}" usa {{upstream}} pero no tiene conexiones entrantes.`, n.id);
+            warn('upstreamNoIncoming', { name }, n.id);
           }
           if (FOREACH_REFS.has(ref) && n.type !== 'foreach') {
-            err(`"${name}" usa {{${ref}}}, que solo existe dentro de un nodo «para cada».`, n.id);
+            err('foreachRefOutside', { name, ref }, n.id);
           }
           continue;
         }
-        if (!byId.has(target)) err(`"${name}" referencia un nodo inexistente: {{${ref}}}.`, n.id);
+        if (!byId.has(target)) err('refMissing', { name, ref }, n.id);
         else if (!ancestors.has(target)) {
-          err(`"${name}" referencia {{${ref}}}, que no se ejecuta antes que él (no es un nodo anterior).`, n.id);
+          err('refNotAncestor', { name, ref }, n.id);
         } else if (ref.endsWith('.comment') && byId.get(target)!.type !== 'approval') {
-          err(`"${name}" usa {{${ref}}}, pero solo las aprobaciones tienen comentario.`, n.id);
+          err('refNoComment', { name, ref }, n.id);
         }
       }
     }
   }
 
   if (!nodes.some((n) => n.type === 'agent' || n.type === 'tool' || n.type === 'foreach' || n.type === 'subworkflow')) {
-    warn('El workflow no contiene ningún agente ni herramienta.');
+    warn('noWork');
   }
   return issues;
 }

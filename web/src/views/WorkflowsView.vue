@@ -11,7 +11,8 @@ import ImportModal from '@/components/ImportModal.vue';
 import TriggersModal from '@/components/TriggersModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
-import { plural, relativeTime } from '@/lib/format';
+import { relativeTime } from '@/lib/format';
+import { t, tn } from '@/i18n';
 import { downloadJson, exportFileName, importSummary, readJsonFile, summarizeTriggers } from '@/lib/transfer';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
@@ -25,7 +26,7 @@ const triggers = ref(new Map<string, Trigger[]>());
 async function loadTriggers(): Promise<void> {
   try {
     const byWorkflow = new Map<string, Trigger[]>();
-    for (const t of await api.triggers.list()) byWorkflow.set(t.workflowId, [...(byWorkflow.get(t.workflowId) ?? []), t]);
+    for (const trigger of await api.triggers.list()) byWorkflow.set(trigger.workflowId, [...(byWorkflow.get(trigger.workflowId) ?? []), trigger]);
     triggers.value = byWorkflow;
   } catch {
     /* los disparadores son un dato secundario de la lista */
@@ -51,7 +52,7 @@ const importing = ref<{ bundle: unknown; fileName: string } | null>(null);
 async function exportWorkflow(wf: Workflow): Promise<void> {
   try {
     downloadJson(exportFileName(wf.name), await api.workflows.export(wf.id));
-    ui.success(`«${wf.name}» exportado.`);
+    ui.success(t('workflows.toast.exported', { name: wf.name }));
   } catch (err) {
     ui.error(errorText(err));
   }
@@ -77,8 +78,8 @@ async function onImported(result: ImportResult): Promise<void> {
     ui.error(errorText(err));
   }
   const summary = importSummary(result);
-  if (result.workflow) ui.success(`«${result.workflow.name}» importado${summary ? ` con ${summary}` : ''}.`);
-  else ui.success(summary ? `Importación terminada: ${summary}.` : 'Importación terminada: todo lo que traía el archivo ya existía.');
+  if (result.workflow) ui.success(summary ? t('workflows.toast.importedWith', { name: result.workflow.name, summary }) : t('workflows.toast.imported', { name: result.workflow.name }));
+  else ui.success(summary ? t('workflows.toast.importDone', { summary }) : t('workflows.toast.importNothingNew'));
   for (const warning of result.warnings) ui.info(warning);
   await router.push(result.workflow ? `/workflows/${result.workflow.id}` : '/agents');
 }
@@ -123,7 +124,7 @@ async function duplicate(wf: Workflow): Promise<void> {
   try {
     const copy = await api.workflows.duplicate(wf.id);
     catalog.setWorkflow(copy);
-    ui.success(`Se ha creado «${copy.name}».`);
+    ui.success(t('workflows.toast.created', { name: copy.name }));
   } catch (err) {
     ui.error(errorText(err));
   }
@@ -131,16 +132,16 @@ async function duplicate(wf: Workflow): Promise<void> {
 
 async function remove(wf: Workflow): Promise<void> {
   const ok = await ui.confirm({
-    title: 'Eliminar workflow',
-    message: `Se eliminará «${wf.name}». Sus ejecuciones anteriores se conservan en el historial.`,
-    confirmLabel: 'Eliminar',
+    title: t('workflows.confirm.deleteTitle'),
+    message: t('workflows.confirm.deleteMessage', { name: wf.name }),
+    confirmLabel: t('common.actions.delete'),
     danger: true,
   });
   if (!ok) return;
   try {
     await api.workflows.remove(wf.id);
     catalog.dropWorkflow(wf.id);
-    ui.success('Workflow eliminado.');
+    ui.success(t('workflows.toast.deleted'));
   } catch (err) {
     ui.error(errorText(err));
   }
@@ -152,15 +153,18 @@ async function remove(wf: Workflow): Promise<void> {
     <header class="page-header">
       <div>
         <h1>Workflows</h1>
-        <p class="subtitle">
-          Un <Term id="workflow">workflow</Term> conecta <Term id="nodo">nodos</Term> en un <Term id="dag">DAG</Term>: los pasos independientes se ejecutan
-          <Term id="paralelo">en paralelo</Term> y cada <Term id="agente">agente</Term> recibe los resultados de los anteriores.
-        </p>
+        <i18n-t keypath="workflows.subtitle" tag="p" class="subtitle" scope="global">
+          <template #workflow><Term id="workflow">{{ t('workflows.subtitleWorkflow') }}</Term></template>
+          <template #nodes><Term id="nodo">{{ t('workflows.subtitleNodes') }}</Term></template>
+          <template #dag><Term id="dag">{{ t('workflows.subtitleDag') }}</Term></template>
+          <template #parallel><Term id="paralelo">{{ t('workflows.subtitleParallel') }}</Term></template>
+          <template #agent><Term id="agente">{{ t('workflows.subtitleAgent') }}</Term></template>
+        </i18n-t>
       </div>
       <div class="row wrap">
-        <input ref="fileInput" class="sr-only" type="file" accept=".json,application/json" aria-label="Archivo de workflow a importar" tabindex="-1" @change="onImportFile" />
-        <button class="btn" type="button" title="Importar un workflow exportado (archivo .json)" @click="fileInput?.click()"><Upload /> Importar</button>
-        <RouterLink class="btn btn-primary" to="/workflows/new"><Plus /> Nuevo workflow</RouterLink>
+        <input ref="fileInput" class="sr-only" type="file" accept=".json,application/json" :aria-label="t('workflows.importFileLabel')" tabindex="-1" @change="onImportFile" />
+        <button class="btn" type="button" :title="t('workflows.importTitle')" @click="fileInput?.click()"><Upload /> {{ t('common.actions.import') }}</button>
+        <RouterLink class="btn btn-primary" to="/workflows/new"><Plus /> {{ t('workflows.newWorkflow') }}</RouterLink>
       </div>
     </header>
 
@@ -173,15 +177,15 @@ async function remove(wf: Workflow): Promise<void> {
             <span class="wf-ico"><WorkflowIcon /></span>
             <div class="grow">
               <RouterLink :to="`/workflows/${wf.id}`" class="title" @click.stop>{{ wf.name }}</RouterLink>
-              <div class="tiny faint">Editado {{ relativeTime(wf.updatedAt) }}</div>
+              <div class="tiny faint">{{ t('workflows.edited', { time: relativeTime(wf.updatedAt) }) }}</div>
             </div>
-            <span v-if="errors" class="badge danger" :title="`${errors} error(es) de configuración`"><CircleAlert /> {{ errors }}</span>
+            <span v-if="errors" class="badge danger" :title="t('workflows.configErrors', { n: errors })"><CircleAlert /> {{ errors }}</span>
           </div>
-          <p class="small muted desc">{{ wf.description || 'Sin descripción.' }}</p>
+          <p class="small muted desc">{{ wf.description || t('workflows.noDescription') }}</p>
           <div class="row wrap" style="gap: 6px">
-            <span class="badge">{{ plural(wf.nodes.length, 'nodo', 'nodos') }}</span>
-            <span class="badge"><Bot /> {{ plural(wf.nodes.filter(nodeUsesAgent).length, 'paso de agente', 'pasos de agente') }}</span>
-            <span v-if="triggerSummary(wf)" class="badge" :class="triggerSummary(wf)!.active ? 'info' : ''" :title="triggerSummary(wf)!.active ? 'Se ejecuta solo' : 'Sus disparadores están desactivados'">
+            <span class="badge">{{ tn('workflows.nodeCount', wf.nodes.length) }}</span>
+            <span class="badge"><Bot /> {{ tn('workflows.agentStepCount', wf.nodes.filter(nodeUsesAgent).length) }}</span>
+            <span v-if="triggerSummary(wf)" class="badge" :class="triggerSummary(wf)!.active ? 'info' : ''" :title="triggerSummary(wf)!.active ? t('workflows.triggersActive') : t('workflows.triggersOff')">
               <CalendarClock /> {{ triggerSummary(wf)!.text }}
             </span>
             <span class="avatars">
@@ -189,23 +193,23 @@ async function remove(wf: Workflow): Promise<void> {
             </span>
           </div>
           <footer class="row" @click.stop>
-            <button class="btn btn-primary btn-sm" type="button" :disabled="errors > 0" :title="errors ? 'Corrige los errores para poder ejecutarlo' : undefined" @click="openRun(wf)">
-              <Play /> Ejecutar
+            <button class="btn btn-primary btn-sm" type="button" :disabled="errors > 0" :title="errors ? t('workflows.fixErrors') : undefined" @click="openRun(wf)">
+              <Play /> {{ t('common.actions.run') }}
             </button>
-            <RouterLink class="btn btn-sm" :to="`/workflows/${wf.id}`"><Pencil /> Editar</RouterLink>
+            <RouterLink class="btn btn-sm" :to="`/workflows/${wf.id}`"><Pencil /> {{ t('common.actions.edit') }}</RouterLink>
             <span class="grow" />
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Disparadores de ${wf.name}`" title="Disparadores: programar o lanzar con un webhook" @click="scheduling = wf"><CalendarClock /></button>
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Exportar ${wf.name}`" title="Exportar a un archivo" @click="exportWorkflow(wf)"><Download /></button>
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Duplicar ${wf.name}`" title="Duplicar" @click="duplicate(wf)"><Copy /></button>
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Eliminar ${wf.name}`" title="Eliminar" @click="remove(wf)"><Trash2 /></button>
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('workflows.triggersAria', { name: wf.name })" :title="t('workflows.triggersTitle')" @click="scheduling = wf"><CalendarClock /></button>
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('workflows.exportAria', { name: wf.name })" :title="t('workflows.exportTitle')" @click="exportWorkflow(wf)"><Download /></button>
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('workflows.duplicateAria', { name: wf.name })" :title="t('common.actions.duplicate')" @click="duplicate(wf)"><Copy /></button>
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('workflows.deleteAria', { name: wf.name })" :title="t('common.actions.delete')" @click="remove(wf)"><Trash2 /></button>
           </footer>
         </article>
       </div>
       <div v-else class="card empty">
         <WorkflowIcon />
-        <h3>Todavía no tienes workflows</h3>
-        <p>Crea uno para coordinar varios agentes: arrastra nodos al lienzo y conéctalos. También puedes importar uno exportado.</p>
-        <RouterLink class="btn btn-primary" to="/workflows/new"><Plus /> Crear workflow</RouterLink>
+        <h3>{{ t('workflows.empty.title') }}</h3>
+        <p>{{ t('workflows.empty.text') }}</p>
+        <RouterLink class="btn btn-primary" to="/workflows/new"><Plus /> {{ t('workflows.empty.create') }}</RouterLink>
       </div>
     </template>
 
@@ -222,14 +226,14 @@ async function remove(wf: Workflow): Promise<void> {
       @changed="loadTriggers"
     />
 
-    <AppModal v-if="target" :title="`Ejecutar «${target.name}»`" @close="target = null">
+    <AppModal v-if="target" :title="t('workflows.run.title', { name: target.name })" @close="target = null">
       <div class="field">
-        <label for="wf-run-input">{{ inputNode?.config?.description || 'Entrada del workflow' }}</label>
-        <textarea id="wf-run-input" v-model="runInput" class="textarea" rows="5" placeholder="Texto con el que arranca el workflow" @keydown.ctrl.enter="launch" />
+        <label for="wf-run-input">{{ inputNode?.config?.description || t('workflows.run.inputDefault') }}</label>
+        <textarea id="wf-run-input" v-model="runInput" class="textarea" rows="5" :placeholder="t('workflows.run.placeholder')" @keydown.ctrl.enter="launch" />
       </div>
       <template #footer>
-        <button class="btn" type="button" @click="target = null">Cancelar</button>
-        <button class="btn btn-primary" type="button" :disabled="launching" @click="launch"><Play /> {{ launching ? 'Lanzando…' : 'Ejecutar' }}</button>
+        <button class="btn" type="button" @click="target = null">{{ t('common.actions.cancel') }}</button>
+        <button class="btn btn-primary" type="button" :disabled="launching" @click="launch"><Play /> {{ launching ? t('workflows.run.launching') : t('common.actions.run') }}</button>
       </template>
     </AppModal>
   </div>

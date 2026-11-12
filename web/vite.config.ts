@@ -19,5 +19,5 @@ export default defineConfig({
     // Solo el frontend y el código compartido: nunca la carpeta de datos (clave maestra y base de datos).
     fs: { allow: ['.', '../shared', '../node_modules'], deny: ['**/data/**', '**/.env*', '**/*.key', '**/*.db'] },
   },
-  test: { environment: 'node', include: ['src/**/*.test.ts'] },
+  test: { environment: 'node', include: ['src/**/*.test.ts'], setupFiles: ['src/test/setup.ts'] },
 });

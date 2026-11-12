@@ -1,6 +1,6 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-12 (hito 5, fases 1 a 6; ver «Hito 5» más abajo)._
+_Última actualización: 2026-11-12 (hito 5, fases 1 a 7; ver «Hito 5» más abajo)._
 
 ## Estado real
 
@@ -394,7 +394,53 @@ Defectos encontrados al verificar y corregidos:
     aleatorio** (el desempate era el id, que es aleatorio): ahora es el orden de inserción. Lo destapó un fallo
     intermitente de `portability.test.ts`.
 
+### Fase 7 · Inglés además de español — HECHA (2026-11-12)
+
+- **Toda la interfaz en español e inglés** con `vue-i18n` 11: unas 1 330 claves en 32 ámbitos
+  (`web/src/i18n/es/<ámbito>.ts` y `en/<ámbito>.ts`, uno por pantalla o componente; se cargan solos). Los textos
+  con componentes dentro (términos del glosario, enlaces, teclas) usan `<i18n-t>`, así que la frase se puede
+  reordenar en inglés.
+- **Selector de idioma** en la barra lateral (ES / EN). Cambia sin recargar, se recuerda en el navegador y, si no
+  se ha elegido, se toma el del navegador (español si pide español; inglés en cualquier otro caso). Actualiza
+  `<html lang>`, el título de la pestaña y los anuncios para lectores de pantalla.
+- **Formatos por idioma**: números (1.234,5 / 1,234.5), duraciones (7,0 s / 7.0 s), fechas, horas y tiempos
+  relativos («hace 3 horas» / «3 hours ago») en `web/src/lib/format.ts`.
+- **Glosario en inglés**: las 55 definiciones, en la página y en los tooltips.
+- **Validación de workflows traducible**: cada problema lleva ahora un código y sus parámetros
+  (`shared/validation-messages.ts`, 50 códigos); el servidor y la interfaz en español usan el mismo texto que
+  antes y la interfaz en inglés lo traduce (`web/src/lib/validation-en.ts`, con los mismos códigos por tipo).
+- **Errores de la API con código estable** (`code` en todas las respuestas de error: `not_found`, `validation`,
+  `rate_limited`, `auth_required`, `payload_too_large`, `provider_error`, `tool_error`, `config_error`,
+  `internal`). En inglés, los genéricos se muestran traducidos; el resto conserva el texto del servidor.
+- **Salvaguardas**: un test comprueba que inglés y español tienen las mismas claves, los mismos huecos y las
+  mismas formas de plural, y que toda clave escrita en el código existe; la suite e2e recorre todas las pantallas
+  en los dos idiomas buscando claves sin traducir.
+
+Defecto encontrado al verificar y corregido:
+
+23. Los errores 404 no concordaban en género («Ejecución no encontrado», «Herramienta no encontrado»).
+24. **Un 429 se tomaba por «servidor sin conexión»** (defecto introducido en la fase 6): al superar el límite de
+    peticiones, la franja roja decía que el servidor había caído. Ahora cualquier respuesta cuenta como servidor
+    vivo. Lo destapó la suite e2e completa, que con la spec de idiomas pasó a superar las 1 200 peticiones por
+    minuto; la suite arranca ahora su servidor con un límite más alto (el límite tiene sus tests en el servidor).
+25. **La descarga de un archivo exportado se cancelaba a veces** con el equipo cargado: la dirección temporal se
+    liberaba al segundo. Ahora se libera al minuto.
+
 ## Pendiente y limitaciones
+
+- **Idiomas (fase 7)**:
+  - *Siguen en español en la interfaz en inglés* los textos que escribe el servidor: el detalle de los errores de
+    validación de formularios («El nombre es obligatorio»), los errores de configuración, de proveedores y de
+    herramientas, el motivo de fallo de una ejecución o de un paso, los avisos del plan de importación, los
+    títulos, categorías y descripciones de las herramientas integradas (que además son las que lee el modelo), los
+    datos de ejemplo y los registros del servidor.
+  - La traducción al inglés no la ha revisado una persona nativa.
+  - Las etiquetas por defecto de un nodo nuevo se crean en el idioma activo y pasan a ser datos del workflow (no
+    cambian al cambiar de idioma). En el monitor de una ejecución, las etiquetas «sí»/«no» de las ramas se fijan
+    al cargar y no cambian hasta recargar.
+  - La dirección del glosario sigue siendo `/glosario` y los filtros del historial usan `estado`, `tipo` y `q`.
+  - La documentación (README, guías) está solo en español. Solo hay dos idiomas; añadir otro es crear su carpeta
+    de mensajes, su tabla de validación y su glosario.
 
 - **De la fase 6 (auditorías de accesibilidad y UX), sin hacer**:
   - *Historial*: comparar dos ejecuciones, filtrar por workflow, agente o fecha, ordenar por columnas; el filtro

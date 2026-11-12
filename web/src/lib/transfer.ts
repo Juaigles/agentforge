@@ -1,5 +1,6 @@
 // Exportación e importación de workflows como archivos JSON, y textos de la programación.
 import type { ImportResult, Trigger } from '@shared/types';
+import { t, tn } from '@/i18n';
 
 /** Nombre de archivo seguro a partir del nombre del workflow (o del agente). */
 export function exportFileName(name: string, fallback = 'workflow'): string {
@@ -22,78 +23,74 @@ export function downloadJson(fileName: string, data: unknown): void {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // La dirección se libera con margen: revocarla al segundo cancelaba la descarga en equipos lentos o cargados.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 /** Resumen de una importación terminada, para el aviso: «con 2 agentes nuevos, 1 herramienta nueva y 1 proveedor nuevo». */
 export function importSummary(result: Pick<ImportResult, 'createdAgents' | 'replacedAgents' | 'createdTools' | 'replacedTools' | 'createdProviders' | 'createdWorkflows' | 'triggers'>): string {
-  const count = (n: number, one: string, many: string): string => (n ? `${n} ${n === 1 ? one : many}` : '');
+  const count = (n: number, key: string): string => (n ? tn(`transfer.summary.${key}`, n) : '');
   const parts = [
-    count(result.createdAgents.length, 'agente nuevo', 'agentes nuevos'),
-    count(result.replacedAgents.length, 'agente sustituido', 'agentes sustituidos'),
-    count(result.createdWorkflows.length, 'subworkflow nuevo', 'subworkflows nuevos'),
-    count(result.createdTools.length, 'herramienta nueva', 'herramientas nuevas'),
-    count(result.replacedTools.length, 'herramienta sustituida', 'herramientas sustituidas'),
-    count(result.createdProviders.length, 'proveedor nuevo', 'proveedores nuevos'),
-    count(result.triggers, 'disparador en pausa', 'disparadores en pausa'),
+    count(result.createdAgents.length, 'createdAgents'),
+    count(result.replacedAgents.length, 'replacedAgents'),
+    count(result.createdWorkflows.length, 'createdWorkflows'),
+    count(result.createdTools.length, 'createdTools'),
+    count(result.replacedTools.length, 'replacedTools'),
+    count(result.createdProviders.length, 'createdProviders'),
+    count(result.triggers, 'pausedTriggers'),
   ].filter(Boolean);
-  return parts.length <= 1 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}`;
+  return joinList(parts);
 }
 
 /** Lee un archivo elegido por el usuario como JSON; lanza un error legible si no lo es. */
 export async function readJsonFile(file: File): Promise<unknown> {
-  if (file.size > 2 * 1024 * 1024) throw new Error('El archivo es demasiado grande (máximo 2 MB).');
+  if (file.size > 2 * 1024 * 1024) throw new Error(t('transfer.errors.tooLarge'));
   const text = await file.text();
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error(`«${file.name}» no es un archivo JSON válido.`);
+    throw new Error(t('transfer.errors.notJson', { name: file.name }));
   }
 }
 
-/** Días de la semana en el orden en que se muestran (lunes primero); `value` es el de cron (0 = domingo). */
-export const WEEKDAYS = [
-  { value: 1, short: 'lun', long: 'lunes' },
-  { value: 2, short: 'mar', long: 'martes' },
-  { value: 3, short: 'mié', long: 'miércoles' },
-  { value: 4, short: 'jue', long: 'jueves' },
-  { value: 5, short: 'vie', long: 'viernes' },
-  { value: 6, short: 'sáb', long: 'sábado' },
-  { value: 0, short: 'dom', long: 'domingo' },
-];
+/** Días de la semana en el orden en que se muestran (lunes primero); `value` es el de cron (0 = domingo). Los nombres dependen del idioma. */
+export function weekdays(): Array<{ value: number; short: string; long: string }> {
+  const days: Array<[number, string]> = [[1, 'mon'], [2, 'tue'], [3, 'wed'], [4, 'thu'], [5, 'fri'], [6, 'sat'], [0, 'sun']];
+  return days.map(([value, key]) => ({ value, short: t(`transfer.weekday.${key}.short`), long: t(`transfer.weekday.${key}.long`) }));
+}
 
 function joinList(items: string[]): string {
-  return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} y ${items[items.length - 1]}`;
+  return items.length <= 1 ? (items[0] ?? '') : t('transfer.list.and', { head: items.slice(0, -1).join(', '), last: items[items.length - 1] });
 }
 
 /** Días elegidos en lenguaje natural: «de lunes a viernes», «lun, mié y vie», «cada día». */
-export function describeWeekdays(weekdays: number[]): string {
-  const chosen = WEEKDAYS.filter((d) => weekdays.includes(d.value));
-  if (!chosen.length || chosen.length === 7) return 'cada día';
+export function describeWeekdays(selected: number[]): string {
+  const chosen = weekdays().filter((d) => selected.includes(d.value));
+  if (!chosen.length || chosen.length === 7) return t('transfer.days.everyDay');
   const key = chosen.map((d) => d.value).join('');
-  if (key === '12345') return 'de lunes a viernes';
-  if (key === '60') return 'los fines de semana';
-  return chosen.length === 1 ? `los ${chosen[0].long}` : joinList(chosen.map((d) => d.short));
+  if (key === '12345') return t('transfer.days.workdays');
+  if (key === '60') return t('transfer.days.weekend');
+  return chosen.length === 1 ? t('transfer.days.onDay', { day: chosen[0].long }) : joinList(chosen.map((d) => d.short));
 }
 
 /** Disparador en lenguaje natural: «cada 15 min», «de lunes a viernes a las 07:45», «al recibir un webhook». */
-export function describeTrigger(t: Pick<Trigger, 'kind' | 'intervalMinutes' | 'time' | 'weekdays' | 'cron' | 'timezone'>): string {
-  const zone = t.timezone ? ` (${t.timezone})` : '';
-  if (t.kind === 'webhook') return 'al recibir un webhook';
-  if (t.kind === 'cron') return `según el cron «${t.cron}»${zone}`;
-  if (t.kind === 'daily') return `${describeWeekdays(t.weekdays ?? [])} a las ${t.time}${zone}`;
-  const minutes = t.intervalMinutes ?? 0;
-  if (minutes % 1440 === 0) return minutes === 1440 ? 'cada día' : `cada ${minutes / 1440} días`;
-  if (minutes % 60 === 0) return minutes === 60 ? 'cada hora' : `cada ${minutes / 60} h`;
-  return minutes === 1 ? 'cada minuto' : `cada ${minutes} min`;
+export function describeTrigger(trigger: Pick<Trigger, 'kind' | 'intervalMinutes' | 'time' | 'weekdays' | 'cron' | 'timezone'>): string {
+  const zone = trigger.timezone ? ` (${trigger.timezone})` : '';
+  if (trigger.kind === 'webhook') return t('transfer.trigger.webhook');
+  if (trigger.kind === 'cron') return `${t('transfer.trigger.cron', { cron: trigger.cron })}${zone}`;
+  if (trigger.kind === 'daily') return `${t('transfer.trigger.daily', { days: describeWeekdays(trigger.weekdays ?? []), time: trigger.time })}${zone}`;
+  const minutes = trigger.intervalMinutes ?? 0;
+  if (minutes % 1440 === 0) return minutes === 1440 ? t('transfer.trigger.everyDay') : t('transfer.trigger.everyDays', { n: minutes / 1440 });
+  if (minutes % 60 === 0) return minutes === 60 ? t('transfer.trigger.everyHour') : t('transfer.trigger.everyHours', { n: minutes / 60 });
+  return minutes === 1 ? t('transfer.trigger.everyMinute') : t('transfer.trigger.everyMinutes', { n: minutes });
 }
 
 /** Resumen de los disparadores de un workflow para una etiqueta: el único activo, o cuántos hay. Null si no tiene. */
 export function summarizeTriggers(triggers: Trigger[]): { text: string; active: boolean } | null {
   if (!triggers.length) return null;
-  const active = triggers.filter((t) => t.enabled);
-  if (!active.length) return { text: triggers.length === 1 ? 'disparador en pausa' : 'disparadores en pausa', active: false };
-  return { text: active.length === 1 ? describeTrigger(active[0]) : `${active.length} disparadores`, active: true };
+  const active = triggers.filter((trigger) => trigger.enabled);
+  if (!active.length) return { text: tn('transfer.trigger.paused', triggers.length), active: false };
+  return { text: active.length === 1 ? describeTrigger(active[0]) : tn('transfer.trigger.count', active.length), active: true };
 }
 
 export type IntervalUnit = 'minutes' | 'hours' | 'days';

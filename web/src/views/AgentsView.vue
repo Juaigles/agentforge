@@ -7,7 +7,7 @@ import AgentAvatar from '@/components/AgentAvatar.vue';
 import ImportModal from '@/components/ImportModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
-import { plural } from '@/lib/format';
+import { t, tn } from '@/i18n';
 import { downloadJson, exportFileName, importSummary, readJsonFile } from '@/lib/transfer';
 import { agentDeleteMessage, workflowsUsingAgent } from '@/lib/usage';
 import { useCatalog } from '@/stores/catalog';
@@ -34,7 +34,7 @@ const filtered = computed(() => {
 });
 
 const usedIn = (agent: Agent) => workflowsUsingAgent(catalog.workflows, agent.id).length;
-const providerName = (agent: Agent) => catalog.providerById.get(agent.providerId)?.name ?? 'Proveedor eliminado';
+const providerName = (agent: Agent) => catalog.providerById.get(agent.providerId)?.name ?? t('agents.card.providerRemoved');
 const providerMissing = (agent: Agent) => !catalog.providerById.has(agent.providerId);
 
 // ---------- Exportar e importar ----------
@@ -44,7 +44,7 @@ const importing = ref<{ bundle: unknown; fileName: string } | null>(null);
 async function exportAgent(agent: Agent): Promise<void> {
   try {
     downloadJson(exportFileName(agent.name, 'agente'), await api.transfer.exportAgent(agent.id));
-    ui.success(`«${agent.name}» exportado.`);
+    ui.success(t('agents.toast.exported', { name: agent.name }));
   } catch (err) {
     ui.error(errorText(err));
   }
@@ -70,8 +70,8 @@ async function onImported(result: ImportResult): Promise<void> {
     ui.error(errorText(err));
   }
   const summary = importSummary(result);
-  if (result.workflow) ui.success(`«${result.workflow.name}» importado${summary ? ` con ${summary}` : ''}.`);
-  else ui.success(summary ? `Importación terminada: ${summary}.` : 'Importación terminada: todo lo que traía el archivo ya existía.');
+  if (result.workflow) ui.success(summary ? t('agents.toast.importedWith', { name: result.workflow.name, summary }) : t('agents.toast.imported', { name: result.workflow.name }));
+  else ui.success(summary ? t('agents.toast.importDone', { summary }) : t('agents.toast.importNothing'));
   for (const warning of result.warnings) ui.info(warning);
   if (result.workflow) await router.push(`/workflows/${result.workflow.id}`);
 }
@@ -80,7 +80,7 @@ async function duplicate(agent: Agent): Promise<void> {
   try {
     const copy = await api.agents.duplicate(agent.id);
     catalog.setAgent(copy);
-    ui.success(`Se ha creado «${copy.name}».`);
+    ui.success(t('agents.toast.created', { name: copy.name }));
     void router.push(`/agents/${copy.id}`);
   } catch (err) {
     ui.error(errorText(err));
@@ -89,16 +89,16 @@ async function duplicate(agent: Agent): Promise<void> {
 
 async function remove(agent: Agent): Promise<void> {
   const ok = await ui.confirm({
-    title: 'Eliminar agente',
+    title: t('agents.confirm.deleteTitle'),
     message: agentDeleteMessage(agent.name, workflowsUsingAgent(catalog.workflows, agent.id)),
-    confirmLabel: 'Eliminar agente',
+    confirmLabel: t('agents.confirm.deleteLabel'),
     danger: true,
   });
   if (!ok) return;
   try {
     await api.agents.remove(agent.id);
     catalog.dropAgent(agent.id);
-    ui.success(`«${agent.name}» eliminado.`);
+    ui.success(t('agents.toast.deleted', { name: agent.name }));
   } catch (err) {
     ui.error(errorText(err));
   }
@@ -109,16 +109,18 @@ async function remove(agent: Agent): Promise<void> {
   <div class="page">
     <header class="page-header">
       <div>
-        <h1>Agentes</h1>
-        <p class="subtitle">
-          Cada <Term id="agente">agente</Term> combina un <Term id="modelo">modelo</Term>, unas instrucciones y un conjunto de
-          <Term id="herramienta">herramientas</Term>. Créalos aquí y coordínalos después en un <Term id="workflow">workflow</Term>.
-        </p>
+        <h1>{{ t('agents.title') }}</h1>
+        <i18n-t keypath="agents.subtitle" tag="p" class="subtitle" scope="global">
+          <template #agent><Term id="agente">{{ t('agents.subtitleAgent') }}</Term></template>
+          <template #model><Term id="modelo">{{ t('agents.subtitleModel') }}</Term></template>
+          <template #tools><Term id="herramienta">{{ t('agents.subtitleTools') }}</Term></template>
+          <template #workflow><Term id="workflow">{{ t('agents.subtitleWorkflow') }}</Term></template>
+        </i18n-t>
       </div>
       <div class="row wrap" style="gap: 8px">
-        <input ref="fileInput" class="sr-only" type="file" accept=".json,application/json" aria-label="Archivo de agente a importar" tabindex="-1" @change="onImportFile" />
-        <button class="btn" type="button" title="Importar un agente exportado (archivo .json)" @click="fileInput?.click()"><Upload /> Importar</button>
-        <RouterLink class="btn btn-primary" to="/agents/new"><Plus /> Nuevo agente</RouterLink>
+        <input ref="fileInput" class="sr-only" type="file" accept=".json,application/json" :aria-label="t('agents.importFileLabel')" tabindex="-1" @change="onImportFile" />
+        <button class="btn" type="button" :title="t('agents.importTitle')" @click="fileInput?.click()"><Upload /> {{ t('common.actions.import') }}</button>
+        <RouterLink class="btn btn-primary" to="/agents/new"><Plus /> {{ t('agents.newAgent') }}</RouterLink>
       </div>
     </header>
 
@@ -127,7 +129,7 @@ async function remove(agent: Agent): Promise<void> {
     <template v-else-if="catalog.loaded">
       <div v-if="catalog.agents.length > 3" class="search">
         <Search aria-hidden="true" />
-        <input v-model="query" class="input" type="search" placeholder="Buscar por nombre, rol o modelo…" aria-label="Buscar agentes" />
+        <input v-model="query" class="input" type="search" :placeholder="t('agents.searchPlaceholder')" :aria-label="t('agents.searchLabel')" />
       </div>
 
       <div v-if="filtered.length" class="grid">
@@ -136,21 +138,21 @@ async function remove(agent: Agent): Promise<void> {
             <AgentAvatar :name="agent.name" :color="agent.color" :size="40" />
             <div class="grow">
               <RouterLink :to="`/agents/${agent.id}`" class="title truncate" @click.stop>{{ agent.name }}</RouterLink>
-              <div class="small muted truncate">{{ agent.role || 'Sin rol definido' }}</div>
+              <div class="small muted truncate">{{ agent.role || t('agents.card.noRole') }}</div>
             </div>
           </div>
-          <p class="small muted desc">{{ agent.description || 'Sin descripción.' }}</p>
+          <p class="small muted desc">{{ agent.description || t('agents.card.noDescription') }}</p>
           <div class="row wrap meta">
-            <span class="badge" :class="{ danger: providerMissing(agent) }" :title="providerName(agent)">{{ agent.model || 'Sin modelo' }}</span>
+            <span class="badge" :class="{ danger: providerMissing(agent) }" :title="providerName(agent)">{{ agent.model || t('agents.card.noModel') }}</span>
             <span class="badge"><Wrench /> {{ agent.tools.length }}</span>
-            <span v-if="usedIn(agent)" class="badge accent">{{ plural(usedIn(agent), 'workflow', 'workflows') }}</span>
+            <span v-if="usedIn(agent)" class="badge accent">{{ tn('agents.card.workflows', usedIn(agent)) }}</span>
           </div>
           <footer class="row" @click.stop>
-            <RouterLink class="btn btn-sm" :to="`/agents/${agent.id}`"><Pencil /> Editar y probar</RouterLink>
+            <RouterLink class="btn btn-sm" :to="`/agents/${agent.id}`"><Pencil /> {{ t('agents.card.editAndTry') }}</RouterLink>
             <span class="grow" />
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Exportar ${agent.name}`" title="Exportar a un archivo" @click="exportAgent(agent)"><Download /></button>
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Duplicar ${agent.name}`" title="Duplicar" @click="duplicate(agent)"><Copy /></button>
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Eliminar ${agent.name}`" title="Eliminar" @click="remove(agent)"><Trash2 /></button>
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('agents.card.exportLabel', { name: agent.name })" :title="t('agents.card.exportTitle')" @click="exportAgent(agent)"><Download /></button>
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('agents.card.duplicateLabel', { name: agent.name })" :title="t('common.actions.duplicate')" @click="duplicate(agent)"><Copy /></button>
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('agents.card.deleteLabel', { name: agent.name })" :title="t('common.actions.delete')" @click="remove(agent)"><Trash2 /></button>
           </footer>
         </article>
       </div>
@@ -158,13 +160,16 @@ async function remove(agent: Agent): Promise<void> {
       <div v-else class="card empty">
         <Bot />
         <template v-if="catalog.agents.length">
-          <h3>Ningún agente coincide con «{{ query }}»</h3>
-          <button class="btn" type="button" @click="query = ''">Quitar filtro</button>
+          <h3>{{ t('agents.empty.noMatch', { query }) }}</h3>
+          <button class="btn" type="button" @click="query = ''">{{ t('agents.empty.clearFilter') }}</button>
         </template>
         <template v-else>
-          <h3>Todavía no tienes agentes</h3>
-          <p>Crea el primero: elige un <Term id="modelo">modelo</Term>, dale un papel y decide qué <Term id="herramienta">herramientas</Term> puede usar.</p>
-          <RouterLink class="btn btn-primary" to="/agents/new"><Plus /> Crear agente</RouterLink>
+          <h3>{{ t('agents.empty.title') }}</h3>
+          <i18n-t keypath="agents.empty.text" tag="p" scope="global">
+            <template #model><Term id="modelo">{{ t('agents.empty.textModel') }}</Term></template>
+            <template #tools><Term id="herramienta">{{ t('agents.empty.textTools') }}</Term></template>
+          </i18n-t>
+          <RouterLink class="btn btn-primary" to="/agents/new"><Plus /> {{ t('agents.empty.create') }}</RouterLink>
         </template>
       </div>
     </template>

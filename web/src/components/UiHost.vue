@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Avisos (toasts) y diálogo de confirmación globales.
 import { CircleAlert, CircleCheck, Info, X } from 'lucide-vue-next';
+import { t } from '@/i18n';
 import { useUi } from '@/stores/ui';
 import AppModal from './AppModal.vue';
 
@@ -10,24 +11,24 @@ const ICONS = { success: CircleCheck, danger: CircleAlert, info: Info };
 
 <template>
   <Teleport to="body">
-    <div class="toasts" role="region" aria-label="Avisos">
+    <div class="toasts" role="region" :aria-label="t('app.toasts.region')">
       <!-- Los errores interrumpen (alert); el resto se anuncia cuando el lector termina lo que estaba diciendo. -->
       <TransitionGroup name="toast">
         <div
-          v-for="t in ui.toasts"
-          :key="t.id"
+          v-for="toast in ui.toasts"
+          :key="toast.id"
           class="toast"
-          :class="t.tone"
-          :role="t.tone === 'danger' ? 'alert' : 'status'"
-          @mouseenter="ui.hold(t.id)"
-          @mouseleave="ui.release(t.id)"
-          @focusin="ui.hold(t.id)"
-          @focusout="ui.release(t.id)"
+          :class="toast.tone"
+          :role="toast.tone === 'danger' ? 'alert' : 'status'"
+          @mouseenter="ui.hold(toast.id)"
+          @mouseleave="ui.release(toast.id)"
+          @focusin="ui.hold(toast.id)"
+          @focusout="ui.release(toast.id)"
         >
-          <component :is="ICONS[t.tone]" class="icon" aria-hidden="true" />
-          <span class="grow">{{ t.message }}</span>
-          <RouterLink v-if="t.action" :to="t.action.to" class="action" @click="ui.dismiss(t.id)">{{ t.action.label }}</RouterLink>
-          <button type="button" aria-label="Descartar aviso" @click="ui.dismiss(t.id)"><X /></button>
+          <component :is="ICONS[toast.tone]" class="icon" aria-hidden="true" />
+          <span class="grow">{{ toast.message }}</span>
+          <RouterLink v-if="toast.action" :to="toast.action.to" class="action" @click="ui.dismiss(toast.id)">{{ toast.action.label }}</RouterLink>
+          <button type="button" :aria-label="t('app.toasts.dismiss')" @click="ui.dismiss(toast.id)"><X /></button>
         </div>
       </TransitionGroup>
     </div>
@@ -37,9 +38,9 @@ const ICONS = { success: CircleCheck, danger: CircleAlert, info: Info };
     <p class="muted">{{ ui.confirmState.message }}</p>
     <template #footer>
       <!-- En una acción destructiva el foco cae en «Cancelar»: Intro por costumbre no debe borrar nada. -->
-      <button class="btn" type="button" :autofocus="ui.confirmState.danger ? true : undefined" @click="ui.answer(false)">Cancelar</button>
+      <button class="btn" type="button" :autofocus="ui.confirmState.danger ? true : undefined" @click="ui.answer(false)">{{ t('common.actions.cancel') }}</button>
       <button class="btn" :class="ui.confirmState.danger ? 'btn-danger' : 'btn-primary'" type="button" :autofocus="ui.confirmState.danger ? undefined : true" @click="ui.answer(true)">
-        {{ ui.confirmState.confirmLabel ?? 'Confirmar' }}
+        {{ ui.confirmState.confirmLabel ?? t('common.actions.confirm') }}
       </button>
     </template>
   </AppModal>

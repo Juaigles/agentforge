@@ -40,12 +40,14 @@ import AppModal from '@/components/AppModal.vue';
 import FlowNode from '@/components/FlowNode.vue';
 import TriggersModal from '@/components/TriggersModal.vue';
 import Term from '@/components/Term.vue';
+import { locale, t, tn } from '@/i18n';
 import { announce, localizeFlow } from '@/lib/a11y';
 import { api, errorText } from '@/lib/api';
 import { autoLayout, cloneNodes, connectionOptions, useHistory } from '@/lib/builder';
-import { fromFlow, NODE_HINT, OPERATOR_LABEL, toFlowEdge, toFlowNode, type FlowNode as FlowNodeT, type FlowNodeData } from '@/lib/flow';
+import { fromFlow, NODE_HINT, OPERATOR_KEYS, OPERATOR_LABEL, toFlowEdge, toFlowNode, type FlowNode as FlowNodeT, type FlowNodeData } from '@/lib/flow';
 import { NODE_LABEL } from '@/lib/format';
 import { downloadJson, exportFileName, summarizeTriggers } from '@/lib/transfer';
+import { issueText } from '@/lib/validation-en';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 
@@ -87,12 +89,8 @@ const PALETTE: Array<{ kind: NodeType; icon: typeof Bot }> = [
   { kind: 'transform', icon: Shuffle },
   { kind: 'output', icon: Flag },
 ];
-const FOREACH_BODIES = [
-  { value: 'agent', label: 'Un agente' },
-  { value: 'tool', label: 'Una herramienta' },
-  { value: 'subworkflow', label: 'Un subworkflow' },
-] as const;
-const OPERATORS = Object.entries(OPERATOR_LABEL);
+const FOREACH_BODIES = ['agent', 'tool', 'subworkflow'] as const;
+const OPERATORS = OPERATOR_KEYS;
 const UNARY = new Set(['is_empty', 'not_empty']);
 
 // ---------- Definición, cambios y validación ----------
@@ -143,19 +141,19 @@ watch(nodes, (list) => {
 const availableRefs = computed(() => {
   if (!selected.value) return [];
   const def = definition.value;
-  const refs: Array<{ ref: string; hint: string }> = [{ ref: 'input', hint: 'Texto de entrada del workflow' }];
-  if (def.edges.some((e) => e.target === selected.value!.id)) refs.push({ ref: 'upstream', hint: 'Resultado de los nodos conectados a este' });
+  const refs: Array<{ ref: string; hint: string }> = [{ ref: 'input', hint: t('builder.refs.input') }];
+  if (def.edges.some((e) => e.target === selected.value!.id)) refs.push({ ref: 'upstream', hint: t('builder.refs.upstream') });
   const ancestors = ancestorsOf(selected.value.id, def.edges);
   for (const n of def.nodes) {
     if (!ancestors.has(n.id)) continue;
-    if (n.type === 'approval') refs.push({ ref: `${n.id}.comment`, hint: `Comentario de quien decidió en «${n.label || n.id}»` });
-    else if (n.type !== 'input' && n.type !== 'condition') refs.push({ ref: n.id, hint: `Resultado de «${n.label || n.id}»` });
+    if (n.type === 'approval') refs.push({ ref: `${n.id}.comment`, hint: t('builder.refs.approvalComment', { name: n.label || n.id }) });
+    else if (n.type !== 'input' && n.type !== 'condition') refs.push({ ref: n.id, hint: t('builder.refs.result', { name: n.label || n.id }) });
   }
   if (selected.value.data?.kind === 'foreach') {
     refs.unshift(
-      { ref: 'item', hint: 'El elemento de la lista que se está procesando' },
-      { ref: 'index', hint: 'Posición del elemento (empieza en 1)' },
-      { ref: 'total', hint: 'Número de elementos de la lista' },
+      { ref: 'item', hint: t('builder.refs.item') },
+      { ref: 'index', hint: t('builder.refs.index') },
+      { ref: 'total', hint: t('builder.refs.total') },
     );
   }
   return refs;
@@ -176,7 +174,7 @@ function setForeachBody(body: 'agent' | 'tool' | 'subworkflow'): void {
   data.config.body = body;
   if (body === 'tool') data.config.args ??= {};
   if (body === 'subworkflow') data.config.input ??= '{{item}}';
-  if (body === 'agent') data.config.prompt ||= 'Procesa este elemento:\n\n{{item}}';
+  if (body === 'agent') data.config.prompt ||= t('builder.defaults.foreachPrompt');
 }
 
 // ---------- Carga ----------
@@ -191,7 +189,7 @@ onMounted(async () => {
       nodes.value = wf.nodes.map((n) => toFlowNode(n));
       edges.value = wf.edges.map(toFlowEdge);
     } else {
-      meta.name = 'Nuevo workflow';
+      meta.name = t('builder.defaults.workflowName');
       nodes.value = [
         toFlowNode({ id: 'entrada', type: 'input', label: 'Entrada', position: { x: 40, y: 160 }, config: { description: '', defaultValue: '' } }),
         toFlowNode({ id: 'salida', type: 'output', label: 'Salida', position: { x: 640, y: 160 }, config: { template: '' } }),
@@ -239,11 +237,11 @@ function restore(snapshot: string | null, message: string): void {
 }
 function undo(): void {
   flushHistory();
-  restore(history.undo(), 'Cambio deshecho.');
+  restore(history.undo(), t('builder.announce.undone'));
 }
 function redo(): void {
   flushHistory();
-  restore(history.redo(), 'Cambio rehecho.');
+  restore(history.redo(), t('builder.announce.redone'));
 }
 
 // ---------- Accesibilidad del lienzo ----------
@@ -255,28 +253,27 @@ const nodeName = (id: string): string => {
 watchEffect(() => {
   for (const n of nodes.value) {
     const errorCount = n.data?.errors ?? 0;
-    const label = `${NODE_LABEL[n.data!.kind]}: ${n.data!.label || n.id}${errorCount ? `, ${errorCount} ${errorCount === 1 ? 'error' : 'errores'}` : ''}`;
+    const label = `${t('builder.a11y.nodeLabel', { type: NODE_LABEL[n.data!.kind], label: n.data!.label || n.id })}${errorCount ? `, ${tn('builder.a11y.nodeErrors', errorCount)}` : ''}`;
     if (n.ariaLabel !== label) n.ariaLabel = label;
-    if (!n.domAttributes) n.domAttributes = { 'aria-roledescription': 'nodo' };
+    const role = t('builder.a11y.nodeRole');
+    if (n.domAttributes?.['aria-roledescription'] !== role) n.domAttributes = { ...n.domAttributes, 'aria-roledescription': role };
   }
 });
 watchEffect(() => {
   for (const e of edges.value) {
-    const branch = e.sourceHandle === 'true' ? ' (rama sí)' : e.sourceHandle === 'false' ? ' (rama no)' : '';
-    const label = `Conexión de ${nodeName(e.source)} a ${nodeName(e.target)}${branch}`;
+    const from = nodeName(e.source);
+    const to = nodeName(e.target);
+    const label =
+      e.sourceHandle === 'true' || e.sourceHandle === 'false'
+        ? t('flow.edge.labelBranch', { from, to, branch: t(e.sourceHandle === 'true' ? 'flow.branch.yes' : 'flow.branch.no') })
+        : t('flow.edge.label', { from, to });
     if (e.ariaLabel !== label) e.ariaLabel = label;
   }
 });
 let unlocalize: (() => void) | null = null;
-watch(canvas, (el) => {
+watch([canvas, locale], ([el]) => {
   unlocalize?.();
-  unlocalize = el
-    ? localizeFlow(
-        el,
-        'Pulsa Intro o Espacio para seleccionar el nodo y editar sus propiedades. Con las flechas se mueve y con Suprimir se borra.',
-        'Pulsa Intro o Espacio para seleccionar la conexión. Con Suprimir se borra.',
-      )
-    : null;
+  unlocalize = el ? localizeFlow(el, t('builder.canvas.nodeHelp'), t('builder.canvas.edgeHelp')) : null;
 });
 
 /** Selecciona un nodo y lleva el foco a sus propiedades (alternativa de teclado al clic en el lienzo). */
@@ -310,16 +307,18 @@ watch([selectedId, connectOptions], () => {
   connectChoice.value = '';
 });
 const optionKey = (o: { target: string; branch: string | null }): string => `${o.branch ?? ''}|${o.target}`;
-const branchText = (branch: string | null | undefined): string => (branch === 'true' ? ' por la rama «sí»' : branch === 'false' ? ' por la rama «no»' : '');
+const branchWord = (branch: string): string => t(branch === 'true' ? 'flow.branch.yes' : 'flow.branch.no');
+const branchText = (branch: string | null | undefined): string => (branch === 'true' || branch === 'false' ? t('builder.connections.viaBranch', { branch: branchWord(branch) }) : '');
+const branchSuffix = (branch: string | null | undefined): string => (branch === 'true' || branch === 'false' ? t('builder.connections.branchSuffix', { branch: branchWord(branch) }) : '');
 function connectChosen(): void {
   const option = connectOptions.value.find((o) => optionKey(o) === connectChoice.value);
   if (!option || !selectedId.value) return;
   onConnect({ source: selectedId.value, target: option.target, sourceHandle: option.branch, targetHandle: null });
-  announce(`${nodeName(selectedId.value)} conectado con ${nodeName(option.target)}${branchText(option.branch)}.`);
+  announce(t('builder.announce.connected', { from: nodeName(selectedId.value), to: nodeName(option.target), branch: branchText(option.branch) }));
 }
 function removeEdge(edge: Edge): void {
   edges.value = edges.value.filter((e) => e.id !== edge.id);
-  announce(`Conexión entre ${nodeName(edge.source)} y ${nodeName(edge.target)} quitada.`);
+  announce(t('builder.announce.edgeRemoved', { from: nodeName(edge.source), to: nodeName(edge.target) }));
 }
 
 // ---------- Copiar, pegar y ordenar ----------
@@ -336,7 +335,7 @@ function copySelection(): boolean {
   const def = definition.value;
   clipboard = { nodes: def.nodes.filter((n) => ids.has(n.id)), edges: def.edges };
   pasteCount = 0;
-  ui.info(ids.size === 1 ? 'Nodo copiado. Pégalo con Ctrl+V.' : `${ids.size} nodos copiados. Pégalos con Ctrl+V.`);
+  ui.info(tn('builder.toast.copied', ids.size));
   return true;
 }
 function paste(): void {
@@ -346,14 +345,14 @@ function paste(): void {
   nodes.value = [...nodes.value, ...copy.nodes.map((n) => toFlowNode(n))];
   edges.value = [...edges.value, ...copy.edges.map(toFlowEdge)];
   selectedId.value = copy.nodes[0].id;
-  announce(copy.nodes.length === 1 ? `Nodo ${copy.nodes[0].label || copy.nodes[0].id} pegado.` : `${copy.nodes.length} nodos pegados.`);
+  announce(tn('builder.announce.pasted', copy.nodes.length, { name: copy.nodes[0].label || copy.nodes[0].id }));
 }
 function tidy(): void {
   const def = definition.value;
   const positions = autoLayout(def.nodes, def.edges);
   for (const n of nodes.value) if (positions[n.id]) n.position = positions[n.id];
   void nextTick(() => fitView({ padding: 0.2, maxZoom: 1, duration: 200 }));
-  announce('Nodos ordenados de izquierda a derecha.');
+  announce(t('builder.announce.tidied'));
 }
 
 // ---------- Atajos de teclado ----------
@@ -417,7 +416,7 @@ onBeforeUnmount(() => {
 // ---------- Edición del grafo ----------
 function addNode(kind: NodeType, position?: { x: number; y: number }, agentId?: string): void {
   const agent = agentId ? catalog.agentById.get(agentId) : undefined;
-  const label = agent?.name ?? (kind === 'condition' ? '¿Condición?' : kind === 'approval' ? 'Revisión' : NODE_LABEL[kind]);
+  const label = agent?.name ?? (kind === 'condition' ? t('builder.defaults.conditionLabel') : kind === 'approval' ? t('builder.defaults.approvalLabel') : NODE_LABEL[kind]);
   const config: Record<string, any> =
     kind === 'agent'
       ? { agentId: agentId ?? '', prompt: '{{upstream}}' }
@@ -426,11 +425,11 @@ function addNode(kind: NodeType, position?: { x: number; y: number }, agentId?: 
         : kind === 'condition'
           ? { left: '{{upstream}}', operator: 'contains', right: '' }
           : kind === 'foreach'
-            ? { body: 'agent', agentId: '', items: '{{upstream}}', prompt: 'Procesa este elemento:\n\n{{item}}', concurrency: 2 }
+            ? { body: 'agent', agentId: '', items: '{{upstream}}', prompt: t('builder.defaults.foreachPrompt'), concurrency: 2 }
             : kind === 'subworkflow'
             ? { workflowId: '', input: '{{upstream}}' }
             : kind === 'approval'
-            ? { message: '¿Apruebas este resultado?\n\n{{upstream}}' }
+            ? { message: t('builder.defaults.approvalMessage') }
             : kind === 'transform'
             ? { template: '{{upstream}}' }
             : kind === 'input'
@@ -457,7 +456,7 @@ function addNode(kind: NodeType, position?: { x: number; y: number }, agentId?: 
   }
   selectedId.value = id;
   const connected = edges.value.some((e) => e.source === anchor?.id && e.target === id);
-  announce(`Nodo ${label} añadido${connected ? ` y conectado a ${nodeName(anchor!.id)}` : ''}.`);
+  announce(connected ? t('builder.announce.addedConnected', { name: label, anchor: nodeName(anchor!.id) }) : t('builder.announce.added', { name: label }));
   void nextTick(() => ensureVisible(pos!));
 }
 
@@ -501,7 +500,7 @@ function onConnect(c: Connection): void {
   const candidate = { id: `${c.source}-${handle ?? 'out'}-${c.target}`, source: c.source, target: c.target, sourceHandle: handle };
   const def = definition.value;
   if (topologicalOrder(def.nodes, [...def.edges, candidate]) === null) {
-    ui.error('Esa conexión crearía un ciclo: un workflow no puede volver a un nodo anterior.');
+    ui.error(t('builder.toast.cycle'));
     return;
   }
   edges.value = [...edges.value, toFlowEdge(candidate)];
@@ -509,7 +508,7 @@ function onConnect(c: Connection): void {
 
 function removeSelected(): void {
   if (!selectedId.value) return;
-  announce(`Nodo ${nodeName(selectedId.value)} eliminado. Puedes deshacerlo con Ctrl+Z.`);
+  announce(t('builder.announce.removed', { name: nodeName(selectedId.value) }));
   removeNodes([selectedId.value]);
 }
 
@@ -522,7 +521,7 @@ function duplicateSelected(): void {
     toFlowNode({ id, type: src.data.kind, label: src.data.label, position: { x: src.position.x + 40, y: src.position.y + 60 }, config: src.data.config }),
   ];
   selectedId.value = id;
-  announce(`Nodo ${src.data.label || src.id} duplicado.`);
+  announce(t('builder.announce.duplicated', { name: src.data.label || src.id }));
 }
 
 function insertRef(refName: string): void {
@@ -541,7 +540,7 @@ function insertRef(refName: string): void {
     return;
   }
   const usesArgs = data.kind === 'tool' || (data.kind === 'foreach' && selectedBody.value === 'tool');
-  if (usesArgs) return void navigator.clipboard?.writeText(token).then(() => ui.info(`${token} copiado al portapapeles.`));
+  if (usesArgs) return void navigator.clipboard?.writeText(token).then(() => ui.info(t('builder.toast.tokenCopied', { token })));
   const main =
     data.kind === 'agent'
       ? 'prompt'
@@ -615,7 +614,7 @@ const durationMin = computed({
 // ---------- Guardar y ejecutar ----------
 async function save(): Promise<boolean> {
   if (!meta.name.trim()) {
-    ui.error('Ponle un nombre al workflow.');
+    ui.error(t('builder.toast.nameRequired'));
     return false;
   }
   saving.value = true;
@@ -623,7 +622,7 @@ async function save(): Promise<boolean> {
     const wf = workflowId.value ? await api.workflows.update(workflowId.value, definition.value) : await api.workflows.create(definition.value);
     catalog.setWorkflow(wf);
     saved.value = serialized.value;
-    ui.success('Workflow guardado.');
+    ui.success(t('builder.toast.saved'));
     if (!workflowId.value) await router.replace(`/workflows/${wf.id}`);
     return true;
   } catch (err) {
@@ -654,7 +653,7 @@ async function exportWorkflow(): Promise<void> {
     // Se exporta lo guardado: los cambios pendientes se guardan antes.
     if (dirty.value && !(await save())) return;
     downloadJson(exportFileName(meta.name), await api.workflows.export(workflowId.value));
-    ui.success('Workflow exportado.');
+    ui.success(t('builder.toast.exported'));
   } catch (err) {
     ui.error(errorText(err));
   }
@@ -667,7 +666,7 @@ const inputNode = computed(() => nodes.value.find((n) => n.data?.kind === 'input
 
 function openRun(): void {
   if (errors.value.length) {
-    ui.error(`Corrige ${errors.value.length === 1 ? 'el error' : `los ${errors.value.length} errores`} antes de ejecutar.`);
+    ui.error(tn('builder.toast.fixErrors', errors.value.length));
     selectedId.value = errors.value.find((e) => e.nodeId)?.nodeId ?? null;
     return;
   }
@@ -694,58 +693,58 @@ onBeforeRouteLeave(async (to) => {
   if (!dirty.value || loadError.value) return true;
   // Tras crear un workflow nuevo se navega a su URL definitiva: no es una salida real.
   if (to.path.startsWith('/workflows/') && serialized.value === saved.value) return true;
-  return ui.confirm({ title: 'Cambios sin guardar', message: 'Si sales ahora perderás los cambios de este workflow.', confirmLabel: 'Salir sin guardar', danger: true });
+  return ui.confirm({ title: t('builder.confirm.leaveTitle'), message: t('builder.confirm.leaveMessage'), confirmLabel: t('builder.confirm.leaveConfirm'), danger: true });
 });
 </script>
 
 <template>
   <div class="builder">
-    <h1 class="sr-only">Editor del workflow {{ meta.name ? `«${meta.name}»` : 'nuevo' }}</h1>
+    <h1 class="sr-only">{{ meta.name ? t('builder.heading.named', { name: meta.name }) : t('builder.heading.untitled') }}</h1>
     <header class="bar">
-      <RouterLink class="btn btn-ghost btn-icon" to="/workflows" aria-label="Volver a workflows"><ArrowLeft /></RouterLink>
-      <input v-model="meta.name" class="name" aria-label="Nombre del workflow" placeholder="Nombre del workflow" maxlength="120" />
-      <div v-if="!loading && !loadError" class="row edit-tools" role="group" aria-label="Edición del lienzo">
-        <button class="btn btn-ghost btn-icon" type="button" aria-label="Deshacer" title="Deshacer (Ctrl+Z)" :disabled="!history.canUndo.value" @click="undo"><Undo2 /></button>
-        <button class="btn btn-ghost btn-icon" type="button" aria-label="Rehacer" title="Rehacer (Ctrl+Mayús+Z)" :disabled="!history.canRedo.value" @click="redo"><Redo2 /></button>
-        <button class="btn btn-ghost btn-icon" type="button" aria-label="Ordenar los nodos" title="Ordenar los nodos de izquierda a derecha" :disabled="nodes.length < 2" @click="tidy"><LayoutGrid /></button>
+      <RouterLink class="btn btn-ghost btn-icon" to="/workflows" :aria-label="t('builder.back')"><ArrowLeft /></RouterLink>
+      <input v-model="meta.name" class="name" :aria-label="t('builder.name')" :placeholder="t('builder.name')" maxlength="120" />
+      <div v-if="!loading && !loadError" class="row edit-tools" role="group" :aria-label="t('builder.tools.group')">
+        <button class="btn btn-ghost btn-icon" type="button" :aria-label="t('builder.tools.undo')" :title="t('builder.tools.undoTitle')" :disabled="!history.canUndo.value" @click="undo"><Undo2 /></button>
+        <button class="btn btn-ghost btn-icon" type="button" :aria-label="t('builder.tools.redo')" :title="t('builder.tools.redoTitle')" :disabled="!history.canRedo.value" @click="redo"><Redo2 /></button>
+        <button class="btn btn-ghost btn-icon" type="button" :aria-label="t('builder.tools.tidy')" :title="t('builder.tools.tidyTitle')" :disabled="nodes.length < 2" @click="tidy"><LayoutGrid /></button>
       </div>
       <span class="grow" />
-      <span v-if="dirty" class="badge warning">Sin guardar</span>
+      <span v-if="dirty" class="badge warning">{{ t('builder.badge.unsaved') }}</span>
       <button
         v-if="!loading"
         class="badge check-badge"
         :class="errors.length ? 'danger' : warnings.length ? 'warning' : 'success'"
         type="button"
-        title="Ver la validación del workflow"
+        :title="t('builder.badge.viewTitle')"
         @click="selectedId = null"
       >
         <component :is="errors.length ? CircleAlert : warnings.length ? TriangleAlert : CircleCheck" />
-        {{ errors.length ? `${errors.length} error${errors.length > 1 ? 'es' : ''}` : warnings.length ? `${warnings.length} aviso${warnings.length > 1 ? 's' : ''}` : 'Válido' }}
+        {{ errors.length ? tn('builder.badge.errors', errors.length) : warnings.length ? tn('builder.badge.warnings', warnings.length) : t('builder.badge.valid') }}
       </button>
       <template v-if="workflowId && !loading && !loadError">
         <button
           class="btn"
           :class="{ 'btn-icon': !triggerSummary?.active }"
           type="button"
-          aria-label="Disparadores"
-          :title="triggerSummary?.active ? `Se ejecuta solo: ${triggerSummary.text}` : 'Disparadores: programar ejecuciones o lanzarlas con un webhook'"
+          :aria-label="t('builder.triggers.label')"
+          :title="triggerSummary?.active ? t('builder.triggers.autoTitle', { text: triggerSummary.text }) : t('builder.triggers.title')"
           @click="scheduleModal = true"
         >
           <CalendarClock /><span v-if="triggerSummary?.active" class="sched-text">{{ triggerSummary.text }}</span>
         </button>
-        <button class="btn btn-icon" type="button" aria-label="Exportar" title="Exportar a un archivo" @click="exportWorkflow"><Download /></button>
+        <button class="btn btn-icon" type="button" :aria-label="t('common.actions.export')" :title="t('builder.exportTitle')" @click="exportWorkflow"><Download /></button>
       </template>
-      <button class="btn" type="button" :disabled="saving || loading || (!dirty && !!workflowId)" title="Guardar (Ctrl+S)" @click="save"><Save /> {{ saving ? 'Guardando…' : 'Guardar' }}</button>
-      <button class="btn btn-primary" type="button" :disabled="loading || !!loadError" @click="openRun"><Play /> Ejecutar</button>
+      <button class="btn" type="button" :disabled="saving || loading || (!dirty && !!workflowId)" :title="t('builder.saveTitle')" @click="save"><Save /> {{ saving ? t('common.actions.saving') : t('common.actions.save') }}</button>
+      <button class="btn btn-primary" type="button" :disabled="loading || !!loadError" @click="openRun"><Play /> {{ t('common.actions.run') }}</button>
     </header>
 
     <div v-if="loadError" class="page"><div class="callout danger" role="alert"><CircleAlert /> {{ loadError }}</div></div>
 
     <div v-else class="body">
       <!-- Paleta -->
-      <aside class="palette" aria-label="Paleta de nodos">
-        <div class="eyebrow"><Term id="agente">Agentes</Term></div>
-        <p class="tiny faint">Arrastra al lienzo o haz clic.</p>
+      <aside class="palette" :aria-label="t('builder.palette.label')">
+        <div class="eyebrow"><Term id="agente">{{ t('builder.term.agents') }}</Term></div>
+        <p class="tiny faint">{{ t('builder.palette.dragHint') }}</p>
         <button
           v-for="agent in catalog.agents"
           :key="agent.id"
@@ -759,9 +758,9 @@ onBeforeRouteLeave(async (to) => {
           <AgentAvatar :name="agent.name" :color="agent.color" :size="24" />
           <span class="truncate">{{ agent.name }}</span>
         </button>
-        <RouterLink v-if="!catalog.agents.length" to="/agents/new" class="small">Crea tu primer agente</RouterLink>
+        <RouterLink v-if="!catalog.agents.length" to="/agents/new" class="small">{{ t('builder.palette.createAgent') }}</RouterLink>
 
-        <div class="eyebrow" style="margin-top: 14px">Bloques</div>
+        <div class="eyebrow" style="margin-top: 14px">{{ t('builder.palette.blocks') }}</div>
         <button
           v-for="item in PALETTE"
           :key="item.kind"
@@ -775,19 +774,24 @@ onBeforeRouteLeave(async (to) => {
           <span class="pal-ico"><component :is="item.icon" /></span>
           <span class="truncate">{{ NODE_LABEL[item.kind] }}</span>
         </button>
-        <p class="tiny faint help">Con un <Term id="nodo">nodo</Term> seleccionado, el siguiente que añadas se conecta a él (desde una <Term id="condicion">condición</Term>, a su primera rama libre). También puedes unir los puntos a mano o, sin ratón, desde «Conexiones» en las propiedades del nodo.</p>
-        <p class="tiny faint help">
-          Atajos: <kbd>Ctrl</kbd>+<kbd>Z</kbd> deshacer, <kbd>Ctrl</kbd>+<kbd>Mayús</kbd>+<kbd>Z</kbd> rehacer, <kbd>Ctrl</kbd>+<kbd>C</kbd> y <kbd>Ctrl</kbd>+<kbd>V</kbd> copiar y pegar,
-          <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicar, <kbd>Supr</kbd> borrar, <kbd>Ctrl</kbd>+<kbd>S</kbd> guardar.
-        </p>
+        <i18n-t keypath="builder.palette.help" tag="p" class="tiny faint help" scope="global">
+          <template #node><Term id="nodo">{{ t('builder.term.node') }}</Term></template>
+          <template #condition><Term id="condicion">{{ t('builder.term.condition') }}</Term></template>
+        </i18n-t>
+        <i18n-t keypath="builder.palette.shortcuts" tag="p" class="tiny faint help" scope="global">
+          <template #undo><kbd>{{ t('builder.keys.ctrl') }}</kbd>+<kbd>Z</kbd></template>
+          <template #redo><kbd>{{ t('builder.keys.ctrl') }}</kbd>+<kbd>{{ t('builder.keys.shift') }}</kbd>+<kbd>Z</kbd></template>
+          <template #copy><kbd>{{ t('builder.keys.ctrl') }}</kbd>+<kbd>C</kbd></template>
+          <template #paste><kbd>{{ t('builder.keys.ctrl') }}</kbd>+<kbd>V</kbd></template>
+          <template #duplicate><kbd>{{ t('builder.keys.ctrl') }}</kbd>+<kbd>D</kbd></template>
+          <template #del><kbd>{{ t('builder.keys.del') }}</kbd></template>
+          <template #save><kbd>{{ t('builder.keys.ctrl') }}</kbd>+<kbd>S</kbd></template>
+        </i18n-t>
       </aside>
 
       <!-- Lienzo -->
-      <div ref="canvas" class="canvas" role="region" aria-label="Lienzo del workflow" aria-describedby="canvas-help" @dragover.prevent @drop.prevent="onDrop" @keydown.capture="onCanvasKey">
-        <p id="canvas-help" class="sr-only">
-          Cada nodo es un paso del workflow. Tabula para recorrerlos; Intro o Espacio abre sus propiedades, donde también se conecta con otros nodos. La lista «Nodos» de
-          los ajustes del workflow permite llegar a cualquiera sin usar el lienzo.
-        </p>
+      <div ref="canvas" class="canvas" role="region" :aria-label="t('builder.canvas.label')" aria-describedby="canvas-help" @dragover.prevent @drop.prevent="onDrop" @keydown.capture="onCanvasKey">
+        <p id="canvas-help" class="sr-only">{{ t('builder.canvas.help') }}</p>
         <div v-if="loading" class="skeleton" style="position: absolute; inset: 16px" aria-busy="true" />
         <VueFlow
           v-else
@@ -812,192 +816,212 @@ onBeforeRouteLeave(async (to) => {
       </div>
 
       <!-- Inspector -->
-      <aside class="inspector" aria-label="Propiedades">
+      <aside class="inspector" :aria-label="t('builder.inspector.label')">
         <template v-if="selected && selectedData">
           <div class="row between">
             <h2>{{ NODE_LABEL[selectedData.kind] }}</h2>
             <div class="row" style="gap: 2px">
-              <button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Duplicar nodo" title="Duplicar" @click="duplicateSelected"><Copy /></button>
-              <button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Eliminar nodo" title="Eliminar" @click="removeSelected"><Trash2 /></button>
+              <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('builder.inspector.duplicate')" :title="t('common.actions.duplicate')" @click="duplicateSelected"><Copy /></button>
+              <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('builder.inspector.delete')" :title="t('common.actions.delete')" @click="removeSelected"><Trash2 /></button>
             </div>
           </div>
           <p class="small muted">{{ NODE_HINT[selectedData.kind] }}.</p>
 
           <div v-for="(issue, i) in selectedIssues" :key="i" class="callout" :class="issue.level === 'error' ? 'danger' : 'warning'">
-            <TriangleAlert /> <span>{{ issue.message }}</span>
+            <TriangleAlert /> <span>{{ issueText(issue) }}</span>
           </div>
 
           <div class="field">
-            <label for="in-label">Etiqueta</label>
+            <label for="in-label">{{ t('builder.inspector.nodeLabel') }}</label>
             <input id="in-label" v-model="selectedData.label" class="input" maxlength="80" />
-            <span class="hint">
-              Otros nodos lo citan como <code v-text="`{{${selected.id}}}`" />
-            </span>
+            <i18n-t keypath="builder.inspector.citedAs" tag="span" class="hint" scope="global">
+              <template #id><code v-text="`{{${selected.id}}}`" /></template>
+            </i18n-t>
           </div>
 
           <!-- Entrada -->
           <template v-if="selectedData.kind === 'input'">
             <div class="field">
-              <label for="in-desc">Qué se pide al usuario</label>
-              <input id="in-desc" v-model="selectedData.config.description" class="input" placeholder="p. ej. Tema del informe" />
+              <label for="in-desc">{{ t('builder.input.asks') }}</label>
+              <input id="in-desc" v-model="selectedData.config.description" class="input" :placeholder="t('builder.input.asksPlaceholder')" />
             </div>
             <div class="field">
-              <label for="in-default">Valor de ejemplo</label>
-              <textarea id="in-default" v-model="selectedData.config.defaultValue" class="textarea" rows="3" placeholder="Se propone al ejecutar" />
+              <label for="in-default">{{ t('builder.input.defaultValue') }}</label>
+              <textarea id="in-default" v-model="selectedData.config.defaultValue" class="textarea" rows="3" :placeholder="t('builder.input.defaultPlaceholder')" />
             </div>
           </template>
 
           <!-- Agente -->
           <template v-else-if="selectedData.kind === 'agent'">
             <div class="field">
-              <label for="in-agent"><Term id="agente">Agente</Term></label>
+              <label for="in-agent"><Term id="agente">{{ t('builder.agent.label') }}</Term></label>
               <select id="in-agent" v-model="selectedData.config.agentId" class="select" @change="onAgentChange">
-                <option value="" disabled>Selecciona…</option>
+                <option value="" disabled>{{ t('builder.select') }}</option>
                 <option v-for="a in catalog.agents" :key="a.id" :value="a.id">{{ a.name }}{{ a.role ? ` — ${a.role}` : '' }}</option>
               </select>
-              <RouterLink v-if="selectedData.config.agentId" class="hint" :to="`/agents/${selectedData.config.agentId}`">Editar este agente</RouterLink>
+              <RouterLink v-if="selectedData.config.agentId" class="hint" :to="`/agents/${selectedData.config.agentId}`">{{ t('builder.agent.edit') }}</RouterLink>
             </div>
             <div class="field">
-              <label for="in-prompt">Tarea (<Term id="plantilla">plantilla</Term>)</label>
-              <textarea id="in-prompt" v-model="selectedData.config.prompt" data-tpl="prompt" class="textarea" rows="7" placeholder="Qué debe hacer el agente en este paso…" />
-              <span class="hint">Es el <Term id="prompt">prompt</Term> que recibe el agente en este paso, con las referencias ya sustituidas.</span>
+              <i18n-t keypath="builder.agent.taskLabel" tag="label" for="in-prompt" scope="global">
+                <template #template><Term id="plantilla">{{ t('builder.term.template') }}</Term></template>
+              </i18n-t>
+              <textarea id="in-prompt" v-model="selectedData.config.prompt" data-tpl="prompt" class="textarea" rows="7" :placeholder="t('builder.agent.taskPlaceholder')" />
+              <i18n-t keypath="builder.agent.taskHint" tag="span" class="hint" scope="global">
+                <template #prompt><Term id="prompt">{{ t('builder.term.prompt') }}</Term></template>
+              </i18n-t>
             </div>
           </template>
 
           <!-- Para cada -->
           <template v-else-if="selectedData.kind === 'foreach'">
             <div class="field">
-              <label for="in-items">Lista a recorrer (<Term id="plantilla">plantilla</Term>)</label>
-              <textarea id="in-items" v-model="selectedData.config.items" data-tpl="items" class="textarea" rows="2" style="min-height: 34px" placeholder="Vacío = lo que llegue de los nodos conectados" />
-              <span class="hint">
-                Un elemento por línea (con o sin viñetas) o una lista <Term id="json">JSON</Term>. El nodo
-                <Term id="para-cada">«para cada»</Term> repite la tarea con cada uno.
-              </span>
+              <i18n-t keypath="builder.foreach.itemsLabel" tag="label" for="in-items" scope="global">
+                <template #template><Term id="plantilla">{{ t('builder.term.template') }}</Term></template>
+              </i18n-t>
+              <textarea id="in-items" v-model="selectedData.config.items" data-tpl="items" class="textarea" rows="2" style="min-height: 34px" :placeholder="t('builder.emptyUpstream')" />
+              <i18n-t keypath="builder.foreach.itemsHint" tag="span" class="hint" scope="global">
+                <template #json><Term id="json">{{ t('builder.term.json') }}</Term></template>
+                <template #foreach><Term id="para-cada">{{ t('builder.term.forEach') }}</Term></template>
+              </i18n-t>
             </div>
             <fieldset class="field plain">
-              <legend class="label">Con cada elemento se ejecuta</legend>
+              <legend class="label">{{ t('builder.foreach.runsWith') }}</legend>
               <div class="choices">
-                <label v-for="opt in FOREACH_BODIES" :key="opt.value" class="choice" :class="{ active: selectedBody === opt.value }">
-                  <input type="radio" name="foreach-body" :value="opt.value" :checked="selectedBody === opt.value" @change="setForeachBody(opt.value)" />
-                  {{ opt.label }}
+                <label v-for="opt in FOREACH_BODIES" :key="opt" class="choice" :class="{ active: selectedBody === opt }">
+                  <input type="radio" name="foreach-body" :value="opt" :checked="selectedBody === opt" @change="setForeachBody(opt)" />
+                  {{ t(`builder.foreach.body.${opt}`) }}
                 </label>
               </div>
             </fieldset>
 
             <template v-if="selectedBody === 'agent'">
               <div class="field">
-                <label for="in-agent">Agente</label>
+                <label for="in-agent">{{ t('builder.agent.label') }}</label>
                 <select id="in-agent" v-model="selectedData.config.agentId" class="select">
-                  <option value="" disabled>Selecciona…</option>
+                  <option value="" disabled>{{ t('builder.select') }}</option>
                   <option v-for="a in catalog.agents" :key="a.id" :value="a.id">{{ a.name }}{{ a.role ? ` — ${a.role}` : '' }}</option>
                 </select>
               </div>
               <div class="field">
-                <label for="in-prompt">Tarea para cada elemento</label>
-                <textarea id="in-prompt" v-model="selectedData.config.prompt" data-tpl="prompt" class="textarea" rows="6" placeholder="Qué debe hacer el agente con cada elemento…" />
-                <span class="hint">
-                  <code v-text="'{{item}}'" /> es el elemento; <code v-text="'{{index}}'" /> y <code v-text="'{{total}}'" />, su posición y el total.
-                </span>
+                <label for="in-prompt">{{ t('builder.foreach.taskLabel') }}</label>
+                <textarea id="in-prompt" v-model="selectedData.config.prompt" data-tpl="prompt" class="textarea" rows="6" :placeholder="t('builder.foreach.taskPlaceholder')" />
+                <i18n-t keypath="builder.foreach.taskHint" tag="span" class="hint" scope="global">
+                  <template #item><code v-text="'{{item}}'" /></template>
+                  <template #index><code v-text="'{{index}}'" /></template>
+                  <template #total><code v-text="'{{total}}'" /></template>
+                </i18n-t>
               </div>
             </template>
 
             <template v-else-if="selectedBody === 'tool'">
               <div class="field">
-                <label for="in-tool"><Term id="herramienta">Herramienta</Term></label>
+                <label for="in-tool"><Term id="herramienta">{{ t('builder.term.tool') }}</Term></label>
                 <select id="in-tool" v-model="selectedData.config.tool" class="select" @change="selectedData.config.args = {}">
-                  <option value="" disabled>Selecciona…</option>
-                  <option v-for="t in catalog.tools.filter((x) => x.enabled && x.name !== 'delegate_task')" :key="t.name" :value="t.name">{{ t.title }} ({{ t.name }})</option>
+                  <option value="" disabled>{{ t('builder.select') }}</option>
+                  <option v-for="tl in catalog.tools.filter((x) => x.enabled && x.name !== 'delegate_task')" :key="tl.name" :value="tl.name">{{ tl.title }} ({{ tl.name }})</option>
                 </select>
-                <span class="hint">Se ejecuta directamente, sin pasar por un <Term id="modelo">modelo</Term>. Usa <code v-text="'{{item}}'" /> en sus argumentos.</span>
+                <i18n-t keypath="builder.foreach.toolHint" tag="span" class="hint" scope="global">
+                  <template #model><Term id="modelo">{{ t('builder.term.model') }}</Term></template>
+                  <template #item><code v-text="'{{item}}'" /></template>
+                </i18n-t>
               </div>
             </template>
 
             <template v-else>
               <div class="field">
-                <label for="in-subwf"><Term id="subworkflow">Subworkflow</Term></label>
+                <label for="in-subwf"><Term id="subworkflow">{{ t('builder.term.subworkflow') }}</Term></label>
                 <select id="in-subwf" v-model="selectedData.config.workflowId" class="select">
-                  <option value="" disabled>Selecciona…</option>
+                  <option value="" disabled>{{ t('builder.select') }}</option>
                   <option v-for="w in otherWorkflows" :key="w.id" :value="w.id">{{ w.name }}</option>
                 </select>
-                <span class="hint">Un workflow de varios nodos que se lanza una vez por elemento.</span>
+                <span class="hint">{{ t('builder.foreach.subworkflowHint') }}</span>
               </div>
               <div class="field">
-                <label for="in-subinput">Entrada para cada elemento (<Term id="plantilla">plantilla</Term>)</label>
+                <i18n-t keypath="builder.foreach.subInputLabel" tag="label" for="in-subinput" scope="global">
+                  <template #template><Term id="plantilla">{{ t('builder.term.template') }}</Term></template>
+                </i18n-t>
                 <textarea id="in-subinput" v-model="selectedData.config.input" data-tpl="input" class="textarea" rows="2" style="min-height: 34px" placeholder="{{item}}" />
               </div>
             </template>
             <div class="form-grid" style="grid-template-columns: 1fr 1fr">
               <div class="field">
-                <label for="in-conc">A la vez</label>
+                <label for="in-conc">{{ t('builder.foreach.concurrency') }}</label>
                 <input id="in-conc" v-model="concurrencyText" class="input" type="number" min="1" max="8" placeholder="2" />
               </div>
               <div class="field">
-                <label for="in-max">Máx. elementos</label>
+                <label for="in-max">{{ t('builder.foreach.maxItems') }}</label>
                 <input id="in-max" v-model="maxItemsText" class="input" type="number" min="1" max="100" placeholder="20" />
               </div>
             </div>
             <div class="field">
-              <label for="in-format">Resultado</label>
+              <label for="in-format">{{ t('builder.foreach.result') }}</label>
               <select id="in-format" class="select" :value="selectedData.config.format ?? 'sections'" @change="selectedData.config.format = ($event.target as HTMLSelectElement).value">
-                <option value="sections">Un apartado por elemento</option>
-                <option value="json">Lista JSON con los resultados</option>
+                <option value="sections">{{ t('builder.foreach.resultSections') }}</option>
+                <option value="json">{{ t('builder.foreach.resultJson') }}</option>
               </select>
             </div>
             <div class="field">
-              <label for="in-itemerror">Si un elemento falla</label>
+              <label for="in-itemerror">{{ t('builder.foreach.onError') }}</label>
               <select id="in-itemerror" class="select" :value="selectedData.config.onItemError ?? 'fail'" @change="selectedData.config.onItemError = ($event.target as HTMLSelectElement).value">
-                <option value="fail">Detener el nodo</option>
-                <option value="continue">Seguir con los demás y señalarlo en el resultado</option>
+                <option value="fail">{{ t('builder.foreach.onErrorFail') }}</option>
+                <option value="continue">{{ t('builder.foreach.onErrorContinue') }}</option>
               </select>
-              <span class="hint">Al reintentar la ejecución, los elementos que ya se completaron no se repiten.</span>
+              <span class="hint">{{ t('builder.foreach.retryHint') }}</span>
             </div>
           </template>
 
           <!-- Subworkflow -->
           <template v-else-if="selectedData.kind === 'subworkflow'">
             <div class="field">
-              <label for="in-subwf"><Term id="subworkflow">Subworkflow</Term></label>
+              <label for="in-subwf"><Term id="subworkflow">{{ t('builder.term.subworkflow') }}</Term></label>
               <select id="in-subwf" v-model="selectedData.config.workflowId" class="select">
-                <option value="" disabled>Selecciona…</option>
+                <option value="" disabled>{{ t('builder.select') }}</option>
                 <option v-for="w in otherWorkflows" :key="w.id" :value="w.id">{{ w.name }}</option>
               </select>
-              <RouterLink v-if="selectedData.config.workflowId" class="hint link" :to="`/workflows/${selectedData.config.workflowId}`">Abrir ese workflow</RouterLink>
-              <span v-else-if="!otherWorkflows.length" class="hint">Todavía no hay otro workflow que se pueda usar aquí.</span>
+              <RouterLink v-if="selectedData.config.workflowId" class="hint link" :to="`/workflows/${selectedData.config.workflowId}`">{{ t('builder.subworkflow.open') }}</RouterLink>
+              <span v-else-if="!otherWorkflows.length" class="hint">{{ t('builder.subworkflow.none') }}</span>
             </div>
             <div class="field">
-              <label for="in-subinput">Entrada del subworkflow (<Term id="plantilla">plantilla</Term>)</label>
-              <textarea id="in-subinput" v-model="selectedData.config.input" data-tpl="input" class="textarea" rows="3" placeholder="Vacío = lo que llegue de los nodos conectados" />
-              <span class="hint">El resultado del subworkflow es el resultado de este nodo. Su ejecución aparece en el historial, enlazada con esta.</span>
+              <i18n-t keypath="builder.subworkflow.inputLabel" tag="label" for="in-subinput" scope="global">
+                <template #template><Term id="plantilla">{{ t('builder.term.template') }}</Term></template>
+              </i18n-t>
+              <textarea id="in-subinput" v-model="selectedData.config.input" data-tpl="input" class="textarea" rows="3" :placeholder="t('builder.emptyUpstream')" />
+              <span class="hint">{{ t('builder.subworkflow.hint') }}</span>
             </div>
           </template>
 
           <!-- Aprobación humana -->
           <template v-else-if="selectedData.kind === 'approval'">
             <div class="field">
-              <label for="in-message">Qué se pide aprobar (<Term id="plantilla">plantilla</Term>)</label>
-              <textarea id="in-message" v-model="selectedData.config.message" data-tpl="message" class="textarea" rows="6" placeholder="p. ej. ¿Publicamos este texto?&#10;&#10;{{upstream}}" />
-              <span class="hint">
-                La ejecución se detiene aquí hasta que alguien decide (<Term id="aprobacion">aprobación</Term>). Mientras espera no cuenta para la duración máxima.
-              </span>
+              <i18n-t keypath="builder.approval.label" tag="label" for="in-message" scope="global">
+                <template #template><Term id="plantilla">{{ t('builder.term.template') }}</Term></template>
+              </i18n-t>
+              <textarea id="in-message" v-model="selectedData.config.message" data-tpl="message" class="textarea" rows="6" :placeholder="t('builder.approval.placeholder')" />
+              <i18n-t keypath="builder.approval.hint" tag="span" class="hint" scope="global">
+                <template #approval><Term id="aprobacion">{{ t('builder.term.approval') }}</Term></template>
+              </i18n-t>
             </div>
-            <p class="small muted">
-              Conecta la salida <strong style="color: var(--success)">sí</strong> (aprobado) y la salida <strong style="color: var(--danger)">no</strong> (rechazado). El comentario de quien decide
-              se puede usar después como <code v-text="`{{${selected.id}.comment}}`" />.
-            </p>
+            <i18n-t keypath="builder.approval.branches" tag="p" class="small muted" scope="global">
+              <template #yes><strong style="color: var(--success)">{{ t('flow.branch.yes') }}</strong></template>
+              <template #no><strong style="color: var(--danger)">{{ t('flow.branch.no') }}</strong></template>
+              <template #ref><code v-text="`{{${selected.id}.comment}}`" /></template>
+            </i18n-t>
             <div class="field">
-              <label for="in-timeout"><Term id="timeout">Tiempo máx.</Term> de espera (s)</label>
-              <input id="in-timeout" v-model="timeoutSecText" class="input" type="number" min="0" placeholder="Sin límite" />
-              <span class="hint">Si nadie decide en ese tiempo, el nodo falla.</span>
+              <i18n-t keypath="builder.approval.timeoutLabel" tag="label" for="in-timeout" scope="global">
+                <template #timeout><Term id="timeout">{{ t('builder.term.maxWait') }}</Term></template>
+              </i18n-t>
+              <input id="in-timeout" v-model="timeoutSecText" class="input" type="number" min="0" :placeholder="t('builder.noLimit')" />
+              <span class="hint">{{ t('builder.approval.timeoutHint') }}</span>
             </div>
           </template>
 
           <!-- Herramienta (nodo propio) -->
           <template v-else-if="selectedData.kind === 'tool'">
             <div class="field">
-              <label for="in-tool"><Term id="herramienta">Herramienta</Term></label>
+              <label for="in-tool"><Term id="herramienta">{{ t('builder.term.tool') }}</Term></label>
               <select id="in-tool" v-model="selectedData.config.tool" class="select" @change="onToolChange">
-                <option value="" disabled>Selecciona…</option>
-                <option v-for="t in catalog.tools.filter((x) => x.enabled && x.name !== 'delegate_task')" :key="t.name" :value="t.name">{{ t.title }} ({{ t.name }})</option>
+                <option value="" disabled>{{ t('builder.select') }}</option>
+                <option v-for="tl in catalog.tools.filter((x) => x.enabled && x.name !== 'delegate_task')" :key="tl.name" :value="tl.name">{{ tl.title }} ({{ tl.name }})</option>
               </select>
               <span v-if="selectedTool" class="hint">{{ selectedTool.description }}</span>
             </div>
@@ -1009,15 +1033,15 @@ onBeforeRouteLeave(async (to) => {
               <div v-for="(prop, name) in selectedTool.parameters.properties" :key="name" class="field">
                 <label :for="`arg-${name}`">
                   <code>{{ name }}</code>
-                  <span v-if="selectedTool.parameters.required?.includes(String(name))" class="badge" style="height: 18px">obligatorio</span>
+                  <span v-if="selectedTool.parameters.required?.includes(String(name))" class="badge" style="height: 18px">{{ t('builder.tool.required') }}</span>
                 </label>
                 <select v-if="prop.type === 'boolean'" :id="`arg-${name}`" class="select" :value="argText(String(name))" @change="setArg(String(name), ($event.target as HTMLSelectElement).value)">
-                  <option value="">Por defecto</option>
-                  <option value="true">Sí</option>
-                  <option value="false">No</option>
+                  <option value="">{{ t('builder.tool.default') }}</option>
+                  <option value="true">{{ t('builder.tool.yes') }}</option>
+                  <option value="false">{{ t('builder.tool.no') }}</option>
                 </select>
                 <select v-else-if="prop.enum" :id="`arg-${name}`" class="select" :value="argText(String(name))" @change="setArg(String(name), ($event.target as HTMLSelectElement).value)">
-                  <option value="">Por defecto</option>
+                  <option value="">{{ t('builder.tool.default') }}</option>
                   <option v-for="o in prop.enum" :key="String(o)" :value="String(o)">{{ o }}</option>
                 </select>
                 <textarea
@@ -1039,39 +1063,44 @@ onBeforeRouteLeave(async (to) => {
           <!-- Condición -->
           <template v-if="selectedData.kind === 'condition'">
             <div class="field">
-              <label for="in-left">Texto a evaluar (<Term id="plantilla">plantilla</Term>)</label>
+              <i18n-t keypath="builder.condition.left" tag="label" for="in-left" scope="global">
+                <template #template><Term id="plantilla">{{ t('builder.term.template') }}</Term></template>
+              </i18n-t>
               <textarea id="in-left" v-model="selectedData.config.left" data-tpl="left" class="textarea" rows="2" style="min-height: 34px" />
             </div>
             <div class="field">
-              <label for="in-op">Operador</label>
+              <label for="in-op">{{ t('builder.condition.operator') }}</label>
               <select id="in-op" v-model="selectedData.config.operator" class="select">
-                <option v-for="[value, label] in OPERATORS" :key="value" :value="value">{{ label }}</option>
+                <option v-for="value in OPERATORS" :key="value" :value="value">{{ OPERATOR_LABEL[value] }}</option>
               </select>
             </div>
             <div v-if="!UNARY.has(selectedData.config.operator)" class="field">
-              <label for="in-right">Valor</label>
-              <input id="in-right" v-model="selectedData.config.right" data-tpl="right" class="input" placeholder="p. ej. APROBADO" />
+              <label for="in-right">{{ t('builder.condition.value') }}</label>
+              <input id="in-right" v-model="selectedData.config.right" data-tpl="right" class="input" :placeholder="t('builder.condition.valuePlaceholder')" />
             </div>
-            <p class="small muted">Conecta la salida <strong style="color: var(--success)">sí</strong> y la salida <strong style="color: var(--danger)">no</strong> a los nodos de cada rama. La rama no elegida se omite.</p>
+            <i18n-t keypath="builder.condition.branches" tag="p" class="small muted" scope="global">
+              <template #yes><strong style="color: var(--success)">{{ t('flow.branch.yes') }}</strong></template>
+              <template #no><strong style="color: var(--danger)">{{ t('flow.branch.no') }}</strong></template>
+            </i18n-t>
           </template>
 
           <!-- Transformación / Salida -->
           <template v-if="selectedData.kind === 'transform' || selectedData.kind === 'output'">
             <div class="field">
-              <label for="in-tpl"><Term id="plantilla">Plantilla</Term></label>
+              <label for="in-tpl"><Term id="plantilla">{{ t('builder.term.templateCap') }}</Term></label>
               <textarea
                 id="in-tpl"
                 v-model="selectedData.config.template"
                 data-tpl="template"
                 class="textarea"
                 rows="6"
-                :placeholder="selectedData.kind === 'output' ? 'Vacío = el resultado de los nodos conectados' : 'Texto con referencias a otros nodos'"
+                :placeholder="selectedData.kind === 'output' ? t('builder.template.emptyOutput') : t('builder.template.text')"
               />
             </div>
           </template>
 
           <div v-if="selectedData.kind !== 'input'" class="refs">
-            <div class="eyebrow">Insertar referencia</div>
+            <div class="eyebrow">{{ t('builder.inspector.insertRef') }}</div>
             <div class="row wrap" style="gap: 5px">
               <button v-for="r in availableRefs" :key="r.ref" class="chip" type="button" :title="r.hint" @mousedown.prevent @click="insertRef(r.ref)" v-text="`{{${r.ref}}}`" />
             </div>
@@ -1080,76 +1109,86 @@ onBeforeRouteLeave(async (to) => {
           <template v-if="selectedData.kind === 'agent' || selectedData.kind === 'tool' || selectedData.kind === 'foreach' || selectedData.kind === 'subworkflow'">
             <div class="form-grid" style="grid-template-columns: 1fr 1fr">
               <div class="field">
-                <label for="in-retries"><Term id="reintento">Reintentos</Term></label>
-                <input id="in-retries" v-model="retriesText" class="input" type="number" min="0" max="5" :placeholder="`${settings.defaultRetries} (por defecto)`" />
+                <label for="in-retries"><Term id="reintento">{{ t('builder.term.retries') }}</Term></label>
+                <input id="in-retries" v-model="retriesText" class="input" type="number" min="0" max="5" :placeholder="t('builder.limits.retriesDefault', { value: settings.defaultRetries })" />
               </div>
               <div class="field">
-                <label for="in-timeout"><Term id="timeout">Tiempo máx.</Term> (s)</label>
-                <input id="in-timeout" v-model="timeoutSecText" class="input" type="number" min="0" placeholder="Sin límite" />
+                <i18n-t keypath="builder.limits.timeoutLabel" tag="label" for="in-timeout" scope="global">
+                  <template #timeout><Term id="timeout">{{ t('builder.term.maxTime') }}</Term></template>
+                </i18n-t>
+                <input id="in-timeout" v-model="timeoutSecText" class="input" type="number" min="0" :placeholder="t('builder.noLimit')" />
               </div>
             </div>
           </template>
 
           <!-- Conexiones: la alternativa a arrastrar de un punto a otro en el lienzo. -->
-          <section class="connections" aria-label="Conexiones del nodo">
-            <div class="eyebrow">Conexiones</div>
+          <section class="connections" :aria-label="t('builder.connections.label')">
+            <div class="eyebrow">{{ t('builder.connections.title') }}</div>
             <ul v-if="incoming.length || outgoing.length" class="edge-list">
               <li v-for="e in incoming" :key="e.id">
-                <span class="small">Recibe de <strong>{{ nodeName(e.source) }}</strong>{{ branchText(e.sourceHandle) }}</span>
-                <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Quitar la conexión que llega de ${nodeName(e.source)}`" title="Quitar conexión" @click="removeEdge(e)"><Unlink /></button>
+                <i18n-t keypath="builder.connections.receivesFrom" tag="span" class="small" scope="global">
+                  <template #name><strong>{{ nodeName(e.source) }}</strong></template>
+                  <template #branch>{{ branchText(e.sourceHandle) }}</template>
+                </i18n-t>
+                <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('builder.connections.removeIncoming', { name: nodeName(e.source) })" :title="t('builder.connections.removeTitle')" @click="removeEdge(e)"><Unlink /></button>
               </li>
               <li v-for="e in outgoing" :key="e.id">
-                <span class="small">Envía a <strong>{{ nodeName(e.target) }}</strong>{{ branchText(e.sourceHandle) }}</span>
-                <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Quitar la conexión con ${nodeName(e.target)}`" title="Quitar conexión" @click="removeEdge(e)"><Unlink /></button>
+                <i18n-t keypath="builder.connections.sendsTo" tag="span" class="small" scope="global">
+                  <template #name><strong>{{ nodeName(e.target) }}</strong></template>
+                  <template #branch>{{ branchText(e.sourceHandle) }}</template>
+                </i18n-t>
+                <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('builder.connections.removeOutgoing', { name: nodeName(e.target) })" :title="t('builder.connections.removeTitle')" @click="removeEdge(e)"><Unlink /></button>
               </li>
             </ul>
-            <p v-else class="small faint" style="margin: 0">Este nodo no está conectado con ningún otro.</p>
+            <p v-else class="small faint" style="margin: 0">{{ t('builder.connections.none') }}</p>
             <div v-if="connectOptions.length" class="row connect-row">
-              <select v-model="connectChoice" class="select" aria-label="Conectar la salida de este nodo con">
-                <option value="">Conectar la salida con…</option>
-                <option v-for="o in connectOptions" :key="optionKey(o)" :value="optionKey(o)">{{ nodeName(o.target) }}{{ o.branch === 'true' ? ' (rama sí)' : o.branch === 'false' ? ' (rama no)' : '' }}</option>
+              <select v-model="connectChoice" class="select" :aria-label="t('builder.connections.selectLabel')">
+                <option value="">{{ t('builder.connections.selectPlaceholder') }}</option>
+                <option v-for="o in connectOptions" :key="optionKey(o)" :value="optionKey(o)">{{ nodeName(o.target) }}{{ branchSuffix(o.branch) }}</option>
               </select>
-              <button class="btn btn-sm" type="button" :disabled="!connectChoice" @click="connectChosen"><Link2 /> Conectar</button>
+              <button class="btn btn-sm" type="button" :disabled="!connectChoice" @click="connectChosen"><Link2 /> {{ t('builder.connections.connect') }}</button>
             </div>
           </section>
         </template>
 
         <!-- Ajustes del workflow -->
         <template v-else>
-          <h2 class="row"><Settings2 style="width: 16px; height: 16px" /> Ajustes del workflow</h2>
+          <h2 class="row"><Settings2 style="width: 16px; height: 16px" /> {{ t('builder.settings.title') }}</h2>
           <div class="field">
-            <label for="wf-desc">Descripción</label>
-            <textarea id="wf-desc" v-model="meta.description" class="textarea" rows="3" maxlength="2000" placeholder="Para qué sirve este workflow" />
+            <label for="wf-desc">{{ t('builder.settings.description') }}</label>
+            <textarea id="wf-desc" v-model="meta.description" class="textarea" rows="3" maxlength="2000" :placeholder="t('builder.settings.descriptionPlaceholder')" />
           </div>
           <div class="form-grid" style="grid-template-columns: 1fr 1fr">
             <div class="field">
-              <label for="wf-conc"><Term id="concurrencia">Concurrencia</Term></label>
+              <label for="wf-conc"><Term id="concurrencia">{{ t('builder.term.concurrency') }}</Term></label>
               <input id="wf-conc" v-model.number="settings.maxConcurrency" class="input" type="number" min="1" max="16" />
             </div>
             <div class="field">
-              <label for="wf-retries"><Term id="reintento">Reintentos</Term></label>
+              <label for="wf-retries"><Term id="reintento">{{ t('builder.term.retries') }}</Term></label>
               <input id="wf-retries" v-model.number="settings.defaultRetries" class="input" type="number" min="0" max="5" />
             </div>
             <div class="field">
-              <label for="wf-dur">Duración máx. (min)</label>
+              <label for="wf-dur">{{ t('builder.settings.maxDuration') }}</label>
               <input id="wf-dur" v-model.number="durationMin" class="input" type="number" min="0.1" step="0.5" />
             </div>
             <div class="field">
-              <label for="wf-calls">Llamadas al <Term id="llm">LLM</Term> máx.</label>
+              <i18n-t keypath="builder.settings.maxLlmCalls" tag="label" for="wf-calls" scope="global">
+                <template #llm><Term id="llm">LLM</Term></template>
+              </i18n-t>
               <input id="wf-calls" v-model.number="settings.maxLlmCalls" class="input" type="number" min="1" max="500" />
             </div>
           </div>
           <div class="field">
-            <span class="label">Si un nodo falla</span>
-            <div class="segmented" role="radiogroup" aria-label="Política de error">
-              <button type="button" role="radio" :aria-checked="settings.onError === 'fail'" :class="{ active: settings.onError === 'fail' }" @click="settings.onError = 'fail'">Detener todo</button>
-              <button type="button" role="radio" :aria-checked="settings.onError === 'continue'" :class="{ active: settings.onError === 'continue' }" @click="settings.onError = 'continue'">Continuar con el resto</button>
+            <span class="label">{{ t('builder.settings.onError') }}</span>
+            <div class="segmented" role="radiogroup" :aria-label="t('builder.settings.policy')">
+              <button type="button" role="radio" :aria-checked="settings.onError === 'fail'" :class="{ active: settings.onError === 'fail' }" @click="settings.onError = 'fail'">{{ t('builder.settings.stopAll') }}</button>
+              <button type="button" role="radio" :aria-checked="settings.onError === 'continue'" :class="{ active: settings.onError === 'continue' }" @click="settings.onError = 'continue'">{{ t('builder.settings.continueRest') }}</button>
             </div>
           </div>
 
           <div class="validation">
-            <div class="eyebrow">Validación</div>
-            <p v-if="!issues.length" class="small row" style="color: var(--success)"><CircleCheck style="width: 15px; height: 15px" /> El workflow es válido y se puede ejecutar.</p>
+            <div class="eyebrow">{{ t('builder.settings.validation') }}</div>
+            <p v-if="!issues.length" class="small row" style="color: var(--success)"><CircleCheck style="width: 15px; height: 15px" /> {{ t('builder.settings.valid') }}</p>
             <button
               v-for="(issue, i) in issues"
               :key="i"
@@ -1160,12 +1199,12 @@ onBeforeRouteLeave(async (to) => {
               @click="selectedId = issue.nodeId ?? null"
             >
               <component :is="issue.level === 'error' ? CircleAlert : TriangleAlert" />
-              <span>{{ issue.message }}</span>
+              <span>{{ issueText(issue) }}</span>
             </button>
           </div>
           <div class="validation node-index">
-            <div class="eyebrow">Nodos</div>
-            <ul class="node-list" aria-label="Nodos del workflow">
+            <div class="eyebrow">{{ t('builder.settings.nodes') }}</div>
+            <ul class="node-list" :aria-label="t('builder.settings.nodesList')">
               <li v-for="n in nodes" :key="n.id">
                 <button class="issue" type="button" @click="editNode(n.id)">
                   <span class="grow">{{ n.data!.label || n.id }}</span>
@@ -1174,7 +1213,7 @@ onBeforeRouteLeave(async (to) => {
               </li>
             </ul>
           </div>
-          <p class="tiny faint">Selecciona un nodo del lienzo o de la lista para editar sus propiedades.</p>
+          <p class="tiny faint">{{ t('builder.settings.selectHint') }}</p>
         </template>
       </aside>
     </div>
@@ -1188,16 +1227,19 @@ onBeforeRouteLeave(async (to) => {
       @changed="triggers = $event"
     />
 
-    <AppModal v-if="runModal" title="Ejecutar workflow" @close="runModal = false">
+    <AppModal v-if="runModal" :title="t('builder.run.title')" @close="runModal = false">
       <div class="field">
-        <label for="run-input">{{ inputNode?.data?.config.description || 'Entrada del workflow' }}</label>
-        <textarea id="run-input" v-model="runInput" class="textarea" rows="5" placeholder="Texto con el que arranca el workflow" @keydown.ctrl.enter="launch" />
-        <span class="hint">Disponible en los <Term id="nodo">nodos</Term> como <code v-text="'{{input}}'" />.</span>
+        <label for="run-input">{{ inputNode?.data?.config.description || t('builder.run.inputFallback') }}</label>
+        <textarea id="run-input" v-model="runInput" class="textarea" rows="5" :placeholder="t('builder.run.placeholder')" @keydown.ctrl.enter="launch" />
+        <i18n-t keypath="builder.run.hint" tag="span" class="hint" scope="global">
+          <template #nodes><Term id="nodo">{{ t('builder.term.nodes') }}</Term></template>
+          <template #input><code v-text="'{{input}}'" /></template>
+        </i18n-t>
       </div>
-      <p v-if="dirty" class="small muted" style="margin-top: 10px">Los cambios pendientes se guardarán antes de ejecutar.</p>
+      <p v-if="dirty" class="small muted" style="margin-top: 10px">{{ t('builder.run.pending') }}</p>
       <template #footer>
-        <button class="btn" type="button" @click="runModal = false">Cancelar</button>
-        <button class="btn btn-primary" type="button" :disabled="launching" @click="launch"><Play /> {{ launching ? 'Lanzando…' : 'Ejecutar' }}</button>
+        <button class="btn" type="button" @click="runModal = false">{{ t('common.actions.cancel') }}</button>
+        <button class="btn btn-primary" type="button" :disabled="launching" @click="launch"><Play /> {{ launching ? t('builder.run.launching') : t('common.actions.run') }}</button>
       </template>
     </AppModal>
   </div>
@@ -1433,6 +1475,16 @@ kbd {
 .issue.error {
   background: var(--danger-soft);
   color: var(--danger);
+}
+/* La lista de nodos reutiliza la forma de la lista de validación, pero no es un aviso: colores neutros. */
+.node-index .issue {
+  width: 100%;
+  align-items: center;
+  background: var(--surface-2);
+  color: var(--text);
+}
+.node-index .issue:hover {
+  background: var(--surface-3);
 }
 .issue:disabled {
   cursor: default;

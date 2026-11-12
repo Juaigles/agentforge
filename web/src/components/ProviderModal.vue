@@ -4,7 +4,8 @@ import type { ModelInfo, Provider, ProviderInput, ProviderKind, ProviderTestResu
 import { CircleAlert, CircleCheck, KeyRound, LoaderCircle, PlugZap } from 'lucide-vue-next';
 import { computed, reactive, ref } from 'vue';
 import { api, ApiError, errorText } from '@/lib/api';
-import { formatDuration, plural } from '@/lib/format';
+import { t, tn } from '@/i18n';
+import { formatDuration } from '@/lib/format';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 import AppModal from './AppModal.vue';
@@ -17,8 +18,9 @@ const catalog = useCatalog();
 const ui = useUi();
 const editing = computed(() => Boolean(props.provider));
 
-const PRESETS: Array<{ label: string; kind: ProviderKind; baseUrl: string; name: string }> = [
-  { label: 'Ollama local', kind: 'ollama', baseUrl: 'http://localhost:11434', name: 'Ollama local' },
+// `labelKey` es la clave del texto cuando el nombre de la plantilla se traduce; sin ella, el nombre es una marca.
+const PRESETS: Array<{ label: string; labelKey?: string; kind: ProviderKind; baseUrl: string; name: string }> = [
+  { label: 'Ollama local', labelKey: 'providerModal.presets.ollamaLocal', kind: 'ollama', baseUrl: 'http://localhost:11434', name: 'Ollama local' },
   { label: 'OpenAI', kind: 'openai', baseUrl: 'https://api.openai.com/v1', name: 'OpenAI' },
   { label: 'OpenRouter', kind: 'openai', baseUrl: 'https://openrouter.ai/api/v1', name: 'OpenRouter' },
   { label: 'Groq', kind: 'openai', baseUrl: 'https://api.groq.com/openai/v1', name: 'Groq' },
@@ -44,10 +46,13 @@ const models = ref<ModelInfo[]>([]);
 const fieldErrors = ref<Record<string, string>>({});
 const formError = ref<string | null>(null);
 
+const presetLabel = (p: (typeof PRESETS)[number]): string => (p.labelKey ? t(p.labelKey) : p.label);
+
 function applyPreset(p: (typeof PRESETS)[number]): void {
   form.kind = p.kind;
   form.baseUrl = p.baseUrl;
-  if (!form.name.trim() || PRESETS.some((x) => x.name === form.name)) form.name = p.name;
+  // El nombre de una plantilla anterior (en cualquier idioma) se puede sustituir por el de la nueva.
+  if (!form.name.trim() || PRESETS.some((x) => x.name === form.name || presetLabel(x) === form.name)) form.name = presetLabel(p);
   testResult.value = null;
   models.value = [];
 }
@@ -97,7 +102,7 @@ async function save(): Promise<void> {
     const saved = props.provider ? await api.providers.update(props.provider.id, payload()) : await api.providers.create(payload());
     catalog.setProvider(saved);
     void catalog.refreshHealth(true);
-    ui.success(props.provider ? `Proveedor «${saved.name}» actualizado.` : `Proveedor «${saved.name}» añadido.`);
+    ui.success(t(props.provider ? 'providerModal.toast.updated' : 'providerModal.toast.added', { name: saved.name }));
     emit('saved', saved);
   } catch (err) {
     captureErrors(err);
@@ -110,35 +115,39 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
 </script>
 
 <template>
-  <AppModal :title="editing ? 'Editar proveedor' : 'Añadir proveedor'" :width="600" @close="emit('close')">
+  <AppModal :title="editing ? t('providerModal.titleEdit') : t('providerModal.titleAdd')" :width="600" @close="emit('close')">
     <form id="provider-form" class="col" style="gap: 16px" @submit.prevent="save">
       <div class="col" style="gap: 6px">
-        <span class="label">Plantillas</span>
+        <span class="label">{{ t('providerModal.presets.label') }}</span>
         <div class="row wrap">
-          <button v-for="p in PRESETS" :key="p.label" type="button" class="btn btn-sm" @click="applyPreset(p)">{{ p.label }}</button>
+          <button v-for="p in PRESETS" :key="p.label" type="button" class="btn btn-sm" @click="applyPreset(p)">{{ presetLabel(p) }}</button>
         </div>
       </div>
 
       <div class="form-grid">
         <div class="field">
-          <label for="prv-name">Nombre</label>
-          <input id="prv-name" v-model="form.name" class="input" maxlength="80" required :aria-invalid="Boolean(fieldErrors.name)" placeholder="Ollama local" />
+          <label for="prv-name">{{ t('providerModal.name') }}</label>
+          <input id="prv-name" v-model="form.name" class="input" maxlength="80" required :aria-invalid="Boolean(fieldErrors.name)" :placeholder="t('providerModal.namePlaceholder')" />
           <span v-if="fieldErrors.name" class="error">{{ fieldErrors.name }}</span>
         </div>
         <div class="field">
-          <label for="prv-kind">Tipo</label>
+          <label for="prv-kind">{{ t('providerModal.kind') }}</label>
           <select id="prv-kind" v-model="form.kind" class="select" :aria-invalid="Boolean(fieldErrors.kind)" @change="((testResult = null), (models = []))">
-            <option value="ollama">Ollama (API nativa)</option>
-            <option value="openai">Compatible con OpenAI</option>
+            <option value="ollama">{{ t('providerModal.kindOllama') }}</option>
+            <option value="openai">{{ t('providerModal.kindOpenai') }}</option>
           </select>
           <span class="hint">
-            <template v-if="form.kind === 'ollama'"><Term id="ollama" /> ejecuta los modelos en tu propio equipo.</template>
-            <template v-else>Cualquier servicio <Term id="openai-compatible">compatible con OpenAI</Term>.</template>
+            <i18n-t v-if="form.kind === 'ollama'" keypath="providerModal.kindHintOllama" scope="global">
+              <template #ollama><Term id="ollama" /></template>
+            </i18n-t>
+            <i18n-t v-else keypath="providerModal.kindHintOpenai" scope="global">
+              <template #openai><Term id="openai-compatible">{{ t('providerModal.kindHintOpenaiTerm') }}</Term></template>
+            </i18n-t>
           </span>
         </div>
 
         <div class="field span-2">
-          <label for="prv-url"><Term id="base-url">URL base</Term></label>
+          <label for="prv-url"><Term id="base-url">{{ t('providerModal.baseUrl') }}</Term></label>
           <input
             id="prv-url"
             v-model="form.baseUrl"
@@ -151,11 +160,13 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
             @input="((testResult = null), (models = []))"
           />
           <span v-if="fieldErrors.baseUrl" class="error">{{ fieldErrors.baseUrl }}</span>
-          <span v-else-if="form.kind === 'openai'" class="hint">Incluye el sufijo de versión (normalmente <code>/v1</code>).</span>
+          <i18n-t v-else-if="form.kind === 'openai'" keypath="providerModal.baseUrlHint" tag="span" class="hint" scope="global">
+            <template #suffix><code>/v1</code></template>
+          </i18n-t>
         </div>
 
         <div class="field span-2">
-          <label for="prv-key"><Term id="api-key">API key</Term> <span class="faint" style="font-weight: 400">(opcional)</span></label>
+          <label for="prv-key"><Term id="api-key">API key</Term> <span class="faint" style="font-weight: 400">{{ t('providerModal.optional') }}</span></label>
           <div class="row">
             <input
               id="prv-key"
@@ -165,21 +176,30 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
               autocomplete="off"
               spellcheck="false"
               :aria-invalid="Boolean(fieldErrors.apiKey)"
-              :placeholder="hasSavedKey ? '•••• guardada — escribe para cambiarla' : form.kind === 'ollama' ? 'No suele ser necesaria' : 'sk-…'"
+              :placeholder="hasSavedKey ? t('providerModal.apiKeyPlaceholderSaved') : form.kind === 'ollama' ? t('providerModal.apiKeyPlaceholderOllama') : 'sk-…'"
               @input="((removeKey = false), (testResult = null), (models = []))"
             />
-            <button v-if="hasSavedKey && !form.apiKey" type="button" class="btn btn-danger" @click="removeKey = true">Quitar clave</button>
+            <button v-if="hasSavedKey && !form.apiKey" type="button" class="btn btn-danger" @click="removeKey = true">{{ t('providerModal.removeKey') }}</button>
           </div>
           <span v-if="fieldErrors.apiKey" class="error">{{ fieldErrors.apiKey }}</span>
           <span v-else-if="removeKey && !form.apiKey" class="hint">
-            La clave guardada se eliminará al guardar.
-            <button type="button" class="linkish" @click="removeKey = false">Deshacer</button>
+            {{ t('providerModal.keyWillBeRemoved') }}
+            <button type="button" class="linkish" @click="removeKey = false">{{ t('providerModal.undo') }}</button>
           </span>
-          <span v-else class="hint row" style="gap: 5px"><KeyRound style="width: 12px; height: 12px" /> Se guarda <Term id="cifrado">cifrada</Term> y no se vuelve a mostrar.</span>
+          <span v-else class="hint row" style="gap: 5px"><KeyRound style="width: 12px; height: 12px" />
+            <i18n-t keypath="providerModal.keyHint" scope="global">
+              <template #encrypted><Term id="cifrado">{{ t('providerModal.keyHintEncrypted') }}</Term></template>
+            </i18n-t>
+          </span>
         </div>
 
         <div class="field span-2">
-          <label for="prv-model"><Term id="modelo">Modelo</Term> por defecto <span class="faint" style="font-weight: 400">(opcional)</span></label>
+          <label for="prv-model">
+            <i18n-t keypath="providerModal.defaultModel" scope="global">
+              <template #model><Term id="modelo">{{ t('providerModal.defaultModelTerm') }}</Term></template>
+            </i18n-t>
+            <span class="faint" style="font-weight: 400">{{ t('providerModal.optional') }}</span>
+          </label>
           <input
             id="prv-model"
             v-model="form.defaultModel"
@@ -193,40 +213,42 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
             <option v-for="m in chatModels" :key="m.id" :value="m.id">{{ m.parameterSize ?? '' }}</option>
           </datalist>
           <span v-if="fieldErrors.defaultModel" class="error">{{ fieldErrors.defaultModel }}</span>
-          <span v-else-if="chatModels.length" class="hint">{{ plural(chatModels.length, 'modelo disponible', 'modelos disponibles') }}: elige uno de la lista o escríbelo.</span>
-          <span v-else class="hint">Se propone al crear agentes con este proveedor. Pulsa «Probar» para cargar la lista de modelos.</span>
+          <span v-else-if="chatModels.length" class="hint">{{ tn('providerModal.modelsAvailable', chatModels.length) }}</span>
+          <span v-else class="hint">{{ t('providerModal.modelsHint') }}</span>
         </div>
 
         <label class="check span-2">
           <input v-model="form.enabled" type="checkbox" />
           <span>
-            <strong>Activado</strong>
-            <span class="muted small" style="display: block">Los <Term id="agente">agentes</Term> de un proveedor desactivado no pueden ejecutarse.</span>
+            <strong>{{ t('providerModal.enabled') }}</strong>
+            <i18n-t keypath="providerModal.enabledHint" tag="span" class="muted small" style="display: block" scope="global">
+              <template #agents><Term id="agente">{{ t('providerModal.enabledHintAgents') }}</Term></template>
+            </i18n-t>
           </span>
         </label>
       </div>
 
-      <div v-if="testing" class="callout" role="status"><LoaderCircle class="spin" /> Probando la conexión…</div>
+      <div v-if="testing" class="callout" role="status"><LoaderCircle class="spin" /> {{ t('providerModal.testing') }}</div>
       <div v-else-if="testResult?.ok" class="callout test-ok" role="status">
         <CircleCheck />
         <span>
-          Conexión correcta: {{ plural(testResult.modelCount ?? 0, 'modelo', 'modelos') }} en {{ formatDuration(testResult.latencyMs) }}.
+          {{ t('providerModal.testOk', { models: tn('providerModal.modelsCount', testResult.modelCount ?? 0), latency: formatDuration(testResult.latencyMs) }) }}
         </span>
       </div>
       <div v-else-if="testResult" class="callout danger" role="alert">
         <CircleAlert />
-        <span>{{ testResult.error ?? 'No se pudo conectar.' }}</span>
+        <span>{{ testResult.error ?? t('providerModal.connectFailed') }}</span>
       </div>
       <div v-if="formError" class="callout danger" role="alert"><CircleAlert /> <span>{{ formError }}</span></div>
     </form>
 
     <template #footer>
       <button type="button" class="btn" style="margin-right: auto" :disabled="testing || saving" @click="test">
-        <LoaderCircle v-if="testing" class="spin" /><PlugZap v-else /> Probar
+        <LoaderCircle v-if="testing" class="spin" /><PlugZap v-else /> {{ t('providerModal.test') }}
       </button>
-      <button type="button" class="btn" @click="emit('close')">Cancelar</button>
+      <button type="button" class="btn" @click="emit('close')">{{ t('common.actions.cancel') }}</button>
       <button type="submit" form="provider-form" class="btn btn-primary" :disabled="saving">
-        <LoaderCircle v-if="saving" class="spin" /> {{ editing ? 'Guardar cambios' : 'Añadir proveedor' }}
+        <LoaderCircle v-if="saving" class="spin" /> {{ editing ? t('providerModal.saveChanges') : t('providerModal.titleAdd') }}
       </button>
     </template>
   </AppModal>

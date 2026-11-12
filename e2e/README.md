@@ -1,6 +1,7 @@
 # Tests end-to-end (Playwright)
 
-Suite repetible que conduce la interfaz real en Chromium contra el servidor real de AgentForge.
+Suite repetible que conduce la interfaz real en Chromium contra el servidor real de AgentForge. Los tests buscan
+los textos en español (el navegador de la suite pide `es-ES`); `i18n.spec.ts` cubre el inglés.
 
 ```bash
 npm run test:e2e           # compila el frontend y ejecuta la suite
@@ -55,4 +56,5 @@ para comprobar qué llegó de verdad al proveedor.
 | `backup.spec.ts` | Copias de seguridad desde Ajustes: crear, descargar el archivo, preparar y cancelar una restauración, aplicarla con un reinicio ordenado del servidor (los datos vuelven a ser los de la copia), añadir una copia desde un archivo, rechazar un archivo que no lo es y borrar |
 | `flow.spec.ts` | Aprobación humana construida en el lienzo (la ejecución espera, se rechaza con comentario y se aprueba desde el aviso); una ejecución en espera que sobrevive a un reinicio ordenado; subworkflow elegido en el inspector, con su subejecución enlazada y el ciclo entre workflows señalado; «para cada» con una herramienta y política «continuar» |
 | `a11y.spec.ts` | **Teclado y foco**: «Saltar al contenido», foco y anuncio al cambiar de página, trampa de foco e `inert` en los diálogos, avisos de error persistentes; **constructor**: deshacer y rehacer (botones y teclado), seleccionar, conectar y desconectar nodos sin ratón, Ctrl+S, copiar, pegar y ordenar; **historial** con los filtros en la URL; **guía de primeros pasos** que se marca sola; y **estado de conexión**: se mata el servidor y la interfaz lo dice y se recupera |
+| `i18n.spec.ts` | **Idiomas**: el selector cambia la interfaz a inglés sin recargar y se recuerda; todas las pantallas en inglés y en español sin claves sin traducir; validación de workflows, formatos y errores del servidor según el idioma; idioma inicial según el navegador |
 | `layout.spec.ts` | Tema claro/oscuro/sistema y contraste; 14 rutas a 375 × 812 sin desbordamiento horizontal en ambos temas; navegación y glosario táctiles |

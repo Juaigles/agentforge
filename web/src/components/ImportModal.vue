@@ -4,6 +4,7 @@
 import type { ImportAction, ImportDecision, ImportItem, ImportItemKind, ImportPlan, ImportResult } from '@shared/types';
 import { CircleAlert, LoaderCircle, TriangleAlert, Upload } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { t } from '@/i18n';
 import { api, errorText } from '@/lib/api';
 import AppModal from './AppModal.vue';
 import Term from './Term.vue';
@@ -29,22 +30,21 @@ onMounted(async () => {
   }
 });
 
-const KIND_LABEL: Record<ImportItemKind, string> = { provider: 'Proveedores', tool: 'Herramientas HTTP', agent: 'Agentes', workflow: 'Subworkflows' };
 const KIND_ORDER: ImportItemKind[] = ['agent', 'workflow', 'tool', 'provider'];
 const groups = computed(() =>
-  KIND_ORDER.map((kind) => ({ kind, label: KIND_LABEL[kind], items: (plan.value?.items ?? []).filter((i) => i.kind === kind) })).filter((g) => g.items.length),
+  KIND_ORDER.map((kind) => ({ kind, label: t(`importModal.kind.${kind}`), items: (plan.value?.items ?? []).filter((i) => i.kind === kind) })).filter((g) => g.items.length),
 );
 
 function actionLabel(item: ImportItem, action: ImportAction): string {
   const feminine = item.kind === 'tool';
-  if (action === 'create') return item.match ? 'Crear una copia' : 'Crear';
-  if (action === 'reuse') return item.kind === 'provider' ? 'Usar uno de aquí' : feminine ? 'Usar la de aquí' : 'Usar el de aquí';
-  if (action === 'replace') return feminine ? 'Sustituir la de aquí' : 'Sustituir el de aquí';
-  return 'No importar';
+  if (action === 'create') return item.match ? t('importModal.action.createCopy') : t('importModal.action.create');
+  if (action === 'reuse') return item.kind === 'provider' ? t('importModal.action.reuseProvider') : feminine ? t('importModal.action.reuseFeminine') : t('importModal.action.reuseMasculine');
+  if (action === 'replace') return feminine ? t('importModal.action.replaceFeminine') : t('importModal.action.replaceMasculine');
+  return t('importModal.action.skip');
 }
 function status(item: ImportItem): { text: string; tone: string } {
-  if (!item.match) return { text: item.kind === 'tool' ? 'Nueva' : 'Nuevo', tone: 'info' };
-  return item.differs ? { text: 'Existe, pero es distinto', tone: 'warning' } : { text: 'Ya existe', tone: '' };
+  if (!item.match) return { text: item.kind === 'tool' ? t('importModal.status.newFeminine') : t('importModal.status.newMasculine'), tone: 'info' };
+  return item.differs ? { text: t('importModal.status.differs'), tone: 'warning' } : { text: t('importModal.status.exists'), tone: '' };
 }
 /** Al elegir «usar uno de aquí» en un proveedor sin coincidencia hace falta decir cuál. */
 function onAction(item: ImportItem): void {
@@ -67,24 +67,25 @@ async function apply(): Promise<void> {
 </script>
 
 <template>
-  <AppModal :title="plan ? `Importar «${plan.name}»` : 'Importar'" :width="680" @close="emit('close')">
+  <AppModal :title="plan ? t('importModal.title', { name: plan.name }) : t('common.actions.import')" :width="680" @close="emit('close')">
     <div v-if="loading" class="col">
       <div class="skeleton" style="height: 34px" />
       <div class="skeleton" style="height: 120px" />
     </div>
     <div v-else-if="loadError" class="callout danger" role="alert">
-      <CircleAlert /><span><strong>No se puede importar «{{ fileName }}».</strong> {{ loadError }}</span>
+      <CircleAlert /><span><strong>{{ t('importModal.cannotImport', { fileName }) }}</strong> {{ loadError }}</span>
     </div>
 
     <div v-else-if="plan" class="col" style="gap: 16px">
-      <p class="muted small" style="margin: 0">
-        <template v-if="plan.kind === 'workflow'">
-          Se creará el <Term id="workflow">workflow</Term> <strong>{{ plan.name }}</strong
-          ><template v-if="plan.items.length"> junto con lo que necesita. Revisa qué hacer con cada elemento: nada se crea hasta que pulses «Importar».</template
-          ><template v-else>. No depende de nada más.</template>
-        </template>
-        <template v-else>Revisa qué hacer con cada elemento del archivo: nada se crea hasta que pulses «Importar».</template>
-      </p>
+      <i18n-t v-if="plan.kind === 'workflow' && plan.items.length" keypath="importModal.introWithItems" tag="p" class="muted small" style="margin: 0" scope="global">
+        <template #workflow><Term id="workflow">{{ t('importModal.introWorkflow') }}</Term></template>
+        <template #name><strong>{{ plan.name }}</strong></template>
+      </i18n-t>
+      <i18n-t v-else-if="plan.kind === 'workflow'" keypath="importModal.introAlone" tag="p" class="muted small" style="margin: 0" scope="global">
+        <template #workflow><Term id="workflow">{{ t('importModal.introWorkflow') }}</Term></template>
+        <template #name><strong>{{ plan.name }}</strong></template>
+      </i18n-t>
+      <p v-else class="muted small" style="margin: 0">{{ t('importModal.introFile') }}</p>
 
       <div v-for="(warning, i) in plan.warnings" :key="i" class="callout warning small"><TriangleAlert /><span>{{ warning }}</span></div>
 
@@ -96,7 +97,7 @@ async function apply(): Promise<void> {
               <strong class="name">{{ item.name }}</strong>
               <span class="badge" :class="status(item).tone">{{ status(item).text }}</span>
               <span class="grow" />
-              <select v-if="item.actions.length > 1" v-model="decisions[item.key].action" class="select" style="width: auto" :aria-label="`Qué hacer con ${item.name}`" @change="onAction(item)">
+              <select v-if="item.actions.length > 1" v-model="decisions[item.key].action" class="select" style="width: auto" :aria-label="t('importModal.itemAria', { name: item.name })" @change="onAction(item)">
                 <option v-for="action in item.actions" :key="action" :value="action">{{ actionLabel(item, action) }}</option>
               </select>
               <span v-else class="small muted">{{ actionLabel(item, item.actions[0]) }}</span>
@@ -105,9 +106,9 @@ async function apply(): Promise<void> {
                 v-model="decisions[item.key].targetId"
                 class="select"
                 style="width: auto"
-                :aria-label="`Proveedor de aquí para ${item.name}`"
+                :aria-label="t('importModal.providerAria', { name: item.name })"
               >
-                <option v-for="t in item.targets" :key="t.id" :value="t.id">{{ t.name }}</option>
+                <option v-for="target in item.targets" :key="target.id" :value="target.id">{{ target.name }}</option>
               </select>
             </div>
             <p v-for="(note, n) in item.notes" :key="n" class="small muted note">{{ note }}</p>
@@ -119,9 +120,9 @@ async function apply(): Promise<void> {
     </div>
 
     <template #footer>
-      <button class="btn" type="button" @click="emit('close')">Cancelar</button>
+      <button class="btn" type="button" @click="emit('close')">{{ t('common.actions.cancel') }}</button>
       <button class="btn btn-primary" type="button" :disabled="loading || !plan || busy" @click="apply">
-        <LoaderCircle v-if="busy" class="spin" /><Upload v-else /> Importar
+        <LoaderCircle v-if="busy" class="spin" /><Upload v-else /> {{ t('common.actions.import') }}
       </button>
     </template>
   </AppModal>

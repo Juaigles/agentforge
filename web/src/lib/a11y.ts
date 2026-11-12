@@ -1,6 +1,7 @@
 // Accesibilidad transversal: anuncios para lectores de pantalla, asociación automática de pistas y errores con
 // su campo, foco en el primer campo con error y textos en español para el lienzo de Vue Flow.
-import { nextTick, ref } from 'vue';
+import { nextTick, ref, watch } from 'vue';
+import { locale, t } from '@/i18n';
 
 /** Texto de la región viva global (App.vue la pinta con `role="status"`). */
 export const announcement = ref('');
@@ -79,19 +80,24 @@ export function installFormA11y(root: HTMLElement = document.body): () => void {
   };
 }
 
-const FLOW_TEXTS: Array<[selector: string, label: string]> = [
-  ['.vue-flow__controls-zoomin', 'Acercar'],
-  ['.vue-flow__controls-zoomout', 'Alejar'],
-  ['.vue-flow__controls-fitview', 'Encuadrar todo el grafo'],
+const FLOW_TEXTS: Array<[selector: string, labelKey: string]> = [
+  ['.vue-flow__controls-zoomin', 'app.flow.zoomIn'],
+  ['.vue-flow__controls-zoomout', 'app.flow.zoomOut'],
+  ['.vue-flow__controls-fitview', 'app.flow.fitView'],
 ];
 
 /**
  * Vue Flow trae sus textos de ayuda en inglés y sus botones de zoom sin nombre: se sustituyen por los nuestros.
- * `nodeHelp` y `edgeHelp` son las descripciones que oye un lector de pantalla al enfocar un nodo o una conexión.
+ * Las ayudas son las descripciones que oye un lector de pantalla al enfocar un nodo o una conexión; si se pasan
+ * como función se vuelven a leer al cambiar de idioma.
  */
-export function localizeFlow(container: HTMLElement, nodeHelp: string, edgeHelp: string): () => void {
+export function localizeFlow(container: HTMLElement, nodeHelpText: string | (() => string), edgeHelpText: string | (() => string)): () => void {
+  const read = (text: string | (() => string)): string => (typeof text === 'function' ? text() : text);
   const apply = (): void => {
-    for (const [selector, label] of FLOW_TEXTS) {
+    const nodeHelp = read(nodeHelpText);
+    const edgeHelp = read(edgeHelpText);
+    for (const [selector, labelKey] of FLOW_TEXTS) {
+      const label = t(labelKey);
       for (const button of container.querySelectorAll<HTMLElement>(selector)) {
         if (button.getAttribute('aria-label') !== label) {
           button.setAttribute('aria-label', label);
@@ -101,7 +107,9 @@ export function localizeFlow(container: HTMLElement, nodeHelp: string, edgeHelp:
     }
     for (const el of container.querySelectorAll<HTMLElement>('[id^="vue-flow__node-desc-"]')) if (el.textContent !== nodeHelp) el.textContent = nodeHelp;
     for (const el of container.querySelectorAll<HTMLElement>('[id^="vue-flow__edge-desc-"]')) if (el.textContent !== edgeHelp) el.textContent = edgeHelp;
-    for (const el of container.querySelectorAll<HTMLElement>('.vue-flow__edge[aria-roledescription="edge"]')) el.setAttribute('aria-roledescription', 'conexión');
+    for (const el of container.querySelectorAll<HTMLElement>('.vue-flow__edge[aria-roledescription]')) {
+      if (el.getAttribute('aria-roledescription') !== t('app.flow.edgeRole')) el.setAttribute('aria-roledescription', t('app.flow.edgeRole'));
+    }
     for (const el of container.querySelectorAll<HTMLElement>('.vue-flow__minimap')) if (!el.hasAttribute('aria-hidden')) el.setAttribute('aria-hidden', 'true');
   };
   let scheduled = false;
@@ -115,7 +123,12 @@ export function localizeFlow(container: HTMLElement, nodeHelp: string, edgeHelp:
   });
   observer.observe(container, { childList: true, subtree: true });
   apply();
-  return () => observer.disconnect();
+  // Al cambiar de idioma se vuelven a escribir los textos (si las ayudas se pasan como función, también ellas).
+  const stopWatching = watch(locale, apply);
+  return () => {
+    observer.disconnect();
+    stopWatching();
+  };
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';

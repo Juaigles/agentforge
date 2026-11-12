@@ -1,0 +1,27 @@
+// Texts of the activity log that run-state.ts builds from the events of a run.
+export default {
+  runStarted: 'Run started',
+  runCompleted: 'Run completed',
+  runFailed: 'Run failed',
+  runCancelled: 'Run cancelled',
+  attempt: 'Attempt {attempt} of {max}',
+  stepStarted: 'Step started',
+  stepCompleted: 'Step completed',
+  stepFailed: 'Step failed',
+  stepCancelled: 'Step cancelled',
+  stepRetry: 'Error on attempt {attempt}; retrying in {delay} ms',
+  stepSkipped: 'Step skipped',
+  stepReused: 'Result reused from the previous run',
+  subrunStarted: 'Subworkflow "{name}" started',
+  subrunLink: 'View its run',
+  approvalRequested: 'Waiting for an approval',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  foreach: {
+    started: 'Item {n} of {total} started',
+    completed: 'Item {n} of {total} completed',
+    reused: 'Item {n} of {total}: result reused from the previous run',
+    retry: 'Item {n} of {total}: error on attempt {attempt}; retrying in {delay} ms',
+    failed: 'Item {n} of {total} failed',
+  },
+};

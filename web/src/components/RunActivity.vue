@@ -3,6 +3,7 @@
 import type { RunEvent } from '@shared/types';
 import { Brain, ChevronRight, MessageSquareText, Wrench } from 'lucide-vue-next';
 import { computed, reactive } from 'vue';
+import { t, tn } from '@/i18n';
 import { formatDuration, formatNumber, formatTime } from '@/lib/format';
 import { buildActivity } from '@/lib/run-state';
 
@@ -11,6 +12,8 @@ const items = computed(() => buildActivity(props.events, props.nodeId));
 const expanded = reactive(new Set<string>());
 const toggle = (key: string) => (expanded.has(key) ? expanded.delete(key) : expanded.add(key));
 const pretty = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value, null, 2));
+/** Lo que hace el modelo en un mensaje (lleva delante el espacio que lo separa del nombre del agente). */
+const modelAction = (toolCount: number): string => ` ${toolCount ? tn('runActivity.asks', toolCount) : t('runActivity.answers')}`;
 const where = (nodeId: string | null) => (!props.nodeId && nodeId ? (props.labels?.[nodeId] ?? nodeId) : '');
 </script>
 
@@ -34,21 +37,21 @@ const where = (nodeId: string | null) => (!props.nodeId && nodeId ? (props.label
           <ChevronRight class="chev" :class="{ open: expanded.has(item.key) }" />
           <MessageSquareText class="ico" />
           <span class="grow truncate">
-            <strong>{{ item.agent || 'Modelo' }}</strong>
+            <strong>{{ item.agent || t('runActivity.model') }}</strong>
             <span class="muted">
-              {{ item.toolCount ? ` pide ${item.toolCount} herramienta${item.toolCount > 1 ? 's' : ''}` : ' responde' }}
+              {{ modelAction(item.toolCount) }}
             </span>
             <span v-if="where(item.nodeId)" class="faint"> · {{ where(item.nodeId) }}</span>
           </span>
-          <span class="tiny faint num">{{ formatNumber(item.tokens) }} tokens</span>
+          <span class="tiny faint num">{{ t('runActivity.tokens', { n: formatNumber(item.tokens) }) }}</span>
         </button>
         <div v-if="expanded.has(item.key)" class="content">
           <template v-if="item.thinking">
-            <div class="eyebrow row"><Brain style="width: 12px; height: 12px" /> Razonamiento</div>
+            <div class="eyebrow row"><Brain style="width: 12px; height: 12px" /> {{ t('runActivity.reasoning') }}</div>
             <pre class="codeblock thinking">{{ item.thinking }}</pre>
           </template>
           <pre v-if="item.content" class="codeblock">{{ item.content }}</pre>
-          <p v-else-if="!item.thinking" class="faint small">Sin texto: el modelo solo ha pedido herramientas.</p>
+          <p v-else-if="!item.thinking" class="faint small">{{ t('runActivity.noText') }}</p>
         </div>
       </div>
 
@@ -60,21 +63,21 @@ const where = (nodeId: string | null) => (!props.nodeId && nodeId ? (props.label
             <code>{{ item.name }}</code>
             <span v-if="where(item.nodeId)" class="faint"> · {{ where(item.nodeId) }}</span>
           </span>
-          <span v-if="item.pending" class="badge info">En curso</span>
-          <span v-else class="badge" :class="item.ok ? 'success' : 'danger'">{{ item.ok ? 'OK' : 'Error' }} · {{ formatDuration(item.durationMs) }}</span>
+          <span v-if="item.pending" class="badge info">{{ t('common.status.running') }}</span>
+          <span v-else class="badge" :class="item.ok ? 'success' : 'danger'">{{ item.ok ? t('runActivity.ok') : t('runActivity.error') }} · {{ formatDuration(item.durationMs) }}</span>
         </button>
         <div v-if="expanded.has(item.key)" class="content">
-          <div class="eyebrow">Argumentos</div>
+          <div class="eyebrow">{{ t('runActivity.arguments') }}</div>
           <pre class="codeblock">{{ pretty(item.args) }}</pre>
           <template v-if="!item.pending">
-            <div class="eyebrow">Resultado</div>
+            <div class="eyebrow">{{ t('runActivity.result') }}</div>
             <pre class="codeblock" :class="{ bad: !item.ok }">{{ item.result }}</pre>
           </template>
         </div>
       </div>
     </li>
   </ol>
-  <p v-else class="faint small" style="padding: 12px 0">Todavía no hay actividad.</p>
+  <p v-else class="faint small" style="padding: 12px 0">{{ t('runActivity.empty') }}</p>
 </template>
 
 <style scoped>

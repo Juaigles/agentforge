@@ -1,6 +1,7 @@
 // Conversión entre la definición de workflow de AgentForge y los nodos/aristas de Vue Flow.
 import type { NodeType, StepStatus, WorkflowEdge, WorkflowNode } from '@shared/types';
 import { MarkerType, type Edge, type Node } from '@vue-flow/core';
+import { t, te } from '@/i18n';
 
 export interface FlowNodeData {
   kind: NodeType;
@@ -38,9 +39,11 @@ export function toFlowEdge(edge: WorkflowEdge): Edge {
     sourceHandle: branch,
     type: 'smoothstep',
     markerEnd: MarkerType.ArrowClosed,
-    label: branch === 'true' ? 'sí' : branch === 'false' ? 'no' : undefined,
-    // Para lectores de pantalla: de dónde a dónde va la conexión, en español.
-    ariaLabel: `Conexión de ${edge.source} a ${edge.target}${branch ? ` (rama ${branch === 'true' ? 'sí' : 'no'})` : ''}`,
+    label: branch === 'true' ? t('flow.branch.yes') : branch === 'false' ? t('flow.branch.no') : undefined,
+    // Para lectores de pantalla: de dónde a dónde va la conexión.
+    ariaLabel: branch
+      ? t('flow.edge.labelBranch', { from: edge.source, to: edge.target, branch: t(branch === 'true' ? 'flow.branch.yes' : 'flow.branch.no') })
+      : t('flow.edge.label', { from: edge.source, to: edge.target }),
     class: branch ? `branch-${branch}` : undefined,
   };
 }
@@ -58,26 +61,20 @@ export function fromFlow(nodes: FlowNode[], edges: Edge[]): { nodes: WorkflowNod
   };
 }
 
-export const NODE_HINT: Record<NodeType, string> = {
-  input: 'El texto con el que se lanza el workflow',
-  agent: 'Un agente realiza una tarea',
-  tool: 'Ejecuta una herramienta sin pasar por un modelo',
-  condition: 'Elige una rama según el resultado anterior',
-  transform: 'Combina resultados con una plantilla',
-  foreach: 'Repite una tarea con cada elemento de una lista',
-  subworkflow: 'Ejecuta otro workflow como un paso de este',
-  approval: 'Detiene la ejecución hasta que una persona aprueba o rechaza',
-  output: 'El resultado final del workflow',
-};
+/** Textos que dependen del idioma: se leen como un objeto normal (`NODE_HINT[tipo]`) y son reactivos. */
+function labels<V extends string>(prefix: string, only?: (key: string) => boolean): Record<V, string> {
+  return new Proxy({} as Record<V, string>, {
+    get: (_target, key) => {
+      if (typeof key !== 'string') return undefined;
+      const full = `${prefix}.${key}`;
+      return only && !te(full) ? undefined : t(full);
+    },
+  });
+}
 
-export const OPERATOR_LABEL: Record<string, string> = {
-  contains: 'contiene',
-  not_contains: 'no contiene',
-  equals: 'es igual a',
-  not_equals: 'es distinto de',
-  matches: 'cumple la expresión regular',
-  gt: 'es mayor que',
-  lt: 'es menor que',
-  is_empty: 'está vacío',
-  not_empty: 'no está vacío',
-};
+export const NODE_HINT = labels<NodeType>('flow.hint');
+
+/** Operadores de las condiciones, en el orden en que se ofrecen. */
+export const OPERATOR_KEYS = ['contains', 'not_contains', 'equals', 'not_equals', 'matches', 'gt', 'lt', 'is_empty', 'not_empty'] as const;
+/** Operador desconocido → `undefined`, para que quien lo lee use su texto de reserva. */
+export const OPERATOR_LABEL = labels<string>('flow.operator', () => true);

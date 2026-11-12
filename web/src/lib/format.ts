@@ -1,17 +1,28 @@
-// Formateo de valores para la interfaz (español).
+// Formateo de valores para la interfaz, en el idioma elegido (números, fechas y duraciones).
 import type { NodeType, RunStatus, StepStatus } from '@shared/types';
+import { formatCount, intlLocale, t } from '@/i18n';
 
-const nf = new Intl.NumberFormat('es-ES');
-const compact = new Intl.NumberFormat('es-ES', { notation: 'compact', maximumFractionDigits: 1 });
+/** Formateadores por idioma: se crean una vez y se reutilizan. */
+const cache = new Map<string, unknown>();
+function cached<T>(kind: string, create: (tag: string) => T): T {
+  const tag = intlLocale();
+  const key = `${kind}|${tag}`;
+  if (!cache.has(key)) cache.set(key, create(tag));
+  return cache.get(key) as T;
+}
+const compact = (): Intl.NumberFormat => cached('compact', (tag) => new Intl.NumberFormat(tag, { notation: 'compact', maximumFractionDigits: 1 }));
+/** Decimales con la coma o el punto del idioma («7,0 s» / «7.0 s»). */
+const fixed = (value: number, digits: number): string =>
+  cached(`fixed${digits}`, (tag) => new Intl.NumberFormat(tag, { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false })).format(value);
 
-export const formatNumber = (n: number): string => nf.format(n);
-export const formatCompact = (n: number): string => (n < 10_000 ? nf.format(n) : compact.format(n));
+export const formatNumber = (n: number): string => formatCount(n);
+export const formatCompact = (n: number): string => (n < 10_000 ? formatCount(n) : compact().format(n));
 
 export function formatDuration(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—';
   if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`;
   const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0).replace('.', ',')} s`;
+  if (s < 60) return `${fixed(s, s < 10 ? 1 : 0)} s`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m} min ${Math.round(s % 60)} s`;
   return `${Math.floor(m / 60)} h ${m % 60} min`;
@@ -32,29 +43,29 @@ export function formatBytes(bytes: number): string {
     value /= 1024;
     i++;
   }
-  return `${value.toFixed(value < 10 ? 1 : 0).replace('.', ',')} ${units[i]}`;
+  return `${fixed(value, value < 10 ? 1 : 0)} ${units[i]}`;
 }
 
-const rtf = new Intl.RelativeTimeFormat('es-ES', { numeric: 'auto' });
+const rtf = (): Intl.RelativeTimeFormat => cached('rtf', (tag) => new Intl.RelativeTimeFormat(tag, { numeric: 'auto' }));
 
 export function relativeTime(iso: string | null, now = Date.now()): string {
   if (!iso) return '—';
   const diff = (Date.parse(iso) - now) / 1000;
   const abs = Math.abs(diff);
-  if (abs < 45) return 'ahora mismo';
-  if (abs < 3600) return rtf.format(Math.round(diff / 60), 'minute');
-  if (abs < 86_400) return rtf.format(Math.round(diff / 3600), 'hour');
-  if (abs < 30 * 86_400) return rtf.format(Math.round(diff / 86_400), 'day');
-  return new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+  if (abs < 45) return t('common.justNow');
+  if (abs < 3600) return rtf().format(Math.round(diff / 60), 'minute');
+  if (abs < 86_400) return rtf().format(Math.round(diff / 3600), 'hour');
+  if (abs < 30 * 86_400) return rtf().format(Math.round(diff / 86_400), 'day');
+  return new Date(iso).toLocaleDateString(intlLocale(), { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 export function formatDateTime(iso: string | null): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return new Date(iso).toLocaleString(intlLocale(), { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 export const formatTime = (iso: string): string =>
-  new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  new Date(iso).toLocaleTimeString(intlLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 export function formatUptime(sec: number): string {
   if (sec < 60) return `${sec} s`;
@@ -65,16 +76,12 @@ export function formatUptime(sec: number): string {
 
 export type Tone = 'success' | 'danger' | 'warning' | 'info' | 'neutral';
 
-export const STATUS_LABEL: Record<RunStatus | StepStatus, string> = {
-  queued: 'En cola',
-  pending: 'Pendiente',
-  running: 'En curso',
-  waiting: 'En espera',
-  completed: 'Completado',
-  failed: 'Fallido',
-  cancelled: 'Cancelado',
-  skipped: 'Omitido',
-};
+/** Etiquetas que dependen del idioma: se leen como un objeto normal (`STATUS_LABEL[estado]`) y son reactivas. */
+function labels<K extends string>(prefix: string): Record<K, string> {
+  return new Proxy({} as Record<K, string>, { get: (_target, key) => (typeof key === 'string' ? t(`${prefix}.${key}`) : undefined) });
+}
+
+export const STATUS_LABEL = labels<RunStatus | StepStatus>('common.status');
 
 export const STATUS_TONE: Record<RunStatus | StepStatus, Tone> = {
   queued: 'neutral',
@@ -87,17 +94,7 @@ export const STATUS_TONE: Record<RunStatus | StepStatus, Tone> = {
   skipped: 'neutral',
 };
 
-export const NODE_LABEL: Record<NodeType, string> = {
-  input: 'Entrada',
-  agent: 'Agente',
-  tool: 'Herramienta',
-  condition: 'Condición',
-  transform: 'Transformación',
-  foreach: 'Para cada',
-  subworkflow: 'Subworkflow',
-  approval: 'Aprobación',
-  output: 'Salida',
-};
+export const NODE_LABEL = labels<NodeType>('common.node');
 
 /** ¿La ejecución sigue viva? (en cola, en curso o detenida a la espera de una aprobación). */
 export const isActiveStatus = (s: RunStatus): boolean => s === 'queued' || s === 'running' || s === 'waiting';

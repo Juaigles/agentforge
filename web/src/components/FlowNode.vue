@@ -4,6 +4,7 @@ import { Handle, Position } from '@vue-flow/core';
 import { foreachBody } from '@shared/graph';
 import { Bot, Flag, GitBranch, LogIn, Repeat, Shuffle, TriangleAlert, UserCheck, Workflow, Wrench } from 'lucide-vue-next';
 import { computed } from 'vue';
+import { t, tn } from '@/i18n';
 import type { FlowNodeData } from '@/lib/flow';
 import { OPERATOR_LABEL } from '@/lib/flow';
 import { NODE_LABEL } from '@/lib/format';
@@ -30,13 +31,13 @@ const body = computed(() => (props.data.kind === 'foreach' ? foreachBody({ id: p
 const usesAgent = computed(() => props.data.kind === 'agent' || body.value === 'agent');
 const workflowName = computed(() => {
   const id = props.data.config.workflowId;
-  if (!id) return 'Sin workflow asignado';
-  return props.data.workflowName ?? catalog.workflows.find((w) => w.id === id)?.name ?? 'Workflow eliminado';
+  if (!id) return t('flowNode.noWorkflow');
+  return props.data.workflowName ?? catalog.workflows.find((w) => w.id === id)?.name ?? t('flowNode.workflowDeleted');
 });
 /** Nodos con dos salidas: condición (sí / no) y aprobación (aprobado / rechazado). */
 const branching = computed(() => props.data.kind === 'condition' || props.data.kind === 'approval');
 const agent = computed(() => (usesAgent.value ? catalog.agentById.get(props.data.config.agentId) : undefined));
-const agentLabel = computed(() => props.data.agentName ?? agent.value?.name ?? (props.data.config.agentId ? 'Agente eliminado' : 'Sin agente asignado'));
+const agentLabel = computed(() => props.data.agentName ?? agent.value?.name ?? (props.data.config.agentId ? t('flowNode.agentDeleted') : t('flowNode.noAgent')));
 const tint = computed(() => (props.data.kind === 'agent' ? (props.data.agentColor ?? agent.value?.color ?? TINT.agent) : TINT[props.data.kind]));
 
 const subtitle = computed(() => {
@@ -45,21 +46,21 @@ const subtitle = computed(() => {
     case 'agent':
       return agentLabel.value;
     case 'foreach':
-      return `Cada elemento → ${body.value === 'tool' ? c.tool || 'sin herramienta' : body.value === 'subworkflow' ? workflowName.value : agentLabel.value}`;
+      return t('flowNode.forEach', { target: body.value === 'tool' ? c.tool || t('flowNode.noToolShort') : body.value === 'subworkflow' ? workflowName.value : agentLabel.value });
     case 'subworkflow':
       return workflowName.value;
     case 'approval':
-      return c.message || 'Sin texto que aprobar';
+      return c.message || t('flowNode.noApprovalText');
     case 'tool':
-      return c.tool || 'Sin herramienta asignada';
+      return c.tool || t('flowNode.noTool');
     case 'condition':
-      return `${OPERATOR_LABEL[c.operator] ?? '¿…?'}${c.right ? ` «${c.right}»` : ''}`;
+      return `${OPERATOR_LABEL[c.operator] ?? t('flowNode.unknownOperator')}${c.right ? ` ${t('flowNode.rightValue', { value: c.right })}` : ''}`;
     case 'input':
-      return c.description || 'Texto de entrada';
+      return c.description || t('flowNode.inputText');
     case 'transform':
-      return c.template || 'Plantilla vacía';
+      return c.template || t('flowNode.emptyTemplate');
     case 'output':
-      return c.template || 'Lo que llegue de los nodos anteriores';
+      return c.template || t('flowNode.outputDefault');
     default:
       return '';
   }
@@ -74,8 +75,8 @@ const subtitle = computed(() => {
       <span class="ico"><component :is="ICONS[data.kind]" /></span>
       <span class="type">{{ NODE_LABEL[data.kind] }}</span>
       <StatusBadge v-if="data.status && data.status !== 'pending'" :status="data.status" icon-only />
-      <span v-else-if="data.errors" class="warn" :title="data.errors === 1 ? '1 error de configuración' : `${data.errors} errores de configuración`">
-        <TriangleAlert aria-hidden="true" /><span class="sr-only">{{ data.errors === 1 ? '1 error de configuración' : `${data.errors} errores de configuración` }}</span>
+      <span v-else-if="data.errors" class="warn" :title="tn('flowNode.configErrors', data.errors)">
+        <TriangleAlert aria-hidden="true" /><span class="sr-only">{{ tn('flowNode.configErrors', data.errors) }}</span>
       </span>
     </div>
     <div class="title">{{ data.label || id }}</div>
@@ -84,8 +85,8 @@ const subtitle = computed(() => {
     <template v-if="branching">
       <Handle id="true" type="source" :position="Position.Right" class="h-true" :style="{ top: '36%' }" />
       <Handle id="false" type="source" :position="Position.Right" class="h-false" :style="{ top: '72%' }" />
-      <span class="branch yes">sí</span>
-      <span class="branch no">no</span>
+      <span class="branch yes">{{ t('flowNode.yes') }}</span>
+      <span class="branch no">{{ t('flowNode.no') }}</span>
     </template>
     <Handle v-else-if="data.kind !== 'output'" type="source" :position="Position.Right" />
   </div>

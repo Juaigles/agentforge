@@ -22,7 +22,8 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import ProviderModal from '@/components/ProviderModal.vue';
 import Term from '@/components/Term.vue';
 import { api, errorText } from '@/lib/api';
-import { formatBytes, formatDateTime, formatDuration, formatNumber, formatUptime, plural } from '@/lib/format';
+import { t, tn } from '@/i18n';
+import { formatBytes, formatDateTime, formatDuration, formatNumber, formatUptime } from '@/lib/format';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 
@@ -56,7 +57,7 @@ async function load(): Promise<void> {
 onMounted(load);
 
 // ---------- Proveedores ----------
-const KIND_LABEL = { ollama: 'Ollama', openai: 'Compatible con OpenAI' } as const;
+const kindLabel = (kind: Provider['kind']): string => (kind === 'ollama' ? 'Ollama' : t('settings.providers.kindOpenai'));
 const modal = ref<{ provider: Provider | null } | null>(null);
 const testing = reactive(new Set<string>());
 const busy = reactive(new Set<string>());
@@ -70,12 +71,12 @@ const agentCount = computed(() => {
 
 /** Estado mostrado: la última prueba manual tiene prioridad sobre la comprobación periódica. */
 function statusOf(p: Provider): { tone: string; text: string; error?: string; pulse?: boolean } {
-  if (!p.enabled) return { tone: '', text: 'Desactivado' };
-  if (testing.has(p.id)) return { tone: 'info', text: 'Probando…', pulse: true };
+  if (!p.enabled) return { tone: '', text: t('settings.providers.status.disabled') };
+  if (testing.has(p.id)) return { tone: 'info', text: t('settings.providers.status.testing'), pulse: true };
   const r = testResults.get(p.id) ?? catalog.healthById.get(p.id);
-  if (!r) return { tone: '', text: 'Comprobando…', pulse: true };
-  if (r.ok) return { tone: 'success', text: `Disponible · ${plural(r.modelCount ?? 0, 'modelo', 'modelos')} · ${formatDuration(r.latencyMs)}` };
-  return { tone: 'danger', text: 'No disponible', error: r.error ?? 'No se pudo conectar.' };
+  if (!r) return { tone: '', text: t('settings.providers.status.checking'), pulse: true };
+  if (r.ok) return { tone: 'success', text: t('settings.providers.status.available', { models: tn('settings.counts.models', r.modelCount ?? 0), latency: formatDuration(r.latencyMs) }) };
+  return { tone: 'danger', text: t('settings.providers.status.unavailable'), error: r.error ?? t('settings.providers.status.connectFailed') };
 }
 
 async function testProvider(p: Provider): Promise<void> {
@@ -83,8 +84,8 @@ async function testProvider(p: Provider): Promise<void> {
   try {
     const result = await api.providers.test(p.id);
     testResults.set(p.id, result);
-    if (result.ok) ui.success(`«${p.name}» responde: ${plural(result.modelCount ?? 0, 'modelo', 'modelos')} en ${formatDuration(result.latencyMs)}.`);
-    else ui.error(`«${p.name}» no responde: ${result.error ?? 'error desconocido'}`);
+    if (result.ok) ui.success(t('settings.providers.toast.responds', { name: p.name, models: tn('settings.counts.models', result.modelCount ?? 0), latency: formatDuration(result.latencyMs) }));
+    else ui.error(t('settings.providers.toast.noResponse', { name: p.name, error: result.error ?? t('settings.providers.toast.unknownError') }));
     await catalog.refreshHealth(true);
   } catch (err) {
     ui.error(errorText(err));
@@ -106,7 +107,7 @@ async function toggleProvider(p: Provider): Promise<void> {
     });
     catalog.setProvider(saved);
     testResults.delete(p.id);
-    ui.success(saved.enabled ? `«${saved.name}» activado.` : `«${saved.name}» desactivado.`);
+    ui.success(saved.enabled ? t('settings.providers.toast.enabled', { name: saved.name }) : t('settings.providers.toast.disabled', { name: saved.name }));
     await catalog.refreshHealth(true);
   } catch (err) {
     ui.error(errorText(err));
@@ -117,9 +118,9 @@ async function toggleProvider(p: Provider): Promise<void> {
 
 async function removeProvider(p: Provider): Promise<void> {
   const ok = await ui.confirm({
-    title: 'Eliminar proveedor',
-    message: `Se eliminará «${p.name}» y su API key guardada. Esta acción no se puede deshacer.`,
-    confirmLabel: 'Eliminar',
+    title: t('settings.providers.confirm.deleteTitle'),
+    message: t('settings.providers.confirm.deleteMessage', { name: p.name }),
+    confirmLabel: t('common.actions.delete'),
     danger: true,
   });
   if (!ok) return;
@@ -128,7 +129,7 @@ async function removeProvider(p: Provider): Promise<void> {
     await api.providers.remove(p.id);
     catalog.dropProvider(p.id);
     testResults.delete(p.id);
-    ui.success(`Proveedor «${p.name}» eliminado.`);
+    ui.success(t('settings.providers.toast.deleted', { name: p.name }));
     void catalog.refreshHealth(true);
     void refreshStats();
   } catch (err) {
@@ -172,18 +173,18 @@ async function commitRetention(key: 'retentionDays' | 'retentionMaxRuns', max: n
   const draft = key === 'retentionDays' ? retentionDaysDraft : retentionRunsDraft;
   const n = draft.value === ('' as unknown) ? 0 : Math.round(Number(draft.value));
   if (!Number.isFinite(n) || n < 0 || n > max) {
-    ui.error(`El valor debe estar entre 0 y ${formatNumber(max)} (0 = sin límite).`);
+    ui.error(t('settings.data.retentionInvalid', { max: formatNumber(max) }));
     draft.value = settings.value?.[key] ?? 0;
     return;
   }
   const message =
     key === 'retentionDays'
       ? n
-        ? `Las ejecuciones terminadas se conservarán ${plural(n, 'día', 'días')}.`
-        : 'El historial ya no caduca por antigüedad.'
+        ? t('settings.data.retentionDays.on', { days: tn('settings.counts.days', n) })
+        : t('settings.data.retentionDays.off')
       : n
-        ? `Se conservarán como máximo ${plural(n, 'ejecución terminada', 'ejecuciones terminadas')}.`
-        : 'El historial ya no tiene límite de tamaño.';
+        ? t('settings.data.retentionRuns.on', { runs: tn('settings.counts.finishedRuns', n) })
+        : t('settings.data.retentionRuns.off');
   await updateSetting(key, n, message);
   // La retención se aplica al guardar: las cifras de la tarjeta pueden haber cambiado.
   await refreshStats();
@@ -192,11 +193,11 @@ async function commitRetention(key: 'retentionDays' | 'retentionMaxRuns', max: n
 function commitConcurrent(): void {
   const n = Math.round(Number(concurrentDraft.value));
   if (!Number.isFinite(n) || n < 1 || n > 10) {
-    ui.error('El número de ejecuciones simultáneas debe estar entre 1 y 10.');
+    ui.error(t('settings.exec.concurrent.invalid'));
     concurrentDraft.value = settings.value?.maxConcurrentRuns ?? 3;
     return;
   }
-  void updateSetting('maxConcurrentRuns', n, `Ejecuciones simultáneas: ${n}.`);
+  void updateSetting('maxConcurrentRuns', n, t('settings.exec.concurrent.saved', { count: n }));
 }
 
 async function togglePrivateNetwork(ev: Event): Promise<void> {
@@ -204,10 +205,9 @@ async function togglePrivateNetwork(ev: Event): Promise<void> {
   const next = input.checked;
   if (next) {
     const ok = await ui.confirm({
-      title: 'Permitir redes privadas',
-      message:
-        'Las herramientas de red de los agentes podrán llamar a localhost y a los equipos de tu red local (router, otros servicios internos). Actívalo solo si confías en los agentes y en el contenido que leen.',
-      confirmLabel: 'Permitir',
+      title: t('settings.exec.privateNetwork.confirmTitle'),
+      message: t('settings.exec.privateNetwork.confirmMessage'),
+      confirmLabel: t('settings.exec.privateNetwork.confirmLabel'),
       danger: true,
     });
     if (!ok) {
@@ -215,7 +215,7 @@ async function togglePrivateNetwork(ev: Event): Promise<void> {
       return;
     }
   }
-  await updateSetting('allowPrivateNetwork', next, next ? 'Acceso a redes privadas permitido.' : 'Acceso a redes privadas bloqueado.');
+  await updateSetting('allowPrivateNetwork', next, next ? t('settings.exec.privateNetwork.on') : t('settings.exec.privateNetwork.off'));
   input.checked = settings.value?.allowPrivateNetwork ?? false;
 }
 
@@ -224,10 +224,9 @@ async function toggleCodeExecution(ev: Event): Promise<void> {
   const next = input.checked;
   if (next) {
     const ok = await ui.confirm({
-      title: 'Permitir ejecución de código',
-      message:
-        'Los agentes con la herramienta run_javascript podrán ejecutar el código que genere el modelo. Se ejecuta en un proceso aparte sin acceso a archivos, a la red ni a otros programas, con límites de tiempo y memoria. Para código en el que no confíes, elige después el aislamiento en contenedor.',
-      confirmLabel: 'Permitir',
+      title: t('settings.exec.code.confirmTitle'),
+      message: t('settings.exec.code.confirmMessage'),
+      confirmLabel: t('settings.exec.code.confirmLabel'),
       danger: true,
     });
     if (!ok) {
@@ -235,7 +234,7 @@ async function toggleCodeExecution(ev: Event): Promise<void> {
       return;
     }
   }
-  await updateSetting('allowCodeExecution', next, next ? 'Ejecución de código permitida.' : 'Ejecución de código desactivada.');
+  await updateSetting('allowCodeExecution', next, next ? t('settings.exec.code.on') : t('settings.exec.code.off'));
   input.checked = settings.value?.allowCodeExecution ?? false;
   if (settings.value?.allowCodeExecution) void loadSandbox();
 }
@@ -245,7 +244,7 @@ async function toggleAutoResume(ev: Event): Promise<void> {
   await updateSetting(
     'autoResume',
     input.checked,
-    input.checked ? 'Las ejecuciones interrumpidas se reanudarán solas al arrancar.' : 'Las ejecuciones interrumpidas esperarán a que decidas.',
+    input.checked ? t('settings.exec.autoResume.on') : t('settings.exec.autoResume.off'),
   );
   input.checked = settings.value?.autoResume ?? false;
 }
@@ -268,7 +267,7 @@ async function loadSandbox(force = false): Promise<void> {
 const ENGINE_LABEL = { docker: 'Docker', podman: 'Podman' } as const;
 
 async function chooseSandbox(backend: Settings['codeSandbox']): Promise<void> {
-  await updateSetting('codeSandbox', backend, backend === 'container' ? 'El código se ejecutará en un contenedor sin red.' : 'El código se ejecutará en un proceso aislado.');
+  await updateSetting('codeSandbox', backend, backend === 'container' ? t('settings.exec.sandbox.toastContainer') : t('settings.exec.sandbox.toastProcess'));
   void loadSandbox(true);
 }
 
@@ -289,7 +288,7 @@ async function createBackup(): Promise<void> {
   backupBusy.value = 'create';
   try {
     const backup = await api.backups.create();
-    ui.success(`Copia de seguridad creada (${formatBytes(backup.sizeBytes)}).`);
+    ui.success(t('settings.backups.toast.created', { size: formatBytes(backup.sizeBytes) }));
     await loadBackups();
   } catch (err) {
     ui.error(errorText(err));
@@ -306,7 +305,7 @@ async function uploadBackup(ev: Event): Promise<void> {
   backupBusy.value = 'upload';
   try {
     await api.backups.upload(file);
-    ui.success('Copia de seguridad añadida. Ya puedes restaurarla.');
+    ui.success(t('settings.backups.toast.uploaded'));
     await loadBackups();
   } catch (err) {
     ui.error(errorText(err));
@@ -317,22 +316,27 @@ async function uploadBackup(ev: Event): Promise<void> {
 
 function backupSummary(backup: BackupInfo): string {
   const c = backup.manifest?.counts;
-  if (!c) return 'No se puede leer: el archivo está dañado';
-  return `${plural(c.agents, 'agente', 'agentes')}, ${plural(c.workflows, 'workflow', 'workflows')}, ${plural(c.runs, 'ejecución', 'ejecuciones')}, ${plural(c.workspaceFiles, 'archivo', 'archivos')}`;
+  if (!c) return t('settings.backups.unreadable');
+  return t('settings.backups.summary', {
+    agents: tn('settings.counts.agents', c.agents),
+    workflows: tn('settings.counts.workflows', c.workflows),
+    runs: tn('settings.counts.runs', c.runs),
+    files: tn('settings.counts.files', c.workspaceFiles),
+  });
 }
 
 async function restoreBackup(backup: BackupInfo): Promise<void> {
   const ok = await ui.confirm({
-    title: 'Restaurar esta copia',
-    message: `Al reiniciar AgentForge, todos los datos actuales (agentes, workflows, historial, claves y archivos) se sustituirán por los de la copia del ${formatDateTime(backup.createdAt)}. Los datos actuales no se borran: se guardan aparte en la carpeta de datos. Hasta que reinicies no cambia nada y puedes cancelarlo.`,
-    confirmLabel: 'Preparar restauración',
+    title: t('settings.backups.confirm.restoreTitle'),
+    message: t('settings.backups.confirm.restoreMessage', { date: formatDateTime(backup.createdAt) }),
+    confirmLabel: t('settings.backups.confirm.restoreLabel'),
     danger: true,
   });
   if (!ok) return;
   backupBusy.value = backup.name;
   try {
     await api.backups.restore(backup.name);
-    ui.success('Restauración preparada. Reinicia AgentForge para aplicarla.');
+    ui.success(t('settings.backups.toast.restorePrepared'));
     await loadBackups();
   } catch (err) {
     ui.error(errorText(err));
@@ -345,7 +349,7 @@ async function cancelRestore(): Promise<void> {
   backupBusy.value = 'cancel';
   try {
     await api.backups.cancelRestore();
-    ui.success('Restauración cancelada. Los datos actuales se conservan.');
+    ui.success(t('settings.backups.toast.restoreCancelled'));
     await loadBackups();
   } catch (err) {
     ui.error(errorText(err));
@@ -356,16 +360,16 @@ async function cancelRestore(): Promise<void> {
 
 async function removeBackup(backup: BackupInfo): Promise<void> {
   const ok = await ui.confirm({
-    title: 'Eliminar copia de seguridad',
-    message: `Se eliminará el archivo de la copia del ${formatDateTime(backup.createdAt)}. No se puede deshacer.`,
-    confirmLabel: 'Eliminar copia',
+    title: t('settings.backups.confirm.deleteTitle'),
+    message: t('settings.backups.confirm.deleteMessage', { date: formatDateTime(backup.createdAt) }),
+    confirmLabel: t('settings.backups.confirm.deleteLabel'),
     danger: true,
   });
   if (!ok) return;
   backupBusy.value = backup.name;
   try {
     await api.backups.remove(backup.name);
-    ui.success('Copia de seguridad eliminada.');
+    ui.success(t('settings.backups.toast.deleted'));
     await loadBackups();
   } catch (err) {
     ui.error(errorText(err));
@@ -396,16 +400,16 @@ const finishedRuns = computed(() => {
 
 async function clearFinished(): Promise<void> {
   const ok = await ui.confirm({
-    title: 'Eliminar ejecuciones terminadas',
-    message: `Se eliminarán ${plural(finishedRuns.value, 'ejecución terminada', 'ejecuciones terminadas')} con sus pasos y eventos. Las que estén en curso no se tocan. No se puede deshacer.`,
-    confirmLabel: 'Eliminar',
+    title: t('settings.data.deleteFinished'),
+    message: t('settings.data.confirmMessage', { runs: tn('settings.counts.finishedRuns', finishedRuns.value) }),
+    confirmLabel: t('common.actions.delete'),
     danger: true,
   });
   if (!ok) return;
   clearing.value = true;
   try {
     const { deleted } = await api.runs.clearFinished();
-    ui.success(deleted ? `${plural(deleted, 'ejecución eliminada', 'ejecuciones eliminadas')}.` : 'No había ejecuciones terminadas.');
+    ui.success(deleted ? tn('settings.data.runsDeleted', deleted) : t('settings.data.noneFinished'));
     await refreshStats();
   } catch (err) {
     ui.error(errorText(err));
@@ -419,28 +423,32 @@ async function clearFinished(): Promise<void> {
   <div class="page">
     <header class="page-header">
       <div>
-        <h1>Ajustes</h1>
-        <p class="subtitle">Conecta los servicios que ejecutan los <Term id="modelo">modelos</Term> y decide los límites y permisos con los que trabajan los agentes.</p>
+        <h1>{{ t('settings.title') }}</h1>
+        <i18n-t keypath="settings.subtitle" tag="p" class="subtitle" scope="global">
+          <template #models><Term id="modelo">{{ t('settings.subtitleModels') }}</Term></template>
+        </i18n-t>
       </div>
     </header>
 
     <div v-if="loadError" class="callout danger" role="alert" style="margin-bottom: 16px">
       <CircleAlert />
       <span class="grow">{{ loadError }}</span>
-      <button class="btn btn-sm" type="button" :disabled="loading" @click="load"><RefreshCw :class="{ spin: loading }" /> Reintentar</button>
+      <button class="btn btn-sm" type="button" :disabled="loading" @click="load"><RefreshCw :class="{ spin: loading }" /> {{ t('common.actions.retry') }}</button>
     </div>
 
     <div class="sections">
       <!-- 1. Proveedores -->
       <section class="card" aria-labelledby="sec-providers">
         <div class="card-head">
-          <h2 id="sec-providers"><Server style="width: 16px; height: 16px" /> Proveedores de modelos</h2>
-          <button class="btn btn-primary btn-sm" type="button" @click="modal = { provider: null }"><Plus /> Añadir proveedor</button>
+          <h2 id="sec-providers"><Server style="width: 16px; height: 16px" /> {{ t('settings.providers.title') }}</h2>
+          <button class="btn btn-primary btn-sm" type="button" @click="modal = { provider: null }"><Plus /> {{ t('settings.providers.add') }}</button>
         </div>
-        <p class="intro muted small">
-          Un <Term id="proveedor">proveedor</Term> es el servicio que ejecuta los modelos: <Term id="ollama" /> en tu equipo o una API remota
-          <Term id="openai-compatible">compatible con OpenAI</Term>. Cada <Term id="agente">agente</Term> usa uno.
-        </p>
+        <i18n-t keypath="settings.providers.intro" tag="p" class="intro muted small" scope="global">
+          <template #provider><Term id="proveedor">{{ t('settings.providers.introProvider') }}</Term></template>
+          <template #ollama><Term id="ollama" /></template>
+          <template #openai><Term id="openai-compatible">{{ t('settings.providers.introOpenai') }}</Term></template>
+          <template #agent><Term id="agente">{{ t('settings.providers.introAgent') }}</Term></template>
+        </i18n-t>
 
         <div v-if="loading && !catalog.loaded" class="card-pad col">
           <div class="skeleton" style="height: 64px" />
@@ -448,17 +456,17 @@ async function clearFinished(): Promise<void> {
         </div>
         <div v-else-if="!catalog.providers.length" class="empty">
           <Server />
-          <h3>Aún no hay proveedores</h3>
-          <p>Sin un proveedor los agentes no pueden hablar con ningún modelo. Si tienes Ollama instalado, añádelo con la plantilla «Ollama local».</p>
-          <button class="btn btn-primary" type="button" @click="modal = { provider: null }"><Plus /> Añadir proveedor</button>
+          <h3>{{ t('settings.providers.emptyTitle') }}</h3>
+          <p>{{ t('settings.providers.emptyText') }}</p>
+          <button class="btn btn-primary" type="button" @click="modal = { provider: null }"><Plus /> {{ t('settings.providers.add') }}</button>
         </div>
         <ul v-else class="providers">
           <li v-for="p in catalog.providers" :key="p.id" :class="{ off: !p.enabled }">
             <div class="p-main">
               <div class="row wrap" style="gap: 8px">
                 <strong class="p-name">{{ p.name }}</strong>
-                <span class="badge" :class="p.kind === 'ollama' ? 'accent' : 'info'">{{ KIND_LABEL[p.kind] }}</span>
-                <span v-if="p.hasApiKey" class="badge" title="Hay una API key guardada (cifrada)"><KeyRound /> Clave guardada</span>
+                <span class="badge" :class="p.kind === 'ollama' ? 'accent' : 'info'">{{ kindLabel(p.kind) }}</span>
+                <span v-if="p.hasApiKey" class="badge" :title="t('settings.providers.keyStoredTitle')"><KeyRound /> {{ t('settings.providers.keyStored') }}</span>
               </div>
               <div class="p-url mono truncate" :title="p.baseUrl">{{ p.baseUrl }}</div>
               <div class="row wrap small muted" style="gap: 4px 14px">
@@ -466,33 +474,33 @@ async function clearFinished(): Promise<void> {
                   <span class="dot" :class="[statusOf(p).tone, { pulse: statusOf(p).pulse }]" />
                   {{ statusOf(p).text }}
                 </span>
-                <span>Modelo por defecto: <code v-if="p.defaultModel">{{ p.defaultModel }}</code><span v-else class="faint">sin definir</span></span>
-                <span>{{ plural(agentCount.get(p.id) ?? 0, 'agente lo usa', 'agentes lo usan') }}</span>
+                <span>{{ t('settings.providers.defaultModel') }} <code v-if="p.defaultModel">{{ p.defaultModel }}</code><span v-else class="faint">{{ t('settings.providers.noDefaultModel') }}</span></span>
+                <span>{{ tn('settings.counts.agentsUse', agentCount.get(p.id) ?? 0) }}</span>
               </div>
               <p v-if="statusOf(p).error" class="p-error small">{{ statusOf(p).error }}</p>
             </div>
             <div class="p-actions">
-              <label class="row small muted" :title="p.enabled ? 'Desactivar proveedor' : 'Activar proveedor'">
+              <label class="row small muted" :title="p.enabled ? t('settings.providers.disable') : t('settings.providers.enable')">
                 <input
                   type="checkbox"
                   class="switch"
                   :checked="p.enabled"
                   :disabled="busy.has(p.id)"
-                  :aria-label="`${p.enabled ? 'Desactivar' : 'Activar'} ${p.name}`"
+                  :aria-label="p.enabled ? t('settings.providers.disableNamed', { name: p.name }) : t('settings.providers.enableNamed', { name: p.name })"
                   @change="toggleProvider(p)"
                 />
               </label>
               <button class="btn btn-sm" type="button" :disabled="testing.has(p.id) || !p.enabled" @click="testProvider(p)">
-                <LoaderCircle v-if="testing.has(p.id)" class="spin" /><PlugZap v-else /> Probar conexión
+                <LoaderCircle v-if="testing.has(p.id)" class="spin" /><PlugZap v-else /> {{ t('settings.providers.test') }}
               </button>
-              <button class="btn btn-sm btn-icon" type="button" :aria-label="`Editar ${p.name}`" title="Editar" @click="modal = { provider: p }">
+              <button class="btn btn-sm btn-icon" type="button" :aria-label="t('settings.providers.editNamed', { name: p.name })" :title="t('common.actions.edit')" @click="modal = { provider: p }">
                 <Pencil />
               </button>
               <button
                 class="btn btn-sm btn-icon btn-danger"
                 type="button"
-                :aria-label="`Eliminar ${p.name}`"
-                title="Eliminar"
+                :aria-label="t('settings.providers.deleteNamed', { name: p.name })"
+                :title="t('common.actions.delete')"
                 :disabled="busy.has(p.id)"
                 @click="removeProvider(p)"
               >
@@ -506,8 +514,8 @@ async function clearFinished(): Promise<void> {
       <!-- 2. Ejecución y seguridad -->
       <section class="card" aria-labelledby="sec-exec">
         <div class="card-head">
-          <h2 id="sec-exec"><ShieldAlert style="width: 16px; height: 16px" /> Ejecución y seguridad</h2>
-          <span v-if="savingSetting" class="small muted row"><LoaderCircle class="spin" style="width: 14px; height: 14px" /> Guardando…</span>
+          <h2 id="sec-exec"><ShieldAlert style="width: 16px; height: 16px" /> {{ t('settings.exec.title') }}</h2>
+          <span v-if="savingSetting" class="small muted row"><LoaderCircle class="spin" style="width: 14px; height: 14px" /> {{ t('common.actions.saving') }}</span>
         </div>
         <div v-if="!settings" class="card-pad col">
           <div class="skeleton" style="height: 44px" />
@@ -517,11 +525,12 @@ async function clearFinished(): Promise<void> {
         <div v-else class="options">
           <div class="option">
             <div class="grow">
-              <label class="o-title" for="set-concurrent">Ejecuciones simultáneas máximas</label>
-              <p class="muted small">
-                Límite de <Term id="concurrencia">concurrencia</Term> global: cuántas <Term id="ejecucion">ejecuciones</Term> pueden estar en marcha a
-                la vez. El resto espera en <Term id="cola">cola</Term>. Con modelos locales, un valor bajo evita saturar el equipo.
-              </p>
+              <label class="o-title" for="set-concurrent">{{ t('settings.exec.concurrent.label') }}</label>
+              <i18n-t keypath="settings.exec.concurrent.description" tag="p" class="muted small" scope="global">
+                <template #concurrency><Term id="concurrencia">{{ t('settings.exec.concurrent.concurrency') }}</Term></template>
+                <template #runs><Term id="ejecucion">{{ t('settings.exec.concurrent.runs') }}</Term></template>
+                <template #queue><Term id="cola">{{ t('settings.exec.concurrent.queue') }}</Term></template>
+              </i18n-t>
             </div>
             <input
               id="set-concurrent"
@@ -539,23 +548,22 @@ async function clearFinished(): Promise<void> {
 
           <div class="option">
             <div class="grow">
-              <label class="o-title" for="set-autoresume">Reanudar automáticamente tras un apagado</label>
-              <p class="muted small">
-                Si el servidor se apaga con <Term id="ejecucion">ejecuciones</Term> a medias, al arrancar siguen solas donde se quedaron, reutilizando los pasos ya terminados.
-                Desactivado, la interfaz pregunta antes. Las que solo esperaban una <Term id="aprobacion">aprobación</Term> se reanudan siempre.
-              </p>
+              <label class="o-title" for="set-autoresume">{{ t('settings.exec.autoResume.label') }}</label>
+              <i18n-t keypath="settings.exec.autoResume.description" tag="p" class="muted small" scope="global">
+                <template #runs><Term id="ejecucion">{{ t('settings.exec.autoResume.runs') }}</Term></template>
+                <template #approval><Term id="aprobacion">{{ t('settings.exec.autoResume.approval') }}</Term></template>
+              </i18n-t>
             </div>
             <input id="set-autoresume" type="checkbox" class="switch" :checked="settings.autoResume" :disabled="savingSetting === 'autoResume'" @change="toggleAutoResume" />
           </div>
 
           <div class="option">
             <div class="grow">
-              <label class="o-title" for="set-private">Permitir redes privadas</label>
-              <p class="muted small">
-                Por defecto, las herramientas de red no pueden llamar a una <Term id="red-privada">red privada</Term> ni a localhost. Así, una web
-                maliciosa que lea un agente no puede convencerlo de consultar tu router u otros servicios internos y filtrar lo que encuentre.
-                Actívalo solo si necesitas que los agentes usen <Term id="api">APIs</Term> de tu red local.
-              </p>
+              <label class="o-title" for="set-private">{{ t('settings.exec.privateNetwork.label') }}</label>
+              <i18n-t keypath="settings.exec.privateNetwork.description" tag="p" class="muted small" scope="global">
+                <template #privateNetwork><Term id="red-privada">{{ t('settings.exec.privateNetwork.privateNetworkTerm') }}</Term></template>
+                <template #apis><Term id="api">{{ t('settings.exec.privateNetwork.apis') }}</Term></template>
+              </i18n-t>
             </div>
             <input
               id="set-private"
@@ -569,32 +577,32 @@ async function clearFinished(): Promise<void> {
 
           <div class="option">
             <div class="grow">
-              <label class="o-title" for="set-code">Permitir ejecución de código</label>
-              <p class="muted small">
-                Habilita la herramienta <code>run_javascript</code>, que ejecuta el código que escribe el modelo en un
-                <Term id="sandbox">entorno aislado</Term> sin acceso a red, disco ni módulos, con límites de tiempo y memoria.
-              </p>
+              <label class="o-title" for="set-code">{{ t('settings.exec.code.label') }}</label>
+              <i18n-t keypath="settings.exec.code.description" tag="p" class="muted small" scope="global">
+                <template #tool><code>run_javascript</code></template>
+                <template #sandbox><Term id="sandbox">{{ t('settings.exec.code.sandboxTerm') }}</Term></template>
+              </i18n-t>
               <div v-if="settings.allowCodeExecution" class="sandbox" data-testid="sandbox-options">
                 <div class="sandbox-head">
-                  <span id="sandbox-label" class="o-title">Dónde se ejecuta</span>
+                  <span id="sandbox-label" class="o-title">{{ t('settings.exec.sandbox.where') }}</span>
                   <button class="btn btn-ghost btn-sm" type="button" :disabled="sandboxLoading" @click="loadSandbox(true)">
-                    <RefreshCw :class="{ spin: sandboxLoading }" /> Comprobar de nuevo
+                    <RefreshCw :class="{ spin: sandboxLoading }" /> {{ t('settings.exec.sandbox.recheck') }}
                   </button>
                 </div>
                 <div class="sandbox-choices" role="radiogroup" aria-labelledby="sandbox-label">
                   <label class="sandbox-choice" :class="{ active: settings.codeSandbox === 'process' }">
                     <input type="radio" name="code-sandbox" value="process" :checked="settings.codeSandbox === 'process'" :disabled="savingSetting === 'codeSandbox'" @change="chooseSandbox('process')" />
                     <span class="grow">
-                      <strong>Proceso aislado</strong>
-                      <span class="muted small">
-                        Un proceso aparte de <Term id="nodejs">Node.js</Term> sin acceso a archivos ni a otros programas. No necesita instalar nada.
-                      </span>
+                      <strong>{{ t('settings.exec.sandbox.processTitle') }}</strong>
+                      <i18n-t keypath="settings.exec.sandbox.processText" tag="span" class="muted small" scope="global">
+                        <template #node><Term id="nodejs">Node.js</Term></template>
+                      </i18n-t>
                       <span v-if="sandbox" class="sandbox-status small" role="status">
                         <template v-if="sandbox.process.networkBlocked">
-                          <span class="dot success" aria-hidden="true" /> Sin red (comprobado con una conexión real al arrancar).
+                          <span class="dot success" aria-hidden="true" /> {{ t('settings.exec.sandbox.processNoNetwork') }}
                         </template>
                         <template v-else>
-                          <span class="dot danger" aria-hidden="true" /> Este equipo no ha podido cortar la red del proceso: usa el contenedor para código no confiable.
+                          <span class="dot danger" aria-hidden="true" /> {{ t('settings.exec.sandbox.processNetworkOpen') }}
                         </template>
                       </span>
                     </span>
@@ -609,27 +617,23 @@ async function clearFinished(): Promise<void> {
                       @change="chooseSandbox('container')"
                     />
                     <span class="grow">
-                      <strong>Contenedor</strong>
-                      <span class="muted small">
-                        Un <Term id="contenedor">contenedor</Term> sin red, de solo lectura y sin privilegios. El aislamiento lo impone el sistema operativo:
-                        es la opción recomendada para código en el que no confíes.
-                      </span>
+                      <strong>{{ t('settings.exec.sandbox.containerTitle') }}</strong>
+                      <i18n-t keypath="settings.exec.sandbox.containerText" tag="span" class="muted small" scope="global">
+                        <template #container><Term id="contenedor">{{ t('settings.exec.sandbox.containerTerm') }}</Term></template>
+                      </i18n-t>
                       <span v-if="sandbox" class="sandbox-status small" role="status">
                         <template v-if="sandbox.container.available">
-                          <span class="dot success" aria-hidden="true" /> {{ ENGINE_LABEL[sandbox.container.engine!] }} {{ sandbox.container.version }} disponible.
+                          <span class="dot success" aria-hidden="true" /> {{ t('settings.exec.sandbox.engineAvailable', { engine: ENGINE_LABEL[sandbox.container.engine!], version: sandbox.container.version }) }}
                         </template>
-                        <template v-else><span class="dot" aria-hidden="true" /> No disponible: {{ sandbox.container.error }}</template>
+                        <template v-else><span class="dot" aria-hidden="true" /> {{ t('settings.exec.sandbox.containerUnavailable', { error: sandbox.container.error }) }}</template>
                       </span>
-                      <span v-else class="sandbox-status small muted">Comprobando…</span>
+                      <span v-else class="sandbox-status small muted">{{ t('settings.providers.status.checking') }}</span>
                     </span>
                   </label>
                 </div>
                 <div v-if="settings.codeSandbox === 'process'" class="callout warning">
                   <ShieldAlert />
-                  <span>
-                    El proceso aislado no puede leer ni escribir archivos, lanzar programas ni usar la red, pero no es una barrera del sistema
-                    operativo. Úsalo con modelos y entradas en los que confíes.
-                  </span>
+                  <span>{{ t('settings.exec.sandbox.warning') }}</span>
                 </div>
               </div>
             </div>
@@ -648,60 +652,60 @@ async function clearFinished(): Promise<void> {
       <!-- Copias de seguridad -->
       <section class="card" aria-labelledby="sec-backups">
         <div class="card-head backups-head">
-          <h2 id="sec-backups"><Archive style="width: 16px; height: 16px" /> Copias de seguridad</h2>
+          <h2 id="sec-backups"><Archive style="width: 16px; height: 16px" /> {{ t('settings.backups.title') }}</h2>
           <div class="row" style="gap: 8px; flex-wrap: wrap">
-            <input ref="uploadInput" type="file" accept=".afbackup" class="sr-only" aria-label="Archivo de copia de seguridad" tabindex="-1" @change="uploadBackup" />
+            <input ref="uploadInput" type="file" accept=".afbackup" class="sr-only" :aria-label="t('settings.backups.fileInputLabel')" tabindex="-1" @change="uploadBackup" />
             <button class="btn btn-sm" type="button" :disabled="backupBusy !== null" @click="uploadInput?.click()">
-              <LoaderCircle v-if="backupBusy === 'upload'" class="spin" /><Upload v-else /> Añadir desde archivo
+              <LoaderCircle v-if="backupBusy === 'upload'" class="spin" /><Upload v-else /> {{ t('settings.backups.addFromFile') }}
             </button>
             <button class="btn btn-primary btn-sm" type="button" :disabled="backupBusy !== null" @click="createBackup">
-              <LoaderCircle v-if="backupBusy === 'create'" class="spin" /><Plus v-else /> Crear copia
+              <LoaderCircle v-if="backupBusy === 'create'" class="spin" /><Plus v-else /> {{ t('settings.backups.create') }}
             </button>
           </div>
         </div>
         <div class="card-pad col" style="gap: 12px">
-          <p class="muted small" style="margin: 0">
-            Una <Term id="copia-seguridad">copia de seguridad</Term> guarda en un solo archivo la <Term id="base-datos">base de datos</Term>, la clave con la que se
-            cifran las API keys y los archivos del espacio de trabajo. Se puede crear con ejecuciones en curso. Guárdala en un lugar seguro: quien tenga el
-            archivo puede leer tus claves.
-          </p>
+          <i18n-t keypath="settings.backups.description" tag="p" class="muted small" style="margin: 0" scope="global">
+            <template #backup><Term id="copia-seguridad">{{ t('settings.backups.descriptionBackup') }}</Term></template>
+            <template #database><Term id="base-datos">{{ t('settings.backups.descriptionDatabase') }}</Term></template>
+          </i18n-t>
           <div v-if="backups?.pending" class="callout warning" role="status">
             <History />
-            <span class="grow">
-              <strong>Restauración preparada.</strong> Al reiniciar AgentForge, los datos se sustituirán por los de la copia del
-              {{ formatDateTime(backups.pending.manifest.createdAt) }}. Hasta entonces no cambia nada.
-            </span>
-            <button class="btn btn-sm" type="button" :disabled="backupBusy !== null" @click="cancelRestore">Cancelar restauración</button>
+            <i18n-t keypath="settings.backups.pending" tag="span" class="grow" scope="global">
+              <template #title><strong>{{ t('settings.backups.pendingTitle') }}</strong></template>
+              <template #date>{{ formatDateTime(backups.pending.manifest.createdAt) }}</template>
+            </i18n-t>
+            <button class="btn btn-sm" type="button" :disabled="backupBusy !== null" @click="cancelRestore">{{ t('settings.backups.cancelRestore') }}</button>
           </div>
           <div v-else-if="backups?.lastRestore" class="callout" role="status">
             <History />
-            <span class="restore-note">
-              Se restauró la copia del {{ formatDateTime(backups.lastRestore.manifest.createdAt) }} el {{ formatDateTime(backups.lastRestore.appliedAt) }}. Los datos que había antes
-              están en <code>{{ backups.lastRestore.replacedDir }}</code>.
-            </span>
+            <i18n-t keypath="settings.backups.lastRestore" tag="span" class="restore-note" scope="global">
+              <template #created>{{ formatDateTime(backups.lastRestore.manifest.createdAt) }}</template>
+              <template #applied>{{ formatDateTime(backups.lastRestore.appliedAt) }}</template>
+              <template #dir><code>{{ backups.lastRestore.replacedDir }}</code></template>
+            </i18n-t>
           </div>
           <div v-if="!backups" class="skeleton" style="height: 44px" />
-          <p v-else-if="!backups.backups.length" class="muted" style="margin: 0">Todavía no hay ninguna copia de seguridad.</p>
-          <ul v-else class="backup-list" aria-label="Copias de seguridad guardadas">
+          <p v-else-if="!backups.backups.length" class="muted" style="margin: 0">{{ t('settings.backups.none') }}</p>
+          <ul v-else class="backup-list" :aria-label="t('settings.backups.listLabel')">
             <li v-for="backup in backups.backups" :key="backup.name" class="backup">
               <div class="grow" style="min-width: 0">
                 <div class="backup-title">
                   {{ formatDateTime(backup.createdAt) }}
-                  <span v-if="backup.name.includes('importada')" class="badge neutral">añadida</span>
+                  <span v-if="backup.name.includes('importada')" class="badge neutral">{{ t('settings.backups.added') }}</span>
                   <span class="muted small num">{{ formatBytes(backup.sizeBytes) }}</span>
                 </div>
                 <div class="muted small">{{ backupSummary(backup) }}</div>
               </div>
               <div class="row" style="gap: 6px; flex-wrap: wrap">
-                <a class="btn btn-sm" :href="api.backups.downloadUrl(backup.name)" :download="backup.name"><Download /> Descargar</a>
+                <a class="btn btn-sm" :href="api.backups.downloadUrl(backup.name)" :download="backup.name"><Download /> {{ t('settings.backups.download') }}</a>
                 <button class="btn btn-sm" type="button" :disabled="backupBusy !== null || !backup.manifest" @click="restoreBackup(backup)">
-                  <LoaderCircle v-if="backupBusy === backup.name" class="spin" /><History v-else /> Restaurar
+                  <LoaderCircle v-if="backupBusy === backup.name" class="spin" /><History v-else /> {{ t('settings.backups.restore') }}
                 </button>
                 <button
                   class="btn btn-ghost btn-sm btn-icon"
                   type="button"
-                  :aria-label="`Eliminar la copia del ${formatDateTime(backup.createdAt)}`"
-                  title="Eliminar"
+                  :aria-label="t('settings.backups.deleteDated', { date: formatDateTime(backup.createdAt) })"
+                  :title="t('common.actions.delete')"
                   :disabled="backupBusy !== null"
                   @click="removeBackup(backup)"
                 >
@@ -717,8 +721,8 @@ async function clearFinished(): Promise<void> {
         <!-- 3. Datos -->
         <section class="card" aria-labelledby="sec-data">
           <div class="card-head">
-            <h2 id="sec-data"><Database style="width: 16px; height: 16px" /> Datos</h2>
-            <button class="btn btn-ghost btn-sm btn-icon" type="button" aria-label="Actualizar cifras" title="Actualizar" :disabled="refreshingStats" @click="refreshStats">
+            <h2 id="sec-data"><Database style="width: 16px; height: 16px" /> {{ t('settings.data.title') }}</h2>
+            <button class="btn btn-ghost btn-sm btn-icon" type="button" :aria-label="t('settings.data.refreshLabel')" :title="t('common.actions.refresh')" :disabled="refreshingStats" @click="refreshStats">
               <RefreshCw :class="{ spin: refreshingStats }" />
             </button>
           </div>
@@ -729,18 +733,18 @@ async function clearFinished(): Promise<void> {
           </div>
           <template v-else>
             <dl class="facts">
-              <div><dt><Term id="base-datos">Base de datos</Term></dt><dd class="num">{{ formatBytes(stats.system.dbSizeBytes) }}</dd></div>
-              <div><dt>Ejecuciones guardadas</dt><dd class="num">{{ formatNumber(stats.counts.runs) }}</dd></div>
-              <div><dt>Terminadas</dt><dd class="num">{{ formatNumber(finishedRuns) }}</dd></div>
-              <div class="wide"><dt>Carpeta de datos</dt><dd class="mono path" :title="stats.system.dataDir">{{ stats.system.dataDir }}</dd></div>
+              <div><dt><Term id="base-datos">{{ t('settings.data.database') }}</Term></dt><dd class="num">{{ formatBytes(stats.system.dbSizeBytes) }}</dd></div>
+              <div><dt>{{ t('settings.data.savedRuns') }}</dt><dd class="num">{{ formatNumber(stats.counts.runs) }}</dd></div>
+              <div><dt>{{ t('settings.data.finished') }}</dt><dd class="num">{{ formatNumber(finishedRuns) }}</dd></div>
+              <div class="wide"><dt>{{ t('settings.data.dataDir') }}</dt><dd class="mono path" :title="stats.system.dataDir">{{ stats.system.dataDir }}</dd></div>
             </dl>
             <div class="options retention">
               <div class="option">
                 <div class="grow">
-                  <label class="o-title" for="set-retention-days">Conservar el historial (días)</label>
-                  <p class="muted small">
-                    Las <Term id="ejecucion">ejecuciones</Term> terminadas hace más días se borran solas, con sus pasos y eventos. 0 = sin límite.
-                  </p>
+                  <label class="o-title" for="set-retention-days">{{ t('settings.data.retentionDays.label') }}</label>
+                  <i18n-t keypath="settings.data.retentionDays.description" tag="p" class="muted small" scope="global">
+                    <template #runs><Term id="ejecucion">{{ t('settings.data.retentionDays.runs') }}</Term></template>
+                  </i18n-t>
                 </div>
                 <input
                   id="set-retention-days"
@@ -757,8 +761,8 @@ async function clearFinished(): Promise<void> {
               </div>
               <div class="option">
                 <div class="grow">
-                  <label class="o-title" for="set-retention-runs">Máximo de ejecuciones guardadas</label>
-                  <p class="muted small">Al superarlo se borran las terminadas más antiguas. Las que están en curso no cuentan. 0 = sin límite.</p>
+                  <label class="o-title" for="set-retention-runs">{{ t('settings.data.retentionRuns.label') }}</label>
+                  <p class="muted small">{{ t('settings.data.retentionRuns.description') }}</p>
                 </div>
                 <input
                   id="set-retention-runs"
@@ -775,9 +779,9 @@ async function clearFinished(): Promise<void> {
               </div>
             </div>
             <div class="card-foot">
-              <p class="muted small grow">Borra el historial de ejecuciones completadas, fallidas y canceladas. Agentes y workflows no se tocan.</p>
+              <p class="muted small grow">{{ t('settings.data.clearHint') }}</p>
               <button class="btn btn-danger" type="button" :disabled="clearing || !finishedRuns" @click="clearFinished">
-                <LoaderCircle v-if="clearing" class="spin" /><Trash2 v-else /> Eliminar ejecuciones terminadas
+                <LoaderCircle v-if="clearing" class="spin" /><Trash2 v-else /> {{ t('settings.data.deleteFinished') }}
               </button>
             </div>
           </template>
@@ -786,7 +790,7 @@ async function clearFinished(): Promise<void> {
         <!-- 4. Sistema -->
         <section class="card" aria-labelledby="sec-system">
           <div class="card-head">
-            <h2 id="sec-system"><Cpu style="width: 16px; height: 16px" /> Sistema</h2>
+            <h2 id="sec-system"><Cpu style="width: 16px; height: 16px" /> {{ t('settings.system.title') }}</h2>
           </div>
           <div v-if="!stats" class="card-pad col">
             <div class="skeleton" style="height: 18px" />
@@ -794,11 +798,11 @@ async function clearFinished(): Promise<void> {
             <div class="skeleton" style="height: 18px" />
           </div>
           <dl v-else class="facts">
-            <div><dt>Versión de AgentForge</dt><dd class="num">{{ stats.system.version }}</dd></div>
+            <div><dt>{{ t('settings.system.version') }}</dt><dd class="num">{{ stats.system.version }}</dd></div>
             <div><dt><Term id="nodejs">Node.js</Term></dt><dd class="num">{{ stats.system.nodeVersion }}</dd></div>
-            <div><dt>Tiempo en marcha</dt><dd class="num">{{ formatUptime(stats.system.uptimeSec) }}</dd></div>
-            <div><dt>Memoria del servidor</dt><dd class="num">{{ formatNumber(stats.system.memoryMb) }} MB</dd></div>
-            <div class="wide"><dt>Plataforma</dt><dd>{{ stats.system.platform }}</dd></div>
+            <div><dt>{{ t('settings.system.uptime') }}</dt><dd class="num">{{ formatUptime(stats.system.uptimeSec) }}</dd></div>
+            <div><dt>{{ t('settings.system.memory') }}</dt><dd class="num">{{ formatNumber(stats.system.memoryMb) }} MB</dd></div>
+            <div class="wide"><dt>{{ t('settings.system.platform') }}</dt><dd>{{ stats.system.platform }}</dd></div>
           </dl>
         </section>
       </div>

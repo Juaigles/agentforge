@@ -3,6 +3,7 @@
 import type { JsonSchemaProp, ToolInfo } from '@shared/types';
 import { CircleAlert, CircleCheck, LoaderCircle, Play } from 'lucide-vue-next';
 import { computed, reactive, ref } from 'vue';
+import { t } from '@/i18n';
 import { api, errorText, type ToolInvokeResult } from '@/lib/api';
 import { formatDuration } from '@/lib/format';
 import AppModal from './AppModal.vue';
@@ -66,24 +67,24 @@ function buildArgs(): Record<string, unknown> | null {
     const raw = texts[f.name] ?? '';
     if (raw.trim() === '') {
       // Los parámetros opcionales vacíos no se envían; los obligatorios los valida el servidor.
-      if (f.required && f.kind !== 'text' && f.kind !== 'long') fieldErrors[f.name] = 'Este parámetro es obligatorio.';
+      if (f.required && f.kind !== 'text' && f.kind !== 'long') fieldErrors[f.name] = t('toolTest.errors.required');
       else if (f.required) args[f.name] = raw;
       continue;
     }
     if (f.kind === 'number') {
       const n = Number(raw.replace(',', '.'));
-      if (!Number.isFinite(n)) fieldErrors[f.name] = 'Debe ser un número.';
-      else if (f.prop.type === 'integer' && !Number.isInteger(n)) fieldErrors[f.name] = 'Debe ser un número entero.';
+      if (!Number.isFinite(n)) fieldErrors[f.name] = t('toolTest.errors.notNumber');
+      else if (f.prop.type === 'integer' && !Number.isInteger(n)) fieldErrors[f.name] = t('toolTest.errors.notInteger');
       else args[f.name] = n;
     } else if (f.kind === 'json') {
       try {
         const parsed: unknown = JSON.parse(raw);
         const isArray = Array.isArray(parsed);
         if (f.prop.type === 'array' ? !isArray : typeof parsed !== 'object' || parsed === null || isArray) {
-          fieldErrors[f.name] = f.prop.type === 'array' ? 'Debe ser una lista JSON: [ … ]' : 'Debe ser un objeto JSON: { … }';
+          fieldErrors[f.name] = t(f.prop.type === 'array' ? 'toolTest.errors.notArray' : 'toolTest.errors.notObject');
         } else args[f.name] = parsed;
       } catch {
-        fieldErrors[f.name] = 'JSON no válido.';
+        fieldErrors[f.name] = t('toolTest.errors.invalidJson');
       }
     } else if (f.kind === 'enum') {
       const match = f.prop.enum!.find((v) => String(v) === raw);
@@ -108,29 +109,31 @@ async function run(): Promise<void> {
   }
 }
 
-const TYPE_LABEL: Record<JsonSchemaProp['type'], string> = {
-  string: 'texto',
-  number: 'número',
-  integer: 'entero',
-  boolean: 'sí/no',
-  object: 'objeto JSON',
-  array: 'lista JSON',
+// Se guardan las claves, no los textos: así el idioma puede cambiar sin recargar.
+const TYPE_KEY: Record<JsonSchemaProp['type'], string> = {
+  string: 'toolTest.type.string',
+  number: 'toolTest.type.number',
+  integer: 'toolTest.type.integer',
+  boolean: 'toolTest.type.boolean',
+  object: 'toolTest.type.object',
+  array: 'toolTest.type.array',
 };
 </script>
 
 <template>
-  <AppModal :title="`Probar ${tool.title}`" :width="640" @close="emit('close')">
+  <AppModal :title="t('toolTest.title', { title: tool.title })" :width="640" @close="emit('close')">
     <form class="col" style="gap: 14px" @submit.prevent="run">
-      <p class="muted small">
-        Se ejecuta la <Term id="herramienta">herramienta</Term> real <code>{{ tool.name }}</code> en el servidor, con los ajustes de seguridad actuales.
-      </p>
+      <i18n-t keypath="toolTest.intro" tag="p" class="muted small" scope="global">
+        <template #tool><Term id="herramienta">{{ t('toolTest.introTool') }}</Term></template>
+        <template #name><code>{{ tool.name }}</code></template>
+      </i18n-t>
 
-      <p v-if="!fields.length" class="faint small">Esta herramienta no necesita parámetros.</p>
+      <p v-if="!fields.length" class="faint small">{{ t('toolTest.noParams') }}</p>
 
       <div v-for="f in fields" :key="f.name" class="field">
         <label v-if="f.kind !== 'boolean'" :for="`tt-${f.name}`">
           <code>{{ f.name }}</code>
-          <span class="faint tiny">{{ TYPE_LABEL[f.prop.type] ?? 'valor' }}{{ f.required ? ' · obligatorio' : '' }}</span>
+          <span class="faint tiny">{{ t(TYPE_KEY[f.prop.type] ?? 'toolTest.type.other') }}{{ f.required ? ` · ${t('toolTest.required')}` : '' }}</span>
         </label>
 
         <label v-if="f.kind === 'boolean'" class="check">
@@ -141,7 +144,7 @@ const TYPE_LABEL: Record<JsonSchemaProp['type'], string> = {
           </span>
         </label>
         <select v-else-if="f.kind === 'enum'" :id="`tt-${f.name}`" v-model="texts[f.name]" class="select" :aria-invalid="!!fieldErrors[f.name]">
-          <option v-if="!f.required || f.prop.default === undefined" value="">{{ f.required ? 'Selecciona…' : '(por defecto)' }}</option>
+          <option v-if="!f.required || f.prop.default === undefined" value="">{{ f.required ? t('toolTest.select') : t('toolTest.useDefault') }}</option>
           <option v-for="opt in f.prop.enum" :key="String(opt)" :value="String(opt)">{{ opt }}</option>
         </select>
         <input
@@ -177,19 +180,19 @@ const TYPE_LABEL: Record<JsonSchemaProp['type'], string> = {
         <div class="row between wrap">
           <span class="badge" :class="result.ok ? 'success' : 'danger'">
             <component :is="result.ok ? CircleCheck : CircleAlert" />
-            {{ result.ok ? 'Ejecutada correctamente' : 'La herramienta devolvió un error' }}
+            {{ result.ok ? t('toolTest.result.ok') : t('toolTest.result.failed') }}
           </span>
           <span class="tiny faint num">{{ formatDuration(result.durationMs) }}</span>
         </div>
-        <pre class="codeblock" :class="{ bad: !result.ok }">{{ result.ok ? result.result || '(resultado vacío)' : result.error }}</pre>
+        <pre class="codeblock" :class="{ bad: !result.ok }">{{ result.ok ? result.result || t('toolTest.result.empty') : result.error }}</pre>
       </section>
     </form>
 
     <template #footer>
-      <button class="btn" type="button" @click="emit('close')">Cerrar</button>
+      <button class="btn" type="button" @click="emit('close')">{{ t('common.actions.close') }}</button>
       <button class="btn btn-primary" type="button" :disabled="running" @click="run">
         <LoaderCircle v-if="running" class="spin" /><Play v-else />
-        {{ running ? 'Ejecutando…' : 'Ejecutar' }}
+        {{ running ? t('toolTest.running') : t('common.actions.run') }}
       </button>
     </template>
   </AppModal>

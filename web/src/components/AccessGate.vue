@@ -4,6 +4,7 @@
 import { KeyRound, LoaderCircle } from 'lucide-vue-next';
 import { nextTick, onMounted, ref } from 'vue';
 import Term from '@/components/Term.vue';
+import { t } from '@/i18n';
 import { api, errorText } from '@/lib/api';
 
 const token = ref('');
@@ -15,7 +16,7 @@ onMounted(() => input.value?.focus());
 
 async function submit(): Promise<void> {
   if (!token.value.trim()) {
-    error.value = 'Escribe la clave de acceso.';
+    error.value = t('accessGate.empty');
     return;
   }
   sending.value = true;
@@ -39,12 +40,12 @@ async function submit(): Promise<void> {
     <form class="card gate-card" novalidate @submit.prevent="submit">
       <div class="gate-icon" aria-hidden="true"><KeyRound /></div>
       <h1>AgentForge</h1>
-      <p class="muted">
-        Este servidor exige una <Term id="clave-acceso">clave de acceso</Term>. Es la que se definió al arrancarlo, en la variable
-        <code>AGENTFORGE_TOKEN</code>.
-      </p>
+      <i18n-t keypath="accessGate.intro" tag="p" class="muted" scope="global">
+        <template #key><Term id="clave-acceso">{{ t('accessGate.introKey') }}</Term></template>
+        <template #variable><code>AGENTFORGE_TOKEN</code></template>
+      </i18n-t>
       <div class="field">
-        <label for="gate-token">Clave de acceso</label>
+        <label for="gate-token">{{ t('accessGate.label') }}</label>
         <input
           id="gate-token"
           ref="input"
@@ -59,7 +60,7 @@ async function submit(): Promise<void> {
       </div>
       <button class="btn btn-primary" type="submit" :disabled="sending">
         <LoaderCircle v-if="sending" class="spin" />
-        {{ sending ? 'Comprobando…' : 'Entrar' }}
+        {{ sending ? t('accessGate.checking') : t('accessGate.enter') }}
       </button>
     </form>
   </main>

@@ -2,6 +2,7 @@
 import type { RunSummary } from '@shared/types';
 import { defineStore } from 'pinia';
 import { computed, ref, shallowRef } from 'vue';
+import { t } from '@/i18n';
 import { isActiveStatus } from '@/lib/format';
 import { useUi } from './ui';
 
@@ -30,9 +31,9 @@ export const useRuns = defineStore('runs', () => {
     if (!notify || !previous || !isActiveStatus(previous.status) || isActiveStatus(run.status)) return;
     if (watching.value === run.id) return;
     const ui = useUi();
-    const action = { label: 'Ver', to: `/runs/${run.id}` };
-    if (run.status === 'completed') ui.success(`«${run.name}» ha terminado.`, action);
-    else if (run.status === 'failed') ui.toast('danger', `«${run.name}» ha fallado.`, action);
+    const action = { label: t('runs.toast.view'), to: `/runs/${run.id}` };
+    if (run.status === 'completed') ui.success(t('runs.toast.finished', { name: run.name }), action);
+    else if (run.status === 'failed') ui.toast('danger', t('runs.toast.failed', { name: run.name }), action);
   }
 
   /** Registra ejecuciones obtenidas por REST (p. ej. las activas al cargar la página). */

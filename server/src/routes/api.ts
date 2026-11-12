@@ -77,8 +77,10 @@ const SSE_REPLAY_BATCH = 500;
 
 const idOf = (req: FastifyRequest): string => (req.params as { id: string }).id;
 
+/** Sustantivos femeninos entre lo que se puede no encontrar (concordancia del mensaje). */
+const FEMININE = new Set(['Ejecución', 'Herramienta']);
 function notFound(what: string): never {
-  throw new HttpError(404, `${what} no encontrado.`);
+  throw new HttpError(404, `${what} no ${FEMININE.has(what) ? 'encontrada' : 'encontrado'}.`);
 }
 
 /** Abre una respuesta SSE y devuelve funciones para enviar eventos y registrar la limpieza. */

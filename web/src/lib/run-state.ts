@@ -1,4 +1,5 @@
 // Estado en vivo de una ejecución, reconstruido a partir de sus eventos (reductor puro).
+import { t } from '@/i18n';
 import { ZERO_USAGE, type Run, type RunEvent, type RunStatus, type RunStep, type Usage } from '@shared/types';
 
 export interface StepLive extends RunStep {
@@ -191,10 +192,11 @@ export type ActivityItem =
   | { kind: 'message'; key: string; ts: string; nodeId: string | null; agent: string; depth: number; content: string; thinking?: string; tokens: number; toolCount: number }
   | { kind: 'tool'; key: string; ts: string; nodeId: string | null; agent?: string; depth: number; name: string; args: unknown; pending: boolean; ok: boolean; result: string; durationMs: number | null };
 
-const STEP_END_TEXT: Record<string, string> = {
-  completed: 'Paso completado',
-  failed: 'Paso fallido',
-  cancelled: 'Paso cancelado',
+/** Clave del texto con que se cierra un paso, según cómo terminó. */
+const STEP_END_KEY: Record<string, string> = {
+  completed: 'runState.stepCompleted',
+  failed: 'runState.stepFailed',
+  cancelled: 'runState.stepCancelled',
 };
 
 /** Convierte los eventos en elementos legibles, emparejando cada llamada a herramienta con su resultado. */
@@ -207,55 +209,55 @@ export function buildActivity(events: RunEvent[], nodeId?: string | null): Activ
     const base = { key: `e${ev.seq}`, ts: ev.ts, nodeId: ev.nodeId };
     switch (ev.type) {
       case 'run.started':
-        items.push({ ...base, kind: 'marker', tone: 'info', text: 'Ejecución iniciada' });
+        items.push({ ...base, kind: 'marker', tone: 'info', text: t('runState.runStarted') });
         break;
       case 'run.finished':
         items.push({
           ...base,
           kind: 'marker',
           tone: d.status === 'completed' ? 'success' : d.status === 'failed' ? 'danger' : 'warning',
-          text: d.status === 'completed' ? 'Ejecución completada' : d.status === 'failed' ? 'Ejecución fallida' : 'Ejecución cancelada',
+          text: t(d.status === 'completed' ? 'runState.runCompleted' : d.status === 'failed' ? 'runState.runFailed' : 'runState.runCancelled'),
           detail: d.error ?? undefined,
         });
         break;
       case 'step.started':
-        if (d.attempt > 1) items.push({ ...base, kind: 'marker', tone: 'info', text: `Intento ${d.attempt} de ${d.maxAttempts}` });
-        else items.push({ ...base, kind: 'marker', tone: 'info', text: 'Paso iniciado' });
+        if (d.attempt > 1) items.push({ ...base, kind: 'marker', tone: 'info', text: t('runState.attempt', { attempt: d.attempt, max: d.maxAttempts }) });
+        else items.push({ ...base, kind: 'marker', tone: 'info', text: t('runState.stepStarted') });
         break;
       case 'step.finished':
         items.push({
           ...base,
           kind: 'marker',
           tone: d.status === 'completed' ? 'success' : d.status === 'failed' ? 'danger' : 'warning',
-          text: STEP_END_TEXT[d.status] ?? d.status,
+          text: STEP_END_KEY[d.status] ? t(STEP_END_KEY[d.status]) : d.status,
           detail: d.error ?? undefined,
         });
         break;
       case 'step.retry':
-        items.push({ ...base, kind: 'marker', tone: 'warning', text: `Error en el intento ${d.attempt}; se reintenta en ${d.delayMs} ms`, detail: d.error });
+        items.push({ ...base, kind: 'marker', tone: 'warning', text: t('runState.stepRetry', { attempt: d.attempt, delay: d.delayMs }), detail: d.error });
         break;
       case 'step.skipped':
-        items.push({ ...base, kind: 'marker', tone: 'neutral', text: 'Paso omitido', detail: d.reason });
+        items.push({ ...base, kind: 'marker', tone: 'neutral', text: t('runState.stepSkipped'), detail: d.reason });
         break;
       case 'step.reused':
-        items.push({ ...base, kind: 'marker', tone: 'neutral', text: 'Resultado reutilizado de la ejecución anterior' });
+        items.push({ ...base, kind: 'marker', tone: 'neutral', text: t('runState.stepReused') });
         break;
       case 'subrun.started':
-        items.push({ ...base, kind: 'marker', tone: 'info', text: `Subworkflow «${d.name}» lanzado`, link: { to: `/runs/${d.runId}`, label: 'Ver su ejecución' } });
+        items.push({ ...base, kind: 'marker', tone: 'info', text: t('runState.subrunStarted', { name: d.name }), link: { to: `/runs/${d.runId}`, label: t('runState.subrunLink') } });
         break;
       case 'approval.requested':
-        items.push({ ...base, kind: 'marker', tone: 'warning', text: 'A la espera de una aprobación', detail: d.message });
+        items.push({ ...base, kind: 'marker', tone: 'warning', text: t('runState.approvalRequested'), detail: d.message });
         break;
       case 'approval.decided':
-        items.push({ ...base, kind: 'marker', tone: d.approved ? 'success' : 'danger', text: d.approved ? 'Aprobado' : 'Rechazado', detail: d.comment || undefined });
+        items.push({ ...base, kind: 'marker', tone: d.approved ? 'success' : 'danger', text: d.approved ? t('runState.approved') : t('runState.rejected'), detail: d.comment || undefined });
         break;
       case 'foreach.item': {
-        const which = `Elemento ${d.index + 1} de ${d.total}`;
-        if (d.status === 'started' && (d.attempt ?? 1) === 1) items.push({ ...base, kind: 'marker', tone: 'info', text: `${which} iniciado`, detail: d.item });
-        else if (d.status === 'completed') items.push({ ...base, kind: 'marker', tone: 'success', text: `${which} completado` });
-        else if (d.status === 'reused') items.push({ ...base, kind: 'marker', tone: 'neutral', text: `${which}: resultado reutilizado de la ejecución anterior`, detail: d.item });
-        else if (d.status === 'retry') items.push({ ...base, kind: 'marker', tone: 'warning', text: `${which}: error en el intento ${d.attempt}; se reintenta en ${d.delayMs} ms`, detail: d.error });
-        else if (d.status === 'failed') items.push({ ...base, kind: 'marker', tone: 'danger', text: `${which} fallido`, detail: d.error });
+        const which = { n: d.index + 1, total: d.total };
+        if (d.status === 'started' && (d.attempt ?? 1) === 1) items.push({ ...base, kind: 'marker', tone: 'info', text: t('runState.foreach.started', which), detail: d.item });
+        else if (d.status === 'completed') items.push({ ...base, kind: 'marker', tone: 'success', text: t('runState.foreach.completed', which) });
+        else if (d.status === 'reused') items.push({ ...base, kind: 'marker', tone: 'neutral', text: t('runState.foreach.reused', which), detail: d.item });
+        else if (d.status === 'retry') items.push({ ...base, kind: 'marker', tone: 'warning', text: t('runState.foreach.retry', { ...which, attempt: d.attempt, delay: d.delayMs }), detail: d.error });
+        else if (d.status === 'failed') items.push({ ...base, kind: 'marker', tone: 'danger', text: t('runState.foreach.failed', which), detail: d.error });
         break;
       }
       case 'llm.message':

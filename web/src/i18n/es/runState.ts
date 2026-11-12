@@ -1,0 +1,27 @@
+// Textos del registro de actividad que construye run-state.ts a partir de los eventos de una ejecución.
+export default {
+  runStarted: 'Ejecución iniciada',
+  runCompleted: 'Ejecución completada',
+  runFailed: 'Ejecución fallida',
+  runCancelled: 'Ejecución cancelada',
+  attempt: 'Intento {attempt} de {max}',
+  stepStarted: 'Paso iniciado',
+  stepCompleted: 'Paso completado',
+  stepFailed: 'Paso fallido',
+  stepCancelled: 'Paso cancelado',
+  stepRetry: 'Error en el intento {attempt}; se reintenta en {delay} ms',
+  stepSkipped: 'Paso omitido',
+  stepReused: 'Resultado reutilizado de la ejecución anterior',
+  subrunStarted: 'Subworkflow «{name}» lanzado',
+  subrunLink: 'Ver su ejecución',
+  approvalRequested: 'A la espera de una aprobación',
+  approved: 'Aprobado',
+  rejected: 'Rechazado',
+  foreach: {
+    started: 'Elemento {n} de {total} iniciado',
+    completed: 'Elemento {n} de {total} completado',
+    reused: 'Elemento {n} de {total}: resultado reutilizado de la ejecución anterior',
+    retry: 'Elemento {n} de {total}: error en el intento {attempt}; se reintenta en {delay} ms',
+    failed: 'Elemento {n} de {total} fallido',
+  },
+};

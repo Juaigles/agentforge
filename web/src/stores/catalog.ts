@@ -19,8 +19,10 @@ export const useCatalog = defineStore('catalog', () => {
   /** Comprueba si el servidor responde. Devuelve true si está en línea. */
   async function checkServer(): Promise<boolean> {
     try {
-      const res = await fetch('/api/health/live', { signal: AbortSignal.timeout(4000), cache: 'no-store' });
-      online.value = res.ok;
+      // Cualquier respuesta, también un 429 o un 500, significa que el servidor está ahí: «sin conexión» es
+      // solo que la petición no llegue o no vuelva a tiempo.
+      await fetch('/api/health/live', { signal: AbortSignal.timeout(4000), cache: 'no-store' });
+      online.value = true;
     } catch {
       online.value = false;
     }

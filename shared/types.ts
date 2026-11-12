@@ -1,4 +1,5 @@
 // Tipos del dominio compartidos entre el servidor y el frontend.
+import type { IssueParams, ValidationCode } from './validation-messages';
 
 // ---------- Proveedores LLM ----------
 export type ProviderKind = 'ollama' | 'openai';
@@ -274,7 +275,11 @@ export type WorkflowInput = Omit<Workflow, 'id' | 'createdAt' | 'updatedAt'>;
 export interface ValidationIssue {
   level: 'error' | 'warning';
   nodeId?: string;
+  /** Texto en español. */
   message: string;
+  /** Código y parámetros del problema, para mostrarlo en otro idioma (ver shared/validation-messages.ts). */
+  code?: ValidationCode;
+  params?: IssueParams;
 }
 
 // ---------- Ejecuciones ----------

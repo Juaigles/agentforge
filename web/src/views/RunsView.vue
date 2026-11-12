@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import StatusBadge from '@/components/StatusBadge.vue';
 import Term from '@/components/Term.vue';
+import { t, tn } from '@/i18n';
 import { api, errorText } from '@/lib/api';
 import { elapsedMs, formatCompact, formatDateTime, formatDuration, isActiveStatus, relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
@@ -14,12 +15,12 @@ import { useUi } from '@/stores/ui';
 const PAGE = 30;
 /** Máximo de filas que el servidor entrega en una petición. */
 const MAX_REFRESH = 200;
-const STATUSES: Array<{ value: RunStatus | ''; label: string }> = [
-  { value: '', label: 'Todas' },
-  { value: 'running', label: 'En curso' },
-  { value: 'completed', label: 'Completadas' },
-  { value: 'failed', label: 'Fallidas' },
-  { value: 'cancelled', label: 'Canceladas' },
+const STATUSES: Array<{ value: RunStatus | ''; labelKey: string }> = [
+  { value: '', labelKey: 'runs.filters.all' },
+  { value: 'running', labelKey: 'runs.filters.running' },
+  { value: 'completed', labelKey: 'runs.filters.completed' },
+  { value: 'failed', labelKey: 'runs.filters.failed' },
+  { value: 'cancelled', labelKey: 'runs.filters.cancelled' },
 ];
 
 const route = useRoute();
@@ -119,7 +120,7 @@ async function cancel(run: RunSummary): Promise<void> {
 }
 
 async function remove(run: RunSummary): Promise<void> {
-  const ok = await ui.confirm({ title: 'Eliminar ejecución', message: `Se eliminará la ejecución de «${run.name}» con todos sus eventos.`, confirmLabel: 'Eliminar', danger: true });
+  const ok = await ui.confirm({ title: t('runs.confirm.deleteTitle'), message: t('runs.confirm.deleteMessage', { name: run.name }), confirmLabel: t('common.actions.delete'), danger: true });
   if (!ok) return;
   try {
     await api.runs.remove(run.id);
@@ -133,15 +134,15 @@ async function remove(run: RunSummary): Promise<void> {
 
 async function clearFinished(): Promise<void> {
   const ok = await ui.confirm({
-    title: 'Vaciar historial',
-    message: 'Se eliminarán todas las ejecuciones terminadas (completadas, fallidas y canceladas). Las que están en curso no se tocan.',
-    confirmLabel: 'Eliminar terminadas',
+    title: t('runs.confirm.clearTitle'),
+    message: t('runs.confirm.clearMessage'),
+    confirmLabel: t('runs.confirm.clearConfirm'),
     danger: true,
   });
   if (!ok) return;
   try {
     const { deleted } = await api.runs.clearFinished();
-    ui.success(deleted === 1 ? '1 ejecución eliminada.' : `${deleted} ejecuciones eliminadas.`);
+    ui.success(tn('runs.toast.cleared', deleted));
     resetAndLoad();
   } catch (err) {
     ui.error(errorText(err));
@@ -153,32 +154,32 @@ async function clearFinished(): Promise<void> {
   <div class="page">
     <header class="page-header">
       <div>
-        <h1>Ejecuciones</h1>
-        <p class="subtitle">
-          Historial de cada <Term id="ejecucion">ejecución</Term> de agentes y workflows. La lista se actualiza sola mediante
-          <Term id="streaming">streaming</Term> de eventos.
-        </p>
+        <h1>{{ t('runs.title') }}</h1>
+        <i18n-t keypath="runs.subtitle" tag="p" class="subtitle" scope="global">
+          <template #run><Term id="ejecucion">{{ t('runs.subtitleRun') }}</Term></template>
+          <template #streaming><Term id="streaming">{{ t('runs.subtitleStreaming') }}</Term></template>
+        </i18n-t>
       </div>
       <div class="row">
-        <button class="btn" type="button" :disabled="loading" @click="load()"><RefreshCw :class="{ spin: loading }" /> Actualizar</button>
-        <button class="btn btn-danger" type="button" :disabled="!hasFinished" @click="clearFinished"><Trash2 /> Vaciar historial</button>
+        <button class="btn" type="button" :disabled="loading" @click="load()"><RefreshCw :class="{ spin: loading }" /> {{ t('runs.actions.refresh') }}</button>
+        <button class="btn btn-danger" type="button" :disabled="!hasFinished" @click="clearFinished"><Trash2 /> {{ t('runs.actions.clearHistory') }}</button>
       </div>
     </header>
 
     <div class="filters">
-      <div class="segmented" role="group" aria-label="Filtrar por estado">
+      <div class="segmented" role="group" :aria-label="t('runs.filters.statusLabel')">
         <button v-for="s in STATUSES" :key="s.value" type="button" :class="{ active: status === s.value }" :aria-pressed="status === s.value" @click="status = s.value">
-          {{ s.label }}
+          {{ t(s.labelKey) }}
         </button>
       </div>
-      <select v-model="kind" class="select" style="width: auto" aria-label="Filtrar por tipo">
-        <option value="">Agentes y workflows</option>
-        <option value="workflow">Solo workflows</option>
-        <option value="agent">Solo agentes</option>
+      <select v-model="kind" class="select" style="width: auto" :aria-label="t('runs.filters.kindLabel')">
+        <option value="">{{ t('runs.filters.kindAll') }}</option>
+        <option value="workflow">{{ t('runs.filters.kindWorkflows') }}</option>
+        <option value="agent">{{ t('runs.filters.kindAgents') }}</option>
       </select>
       <div class="search grow">
         <Search aria-hidden="true" />
-        <input v-model="search" class="input" type="search" placeholder="Buscar por nombre, entrada o resultado…" aria-label="Buscar ejecuciones" />
+        <input v-model="search" class="input" type="search" :placeholder="t('runs.filters.searchPlaceholder')" :aria-label="t('runs.filters.searchLabel')" />
       </div>
     </div>
 
@@ -189,20 +190,20 @@ async function clearFinished(): Promise<void> {
         <table class="table">
           <thead>
             <tr>
-              <th>Nombre</th><th>Estado</th><th>Entrada / resultado</th><th class="right">Duración</th><th class="right"><Term id="tokens">Tokens</Term></th><th class="right">Inicio</th><th><span class="sr-only">Acciones</span></th>
+              <th>{{ t('runs.table.name') }}</th><th>{{ t('runs.table.status') }}</th><th>{{ t('runs.table.inputOutput') }}</th><th class="right">{{ t('runs.table.duration') }}</th><th class="right"><Term id="tokens">{{ t('runs.table.tokens') }}</Term></th><th class="right">{{ t('runs.table.start') }}</th><th><span class="sr-only">{{ t('runs.table.actions') }}</span></th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="run in items" :key="run.id" class="clickable" @click="router.push(`/runs/${run.id}`)">
               <td>
                 <RouterLink :to="`/runs/${run.id}`" class="row name" @click.stop>
-                  <component :is="run.kind === 'workflow' ? Workflow : Bot" class="kind" :aria-label="run.kind === 'workflow' ? 'Workflow' : 'Agente'" />
+                  <component :is="run.kind === 'workflow' ? Workflow : Bot" class="kind" :aria-label="run.kind === 'workflow' ? t('runs.row.workflow') : t('runs.row.agent')" />
                   <span>
                     <strong>{{ run.name }}</strong>
-                    <span v-if="run.retryOf" class="badge" style="margin-left: 6px; height: 18px">reintento</span>
-                    <span v-if="run.parentRunId" class="badge" style="margin-left: 6px; height: 18px" title="La lanzó otro workflow como uno de sus pasos">subejecución</span>
-                    <span v-if="run.triggerKind === 'webhook'" class="badge info" style="margin-left: 6px; height: 18px" title="La lanzó una llamada a un webhook del workflow">webhook</span>
-                    <span v-else-if="run.scheduled" class="badge info" style="margin-left: 6px; height: 18px" title="La lanzó un disparador con horario del workflow">programada</span>
+                    <span v-if="run.retryOf" class="badge" style="margin-left: 6px; height: 18px">{{ t('runs.row.retry') }}</span>
+                    <span v-if="run.parentRunId" class="badge" style="margin-left: 6px; height: 18px" :title="t('runs.row.childTitle')">{{ t('runs.row.child') }}</span>
+                    <span v-if="run.triggerKind === 'webhook'" class="badge info" style="margin-left: 6px; height: 18px" :title="t('runs.row.webhookTitle')">{{ t('runs.row.webhook') }}</span>
+                    <span v-else-if="run.scheduled" class="badge info" style="margin-left: 6px; height: 18px" :title="t('runs.row.scheduledTitle')">{{ t('runs.row.scheduled') }}</span>
                   </span>
                 </RouterLink>
               </td>
@@ -216,8 +217,8 @@ async function clearFinished(): Promise<void> {
               <td class="right num">{{ formatCompact(run.usage.promptTokens + run.usage.completionTokens) }}</td>
               <td class="right muted" style="white-space: nowrap" :title="formatDateTime(run.createdAt)">{{ relativeTime(run.createdAt, now) }}</td>
               <td class="right" @click.stop>
-                <button v-if="isActiveStatus(run.status)" class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Cancelar ${run.name}`" title="Cancelar" @click="cancel(run)"><Square /></button>
-                <button v-else class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="`Eliminar ejecución de ${run.name}`" title="Eliminar" @click="remove(run)"><Trash2 /></button>
+                <button v-if="isActiveStatus(run.status)" class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('runs.row.cancelLabel', { name: run.name })" :title="t('common.actions.cancel')" @click="cancel(run)"><Square /></button>
+                <button v-else class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('runs.row.deleteLabel', { name: run.name })" :title="t('common.actions.delete')" @click="remove(run)"><Trash2 /></button>
               </td>
             </tr>
           </tbody>
@@ -227,20 +228,23 @@ async function clearFinished(): Promise<void> {
       <div v-else class="empty">
         <Activity />
         <template v-if="filtered">
-          <h3>Ninguna ejecución coincide con el filtro</h3>
-          <button class="btn" type="button" @click="((status = ''), (kind = ''), (search = ''))">Quitar filtros</button>
+          <h3>{{ t('runs.empty.noMatch') }}</h3>
+          <button class="btn" type="button" @click="((status = ''), (kind = ''), (search = ''))">{{ t('runs.empty.clearFilters') }}</button>
         </template>
         <template v-else>
-          <h3>Aún no hay ejecuciones</h3>
-          <p>Prueba un <Term id="agente">agente</Term> desde su ficha o lanza un <Term id="workflow">workflow</Term>: su progreso aparecerá aquí en tiempo real.</p>
-          <RouterLink class="btn btn-primary" to="/workflows">Ir a workflows</RouterLink>
+          <h3>{{ t('runs.empty.none') }}</h3>
+          <i18n-t keypath="runs.empty.noneText" tag="p" scope="global">
+            <template #agent><Term id="agente">{{ t('runs.empty.noneAgent') }}</Term></template>
+            <template #workflow><Term id="workflow">{{ t('runs.empty.noneWorkflow') }}</Term></template>
+          </i18n-t>
+          <RouterLink class="btn btn-primary" to="/workflows">{{ t('runs.empty.goToWorkflows') }}</RouterLink>
         </template>
       </div>
     </section>
 
     <div v-if="items.length" class="row between" style="margin-top: 12px">
-      <span class="small muted" role="status">Mostrando {{ items.length }} de {{ capped ? 'más de ' : '' }}{{ total }}{{ capped ? ' (las coincidencias más recientes)' : '' }}</span>
-      <button v-if="items.length < total" class="btn" type="button" :disabled="loadingMore" @click="load(false)">{{ loadingMore ? 'Cargando…' : 'Cargar más' }}</button>
+      <span class="small muted" role="status">{{ t(capped ? 'runs.footer.showingCapped' : 'runs.footer.showing', { n: items.length, total }) }}</span>
+      <button v-if="items.length < total" class="btn" type="button" :disabled="loadingMore" @click="load(false)">{{ loadingMore ? t('common.actions.loading') : t('runs.footer.loadMore') }}</button>
     </div>
   </div>
 </template>

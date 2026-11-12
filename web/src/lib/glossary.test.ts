@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { GLOSSARY, glossaryEntries } from './glossary';
+import { setLocale } from '@/i18n';
+import { GLOSSARY, GLOSSARY_EN, glossaryEntries } from './glossary';
 
 const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -87,5 +88,31 @@ describe('glosario', () => {
     expect(new Set(terms).size).toBe(terms.length);
     // La página Glosario los lista por orden alfabético.
     expect(terms).toEqual([...terms].sort((a, b) => a.localeCompare(b, 'es')));
+  });
+
+  it('el inglés tiene exactamente los mismos ids que el español', () => {
+    expect(Object.keys(GLOSSARY_EN).sort()).toEqual(Object.keys(GLOSSARY).sort());
+  });
+
+  it('las definiciones en inglés cumplen las mismas reglas de longitud y forma', () => {
+    for (const [id, e] of Object.entries(GLOSSARY_EN)) {
+      expect(e.term.trim(), id).not.toBe('');
+      expect(e.definition.length, `${id}: definición inglesa demasiado corta`).toBeGreaterThanOrEqual(40);
+      expect(e.definition.length, `${id}: definición inglesa demasiado larga para un tooltip`).toBeLessThanOrEqual(180);
+      expect(e.definition.trim().endsWith('.') || e.definition.trim().endsWith('…'), `${id}: debe terminar en punto`).toBe(true);
+    }
+  });
+
+  it('con el idioma en inglés, la lista sale en inglés, sin términos repetidos y por orden alfabético', () => {
+    setLocale('en', false);
+    try {
+      const entries = glossaryEntries();
+      expect(entries.find((e) => e.id === 'agente')?.term).toBe('Agent');
+      const terms = entries.map((e) => e.term.toLowerCase());
+      expect(new Set(terms).size).toBe(terms.length);
+      expect(terms).toEqual([...terms].sort((a, b) => a.localeCompare(b, 'en')));
+    } finally {
+      setLocale('es', false);
+    }
   });
 });

@@ -227,6 +227,7 @@ describe('límite de tasa', () => {
     const blocked = await app.inject({ method: 'GET', url: '/api/agents' });
     expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
     expect(blocked.json().error).toMatch(/Demasiadas peticiones/);
+    expect(blocked.json().code).toBe('rate_limited');
     // La interfaz (archivos estáticos) no cuenta para el límite de la API.
     expect((await app.inject({ method: 'GET', url: '/' })).statusCode).not.toBe(429);
   });

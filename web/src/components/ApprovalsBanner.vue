@@ -4,6 +4,7 @@
 import type { Approval } from '@shared/types';
 import { Check, LoaderCircle, UserCheck, X } from 'lucide-vue-next';
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { t, tn } from '@/i18n';
 import { api, errorText } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { useRuns } from '@/stores/runs';
@@ -45,7 +46,7 @@ async function decide(approval: Approval, approved: boolean): Promise<void> {
   busy.value = approval.id;
   try {
     await api.approvals.decide(approval.id, approved, comments[approval.id] ?? '');
-    ui.success(approved ? `Aprobado: «${approval.runName}» continúa.` : `Rechazado: «${approval.runName}» sigue por la otra rama.`);
+    ui.success(t(approved ? 'approvals.toast.approved' : 'approvals.toast.rejected', { name: approval.runName }));
     delete comments[approval.id];
     pending.value = pending.value.filter((a) => a.id !== approval.id);
   } catch (err) {
@@ -63,12 +64,12 @@ const isLong = (text: string) => text.length > 280 || text.split('\n').length > 
   <section v-if="pending.length" class="approvals" aria-labelledby="approvals-title">
     <h2 id="approvals-title" class="title">
       <UserCheck aria-hidden="true" />
-      {{ pending.length === 1 ? 'Una ejecución espera tu decisión' : `${pending.length} ejecuciones esperan tu decisión` }}
+      {{ tn('approvals.title', pending.length) }}
     </h2>
-    <p class="small muted intro">
-      Un nodo de <Term id="aprobacion">aprobación</Term> ha detenido la <Term id="ejecucion">ejecución</Term> hasta que alguien decida. Mientras espera no consume tiempo ni
-      ocupa un hueco de ejecución.
-    </p>
+    <i18n-t keypath="approvals.intro" tag="p" class="small muted intro" scope="global">
+      <template #approval><Term id="aprobacion">{{ t('approvals.introApproval') }}</Term></template>
+      <template #run><Term id="ejecucion">{{ t('approvals.introRun') }}</Term></template>
+    </i18n-t>
     <ul>
       <li v-for="approval in pending" :key="approval.id" class="approval">
         <div class="head">
@@ -85,22 +86,22 @@ const isLong = (text: string) => text.length > 280 || text.split('\n').length > 
           :aria-expanded="expanded.has(approval.id)"
           @click="expanded.has(approval.id) ? expanded.delete(approval.id) : expanded.add(approval.id)"
         >
-          {{ expanded.has(approval.id) ? 'Ver menos' : 'Ver todo el texto' }}
+          {{ expanded.has(approval.id) ? t('approvals.viewLess') : t('approvals.viewAll') }}
         </button>
         <div class="decide">
-          <label class="sr-only" :for="`apr-comment-${approval.id}`">Comentario para «{{ approval.runName }}» (opcional)</label>
+          <label class="sr-only" :for="`apr-comment-${approval.id}`">{{ t('approvals.commentLabel', { name: approval.runName }) }}</label>
           <input
             :id="`apr-comment-${approval.id}`"
             v-model="comments[approval.id]"
             class="input"
             maxlength="2000"
-            placeholder="Comentario (opcional): los pasos siguientes pueden usarlo"
+            :placeholder="t('approvals.commentPlaceholder')"
             :disabled="busy === approval.id"
           />
           <button class="btn btn-primary" type="button" :disabled="busy !== null" @click="decide(approval, true)">
-            <LoaderCircle v-if="busy === approval.id" class="spin" /><Check v-else /> Aprobar
+            <LoaderCircle v-if="busy === approval.id" class="spin" /><Check v-else /> {{ t('approvals.approve') }}
           </button>
-          <button class="btn" type="button" :disabled="busy !== null" @click="decide(approval, false)"><X /> Rechazar</button>
+          <button class="btn" type="button" :disabled="busy !== null" @click="decide(approval, false)"><X /> {{ t('approvals.reject') }}</button>
         </div>
       </li>
     </ul>

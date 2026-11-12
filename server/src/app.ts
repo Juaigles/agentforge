@@ -71,7 +71,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
       return reply
         .status(429)
         .header('Retry-After', String(wait))
-        .send({ error: `Demasiadas peticiones. Vuelve a intentarlo dentro de ${wait} s.` });
+        .send({ error: `Demasiadas peticiones. Vuelve a intentarlo dentro de ${wait} s.`, code: 'rate_limited' });
     }
 
     // 4) Clave de acceso, si está configurada (obligatoria cuando el servidor escucha fuera de este equipo).
@@ -108,24 +108,29 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   });
   app.addHook('onClose', async () => unprotect?.());
 
+  // Además del texto en español, cada error lleva un `code` estable: la interfaz lo usa para mostrar los errores
+  // genéricos en el idioma del usuario (los textos concretos de validación y de proveedores van en español).
+  const codeFor = (status: number): string =>
+    status === 401 ? 'auth_required' : status === 404 ? 'not_found' : status === 413 ? 'payload_too_large' : status === 429 ? 'rate_limited' : status >= 500 ? 'internal' : 'bad_request';
   app.setErrorHandler((err: unknown, req, reply) => {
     if (err instanceof ZodError) {
       const issues = err.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
       const first = issues[0];
       return reply.status(400).send({
         error: `Datos no válidos${first ? `: ${first.path ? `${first.path}: ` : ''}${first.message}` : ''}`,
+        code: 'validation',
         issues,
       });
     }
-    if (err instanceof HttpError) return reply.status(err.status).send({ error: err.message, details: err.details });
-    if (err instanceof LlmError) return reply.status(502).send({ error: err.message });
-    if (err instanceof ToolError) return reply.status(400).send({ error: err.message });
+    if (err instanceof HttpError) return reply.status(err.status).send({ error: err.message, code: err.code ?? codeFor(err.status), details: err.details });
+    if (err instanceof LlmError) return reply.status(502).send({ error: err.message, code: 'provider_error' });
+    if (err instanceof ToolError) return reply.status(400).send({ error: err.message, code: 'tool_error' });
     // Configuración que el usuario puede arreglar (clave que no se descifra, proveedor desactivado…).
-    if (err instanceof ConfigError) return reply.status(409).send({ error: err.message });
+    if (err instanceof ConfigError) return reply.status(409).send({ error: err.message, code: 'config_error' });
     const e = err as { statusCode?: number; message?: string };
     const status = e.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 500;
     if (status >= 500) app.log.error({ err, method: req.method, url: req.url }, 'Error interno al atender una petición');
-    return reply.status(status).send({ error: status >= 500 ? 'Error interno del servidor.' : (e.message ?? 'Petición no válida.') });
+    return reply.status(status).send({ error: status >= 500 ? 'Error interno del servidor.' : (e.message ?? 'Petición no válida.'), code: codeFor(status) });
   });
 
   // ---------- Sesión ----------

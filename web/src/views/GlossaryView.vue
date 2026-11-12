@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { nextTick, onMounted, watch } from 'vue';
+import { computed, nextTick, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import { t } from '@/i18n';
 import { glossaryEntries } from '@/lib/glossary';
 
-const entries = glossaryEntries();
+const entries = computed(() => glossaryEntries());
 const route = useRoute();
 
 // El contenedor con scroll es <main>, así que el desplazamiento al término se hace a mano.
@@ -20,11 +21,8 @@ watch(() => route.hash, focusHash);
   <div class="page" style="max-width: 860px">
     <header class="page-header">
       <div>
-        <h1>Glosario</h1>
-        <p class="subtitle">
-          En toda la aplicación, las palabras con subrayado de puntos muestran su definición al pasar el ratón, al enfocarlas o al tocarlas. Aquí
-          están todas reunidas.
-        </p>
+        <h1>{{ t('glossaryView.title') }}</h1>
+        <p class="subtitle">{{ t('glossaryView.subtitle') }}</p>
       </div>
     </header>
     <section id="glosario" class="card card-pad">

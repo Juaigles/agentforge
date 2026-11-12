@@ -15,6 +15,7 @@ function syncInert(): void {
 // Diálogo modal accesible: atrapa el foco, deja inerte lo de detrás, cierra con Esc y devuelve el foco al cerrar.
 import { X } from 'lucide-vue-next';
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { t } from '@/i18n';
 import { focusableIn } from '@/lib/a11y';
 
 withDefaults(defineProps<{ title: string; width?: number }>(), { width: 560 });
@@ -79,7 +80,7 @@ onBeforeUnmount(() => {
       <div ref="panel" class="modal" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1" :style="{ maxWidth: `${width}px` }" @input="touched = true" @change="touched = true">
         <header>
           <h2>{{ title }}</h2>
-          <button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Cerrar" @click="emit('close')"><X /></button>
+          <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('common.actions.close')" @click="emit('close')"><X /></button>
         </header>
         <div class="body"><slot /></div>
         <footer v-if="$slots.footer"><slot name="footer" /></footer>

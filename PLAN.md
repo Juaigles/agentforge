@@ -176,8 +176,12 @@ reales y un commit local.
   comparación de ejecuciones y los filtros por workflow, agente y fecha; los tokens de tipografía y espaciado;
   el inspector superpuesto en ventanas estrechas; «guardar y ejecutar» en el banco de pruebas; el menú contextual
   del lienzo; y varios hallazgos medios y bajos de las dos auditorías (lista completa en `PROGRESS.md`).*
-- [ ] **F7 · Inglés además de español.** Códigos de error con parámetros desde el servidor, `vue-i18n`, formato
+- [x] **F7 · Inglés además de español.** Códigos de error con parámetros desde el servidor, `vue-i18n`, formato
   dependiente del idioma y selector de idioma.
+  *Hecho el 2026-11-12 (detalle en `PROGRESS.md`, «Hito 5 · Fase 7»). Toda la interfaz está en los dos idiomas
+  (unas 1 330 claves en 32 ámbitos), con el glosario y la validación de workflows. **Siguen solo en español** los
+  textos que escribe el servidor: mensajes concretos de error y de validación de formularios, errores de las
+  ejecuciones, títulos y descripciones de las herramientas integradas, datos de ejemplo y la documentación.*
 - [ ] **F8 · Calidad y pruebas.** ESLint y Prettier limpios; cobertura con umbrales; tests de componentes para
   `ProviderModal`, `ToolEditorModal`, `ScheduleModal` y el constructor; tests de migraciones, de saneado de
   Markdown y de los huecos altos de la auditoría; suite e2e en Firefox y WebKit; archivo de CI listo, sin publicar.

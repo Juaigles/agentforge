@@ -7,7 +7,8 @@ import AgentAvatar from '@/components/AgentAvatar.vue';
 import RunPlayground from '@/components/RunPlayground.vue';
 import Term from '@/components/Term.vue';
 import { api, ApiError, errorText } from '@/lib/api';
-import { formatBytes } from '@/lib/format';
+import { intlLocale, t } from '@/i18n';
+import { formatBytes, formatNumber } from '@/lib/format';
 import { agentDeleteMessage, workflowsUsingAgent } from '@/lib/usage';
 import { useCatalog } from '@/stores/catalog';
 import { useRuns } from '@/stores/runs';
@@ -108,7 +109,9 @@ const toolGroups = computed(() => {
   }
   return [...groups.entries()];
 });
-const unknownTools = computed(() => form.tools.filter((t) => !catalog.toolByName.has(t)));
+const unknownTools = computed(() => form.tools.filter((name) => !catalog.toolByName.has(name)));
+/** Temperatura con un decimal y la coma o el punto del idioma actual. */
+const temperatureText = computed(() => form.temperature.toLocaleString(intlLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
 
 const maxTokensText = computed({
   get: () => (form.maxTokens === null ? '' : String(form.maxTokens)),
@@ -118,9 +121,9 @@ const maxTokensText = computed({
 
 function validate(): boolean {
   const errors: Record<string, string> = {};
-  if (!form.name.trim()) errors.name = 'Ponle un nombre al agente.';
-  if (!form.providerId) errors.providerId = 'Selecciona un proveedor.';
-  if (!form.model.trim()) errors.model = 'Selecciona un modelo.';
+  if (!form.name.trim()) errors.name = t('agentEditor.validation.name');
+  if (!form.providerId) errors.providerId = t('agentEditor.validation.provider');
+  if (!form.model.trim()) errors.model = t('agentEditor.validation.model');
   fieldErrors.value = errors;
   return !Object.keys(errors).length;
 }
@@ -129,12 +132,12 @@ async function save(): Promise<boolean> {
   if (!validate()) return false;
   saving.value = true;
   try {
-    const payload: AgentInput = { ...form, tools: form.tools.filter((t) => catalog.toolByName.has(t)) };
+    const payload: AgentInput = { ...form, tools: form.tools.filter((name) => catalog.toolByName.has(name)) };
     const agent = agentId.value ? await api.agents.update(agentId.value, payload) : await api.agents.create(payload);
     catalog.setAgent(agent);
     form.tools = agent.tools;
     snapshot();
-    ui.success(`«${agent.name}» guardado.`);
+    ui.success(t('agentEditor.toast.saved', { name: agent.name }));
     if (!agentId.value) await router.replace(`/agents/${agent.id}`);
     return true;
   } catch (err) {
@@ -161,13 +164,18 @@ async function duplicate(): Promise<void> {
 
 async function remove(): Promise<void> {
   if (!agentId.value) return;
-  const ok = await ui.confirm({ title: 'Eliminar agente', message: agentDeleteMessage(form.name, workflowsUsingAgent(catalog.workflows, agentId.value)), confirmLabel: 'Eliminar agente', danger: true });
+  const ok = await ui.confirm({
+    title: t('agentEditor.confirm.deleteTitle'),
+    message: agentDeleteMessage(form.name, workflowsUsingAgent(catalog.workflows, agentId.value)),
+    confirmLabel: t('agentEditor.confirm.deleteLabel'),
+    danger: true,
+  });
   if (!ok) return;
   try {
     await api.agents.remove(agentId.value);
     catalog.dropAgent(agentId.value);
     snapshot();
-    ui.success('Agente eliminado.');
+    ui.success(t('agentEditor.toast.deleted'));
     void router.push('/agents');
   } catch (err) {
     ui.error(errorText(err));
@@ -176,12 +184,12 @@ async function remove(): Promise<void> {
 
 onBeforeRouteLeave(async () => {
   if (!dirty.value || loading.value || loadError.value) return true;
-  return ui.confirm({ title: 'Cambios sin guardar', message: 'Si sales ahora perderás los cambios de este agente.', confirmLabel: 'Salir sin guardar', danger: true });
+  return ui.confirm({ title: t('agentEditor.confirm.leaveTitle'), message: t('agentEditor.confirm.leaveMessage'), confirmLabel: t('agentEditor.confirm.leaveLabel'), danger: true });
 });
 
 const playgroundBlocked = computed(() => {
-  if (isNew.value) return 'Guarda el agente para poder probarlo.';
-  if (dirty.value) return 'Guarda los cambios para probar la versión actual.';
+  if (isNew.value) return t('agentEditor.playground.saveFirst');
+  if (dirty.value) return t('agentEditor.playground.saveChanges');
   return null;
 });
 </script>
@@ -190,18 +198,18 @@ const playgroundBlocked = computed(() => {
   <div class="page">
     <header class="page-header">
       <div class="row" style="gap: 12px; align-items: center">
-        <RouterLink class="btn btn-ghost btn-icon" to="/agents" aria-label="Volver a agentes"><ArrowLeft /></RouterLink>
-        <AgentAvatar :name="form.name || 'Nuevo'" :color="form.color" :size="40" />
+        <RouterLink class="btn btn-ghost btn-icon" to="/agents" :aria-label="t('agentEditor.backLabel')"><ArrowLeft /></RouterLink>
+        <AgentAvatar :name="form.name || t('agentEditor.avatarFallback')" :color="form.color" :size="40" />
         <div>
-          <h1>{{ form.name || (isNew ? 'Nuevo agente' : 'Agente') }}</h1>
-          <p class="subtitle" style="margin-top: 0">{{ form.role || 'Define su papel, su modelo y sus herramientas' }}</p>
+          <h1>{{ form.name || (isNew ? t('agentEditor.newTitle') : t('agentEditor.title')) }}</h1>
+          <p class="subtitle" style="margin-top: 0">{{ form.role || t('agentEditor.subtitleFallback') }}</p>
         </div>
       </div>
       <div class="row wrap">
-        <span v-if="dirty && !loading" class="badge warning">Cambios sin guardar</span>
-        <button v-if="!isNew" class="btn btn-ghost btn-icon" type="button" aria-label="Duplicar agente" title="Duplicar" @click="duplicate"><Copy /></button>
-        <button v-if="!isNew" class="btn btn-ghost btn-icon" type="button" aria-label="Eliminar agente" title="Eliminar" @click="remove"><Trash2 /></button>
-        <button class="btn btn-primary" type="button" :disabled="saving || loading || (!dirty && !isNew)" @click="save"><Save /> {{ saving ? 'Guardando…' : 'Guardar' }}</button>
+        <span v-if="dirty && !loading" class="badge warning">{{ t('agentEditor.unsaved') }}</span>
+        <button v-if="!isNew" class="btn btn-ghost btn-icon" type="button" :aria-label="t('agentEditor.duplicateLabel')" :title="t('common.actions.duplicate')" @click="duplicate"><Copy /></button>
+        <button v-if="!isNew" class="btn btn-ghost btn-icon" type="button" :aria-label="t('agentEditor.deleteLabel')" :title="t('common.actions.delete')" @click="remove"><Trash2 /></button>
+        <button class="btn btn-primary" type="button" :disabled="saving || loading || (!dirty && !isNew)" @click="save"><Save /> {{ saving ? t('common.actions.saving') : t('common.actions.save') }}</button>
       </div>
     </header>
 
@@ -211,26 +219,32 @@ const playgroundBlocked = computed(() => {
     <div v-else class="layout">
       <form class="col" style="gap: 16px" novalidate @submit.prevent="save">
         <section class="card card-pad">
-          <h2 class="section-title">Identidad</h2>
+          <h2 class="section-title">{{ t('agentEditor.identity.title') }}</h2>
           <div class="form-grid">
             <div class="field">
-              <label for="ag-name">Nombre</label>
-              <input id="ag-name" v-model="form.name" class="input" maxlength="80" placeholder="Investigador" :aria-invalid="!!fieldErrors.name" />
+              <label for="ag-name">{{ t('agentEditor.identity.name') }}</label>
+              <input id="ag-name" v-model="form.name" class="input" maxlength="80" :placeholder="t('agentEditor.identity.namePlaceholder')" :aria-invalid="!!fieldErrors.name" />
               <span v-if="fieldErrors.name" class="error">{{ fieldErrors.name }}</span>
             </div>
             <div class="field">
-              <label for="ag-role">Rol</label>
-              <input id="ag-role" v-model="form.role" class="input" maxlength="160" placeholder="especialista en recopilar hechos" />
-              <span class="hint">Se le dice al <Term id="modelo">modelo</Term>: «Eres {{ form.name || '…' }}, {{ form.role || '…' }}».</span>
+              <label for="ag-role">{{ t('agentEditor.identity.role') }}</label>
+              <input id="ag-role" v-model="form.role" class="input" maxlength="160" :placeholder="t('agentEditor.identity.rolePlaceholder')" />
+              <i18n-t keypath="agentEditor.identity.roleHint" tag="span" class="hint" scope="global">
+                <template #model><Term id="modelo">{{ t('agentEditor.identity.roleHintModel') }}</Term></template>
+                <template #name>{{ form.name || '…' }}</template>
+                <template #role>{{ form.role || '…' }}</template>
+              </i18n-t>
             </div>
             <div class="field span-2">
-              <label for="ag-desc">Descripción</label>
-              <input id="ag-desc" v-model="form.description" class="input" maxlength="1000" placeholder="Para qué sirve este agente" />
-              <span class="hint">La leen otros agentes para decidir si le encargan una tarea (<Term id="delegacion">delegación</Term>).</span>
+              <label for="ag-desc">{{ t('agentEditor.identity.description') }}</label>
+              <input id="ag-desc" v-model="form.description" class="input" maxlength="1000" :placeholder="t('agentEditor.identity.descriptionPlaceholder')" />
+              <i18n-t keypath="agentEditor.identity.descriptionHint" tag="span" class="hint" scope="global">
+                <template #delegation><Term id="delegacion">{{ t('agentEditor.identity.descriptionHintDelegation') }}</Term></template>
+              </i18n-t>
             </div>
             <div class="field span-2">
-              <span class="label">Color</span>
-              <div class="row wrap" role="radiogroup" aria-label="Color del agente">
+              <span class="label">{{ t('agentEditor.identity.color') }}</span>
+              <div class="row wrap" role="radiogroup" :aria-label="t('agentEditor.identity.colorGroup')">
                 <button
                   v-for="c in COLORS"
                   :key="c"
@@ -240,7 +254,7 @@ const playgroundBlocked = computed(() => {
                   :style="{ background: c }"
                   role="radio"
                   :aria-checked="form.color === c"
-                  :aria-label="`Color ${c}`"
+                  :aria-label="t('agentEditor.identity.colorLabel', { color: c })"
                   @click="form.color = c"
                 />
               </div>
@@ -249,110 +263,115 @@ const playgroundBlocked = computed(() => {
         </section>
 
         <section class="card card-pad">
-          <h2 class="section-title">Modelo</h2>
+          <h2 class="section-title">{{ t('agentEditor.model.title') }}</h2>
           <div v-if="!catalog.providers.length" class="callout warning">
             <TriangleAlert />
-            <div>No hay proveedores configurados. <RouterLink to="/settings">Añade uno en Ajustes</RouterLink>.</div>
+            <i18n-t keypath="agentEditor.model.noProviders" tag="div" scope="global">
+              <template #add><RouterLink to="/settings">{{ t('agentEditor.model.addOne') }}</RouterLink></template>
+            </i18n-t>
           </div>
           <div class="form-grid">
             <div class="field">
-              <label for="ag-provider"><Term id="proveedor">Proveedor</Term></label>
+              <label for="ag-provider"><Term id="proveedor">{{ t('agentEditor.model.provider') }}</Term></label>
               <select id="ag-provider" v-model="form.providerId" class="select" :aria-invalid="!!fieldErrors.providerId" @change="form.model = ''">
-                <option value="" disabled>Selecciona…</option>
-                <option v-for="p in catalog.providers" :key="p.id" :value="p.id">{{ p.name }}{{ p.enabled ? '' : ' (desactivado)' }}</option>
+                <option value="" disabled>{{ t('agentEditor.model.select') }}</option>
+                <option v-for="p in catalog.providers" :key="p.id" :value="p.id">{{ p.name }}{{ p.enabled ? '' : t('agentEditor.model.disabled') }}</option>
               </select>
               <span v-if="fieldErrors.providerId" class="error">{{ fieldErrors.providerId }}</span>
             </div>
             <div class="field">
               <label for="ag-model">
-                <Term id="modelo">Modelo</Term>
-                <button v-if="form.providerId" class="link-btn" type="button" title="Volver a cargar la lista" aria-label="Recargar modelos" @click="loadModels">
+                <Term id="modelo">{{ t('agentEditor.model.label') }}</Term>
+                <button v-if="form.providerId" class="link-btn" type="button" :title="t('agentEditor.model.reloadTitle')" :aria-label="t('agentEditor.model.reloadLabel')" @click="loadModels">
                   <RefreshCw :class="{ spin: modelsLoading }" />
                 </button>
               </label>
               <select v-if="showSelect" id="ag-model" v-model="form.model" class="select" :aria-invalid="!!fieldErrors.model">
-                <option value="" disabled>Selecciona…</option>
-                <option v-if="modelMissing" :value="form.model">{{ form.model }} (no instalado)</option>
+                <option value="" disabled>{{ t('agentEditor.model.select') }}</option>
+                <option v-if="modelMissing" :value="form.model">{{ t('agentEditor.model.notInstalled', { model: form.model }) }}</option>
                 <option v-for="m in models" :key="m.id" :value="m.id">
                   {{ m.id }}{{ m.parameterSize ? ` · ${m.parameterSize}` : '' }}{{ m.sizeBytes ? ` · ${formatBytes(m.sizeBytes)}` : '' }}
                 </option>
               </select>
-              <input v-else id="ag-model" v-model="form.model" class="input" placeholder="p. ej. qwen3:8b o gpt-4o-mini" :aria-invalid="!!fieldErrors.model" />
+              <input v-else id="ag-model" v-model="form.model" class="input" :placeholder="t('agentEditor.model.manualPlaceholder')" :aria-invalid="!!fieldErrors.model" />
               <span v-if="fieldErrors.model" class="error">{{ fieldErrors.model }}</span>
-              <span v-else-if="modelsError" class="error">No se pudo obtener la lista de modelos: {{ modelsError }}</span>
-              <span v-else-if="modelMissing" class="error">Este modelo ya no está disponible en el proveedor.</span>
+              <span v-else-if="modelsError" class="error">{{ t('agentEditor.model.listError', { error: modelsError }) }}</span>
+              <span v-else-if="modelMissing" class="error">{{ t('agentEditor.model.unavailable') }}</span>
               <span v-else class="hint">
-                <template v-if="currentModel?.capabilities"><Term id="capacidades">Capacidades</Term>: {{ currentModel.capabilities.join(', ') }}. </template>
+                <template v-if="currentModel?.capabilities"><Term id="capacidades">{{ t('agentEditor.model.capabilities') }}</Term>: {{ currentModel.capabilities.join(', ') }}. </template>
                 <button v-if="models.length" class="link-btn text" type="button" @click="manualModel = !manualModel">
-                  {{ manualModel ? 'Elegir de la lista' : 'Escribir a mano' }}
+                  {{ manualModel ? t('agentEditor.model.pickFromList') : t('agentEditor.model.typeByHand') }}
                 </button>
               </span>
             </div>
 
             <div class="field">
-              <label for="ag-temp"><Term id="temperatura">Temperatura</Term> <span class="num value">{{ form.temperature.toFixed(1).replace('.', ',') }}</span></label>
+              <label for="ag-temp"><Term id="temperatura">{{ t('agentEditor.model.temperature') }}</Term> <span class="num value">{{ temperatureText }}</span></label>
               <input id="ag-temp" v-model.number="form.temperature" type="range" min="0" max="2" step="0.1" />
-              <span class="hint row between"><span>Preciso</span><span>Creativo</span></span>
+              <span class="hint row between"><span>{{ t('agentEditor.model.precise') }}</span><span>{{ t('agentEditor.model.creative') }}</span></span>
             </div>
             <div class="field">
-              <label for="ag-iter"><Term id="iteraciones">Iteraciones</Term> máximas</label>
+              <i18n-t keypath="agentEditor.model.maxIterations" tag="label" for="ag-iter" scope="global">
+                <template #iterations><Term id="iteraciones">{{ t('agentEditor.model.iterations') }}</Term></template>
+              </i18n-t>
               <input id="ag-iter" v-model.number="form.maxIterations" class="input" type="number" min="1" max="30" />
-              <span class="hint">Vueltas con herramientas antes de exigir la respuesta final.</span>
+              <span class="hint">{{ t('agentEditor.model.iterationsHint') }}</span>
             </div>
             <div class="field">
-              <label for="ag-maxtok"><Term id="tokens">Tokens</Term> de salida máximos</label>
-              <input id="ag-maxtok" v-model="maxTokensText" class="input" type="number" min="16" placeholder="Por defecto del modelo" />
+              <i18n-t keypath="agentEditor.model.maxTokens" tag="label" for="ag-maxtok" scope="global">
+                <template #tokens><Term id="tokens">{{ t('agentEditor.model.tokens') }}</Term></template>
+              </i18n-t>
+              <input id="ag-maxtok" v-model="maxTokensText" class="input" type="number" min="16" :placeholder="t('agentEditor.model.maxTokensPlaceholder')" />
             </div>
             <div class="field">
-              <span class="label"><Term id="razonamiento">Razonamiento</Term></span>
+              <span class="label"><Term id="razonamiento">{{ t('agentEditor.model.thinking') }}</Term></span>
               <label class="check" style="padding-top: 6px">
                 <input v-model="form.thinking" type="checkbox" class="switch" />
-                <span class="small muted">Dejar que el modelo razone antes de responder (más lento).</span>
+                <span class="small muted">{{ t('agentEditor.model.thinkingHint') }}</span>
               </label>
             </div>
           </div>
           <div v-if="lacksTools" class="callout warning" style="margin-top: 14px">
             <TriangleAlert />
-            <div>«{{ form.model }}» no declara soporte de herramientas: es probable que ignore las que has activado.</div>
+            <div>{{ t('agentEditor.model.lacksTools', { model: form.model }) }}</div>
           </div>
           <div v-if="lacksThinking" class="callout" style="margin-top: 14px">
             <TriangleAlert />
-            <div>«{{ form.model }}» no soporta razonamiento; la opción se ignorará.</div>
+            <div>{{ t('agentEditor.model.lacksThinking', { model: form.model }) }}</div>
           </div>
         </section>
 
         <section class="card card-pad">
-          <h2 class="section-title">Instrucciones del sistema</h2>
+          <h2 class="section-title">{{ t('agentEditor.prompt.title') }}</h2>
           <div class="field">
-            <label for="ag-prompt" class="sr-only">Instrucciones del sistema</label>
+            <label for="ag-prompt" class="sr-only">{{ t('agentEditor.prompt.title') }}</label>
             <textarea
               id="ag-prompt"
               v-model="form.systemPrompt"
               class="textarea"
               rows="8"
               maxlength="20000"
-              placeholder="Describe cómo debe trabajar: objetivo, formato de respuesta, tono, límites…"
+              :placeholder="t('agentEditor.prompt.placeholder')"
             />
-            <span class="hint">
-              Son las <Term id="prompt-sistema">instrucciones del sistema</Term>: se envían al modelo en todas las tareas.
-              {{ form.systemPrompt.length.toLocaleString('es-ES') }} caracteres.
-            </span>
+            <i18n-t keypath="agentEditor.prompt.hint" tag="span" class="hint" scope="global">
+              <template #prompt><Term id="prompt-sistema">{{ t('agentEditor.prompt.hintPrompt') }}</Term></template>
+              <template #count>{{ formatNumber(form.systemPrompt.length) }}</template>
+            </i18n-t>
           </div>
         </section>
 
         <section class="card card-pad">
           <div class="row between" style="margin-bottom: 12px">
-            <h2>Herramientas</h2>
-            <span class="badge" :class="{ accent: form.tools.length }">{{ form.tools.length }} activas</span>
+            <h2>{{ t('agentEditor.tools.title') }}</h2>
+            <span class="badge" :class="{ accent: form.tools.length }">{{ t('agentEditor.tools.active', { n: form.tools.length }) }}</span>
           </div>
-          <p class="small muted" style="margin-bottom: 12px">
-            Cada <Term id="herramienta">herramienta</Term> activada se ofrece al modelo, que decide cuándo usarla. Además de calcular o leer la web,
-            un agente puede anotar datos en la <Term id="memoria-compartida">memoria compartida</Term> de la ejecución o encargar parte del
-            trabajo a otro agente.
-          </p>
+          <i18n-t keypath="agentEditor.tools.intro" tag="p" class="small muted" style="margin-bottom: 12px" scope="global">
+            <template #tool><Term id="herramienta">{{ t('agentEditor.tools.introTool') }}</Term></template>
+            <template #memory><Term id="memoria-compartida">{{ t('agentEditor.tools.introMemory') }}</Term></template>
+          </i18n-t>
           <div v-if="unknownTools.length" class="callout warning" style="margin-bottom: 12px">
             <TriangleAlert />
-            <div>Herramientas que ya no existen y se quitarán al guardar: {{ unknownTools.join(', ') }}.</div>
+            <div>{{ t('agentEditor.tools.unknown', { names: unknownTools.join(', ') }) }}</div>
           </div>
           <div v-for="[category, list] in toolGroups" :key="category" class="tool-group">
             <div class="eyebrow">{{ category }}</div>
@@ -362,8 +381,8 @@ const playgroundBlocked = computed(() => {
                 <span class="row wrap" style="gap: 6px">
                   <strong>{{ tool.title }}</strong>
                   <code class="faint">{{ tool.name }}</code>
-                  <span v-if="tool.dangerous" class="badge warning">Requiere activarla en Ajustes</span>
-                  <span v-if="!tool.enabled" class="badge danger">Desactivada</span>
+                  <span v-if="tool.dangerous" class="badge warning">{{ t('agentEditor.tools.needsEnabling') }}</span>
+                  <span v-if="!tool.enabled" class="badge danger">{{ t('agentEditor.tools.disabled') }}</span>
                 </span>
                 <span class="small muted desc">{{ tool.description }}</span>
               </span>

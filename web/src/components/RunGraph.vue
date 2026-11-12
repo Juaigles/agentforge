@@ -5,7 +5,8 @@ import type { RunSnapshot } from '@shared/types';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import { useVueFlow, VueFlow } from '@vue-flow/core';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { locale, t } from '@/i18n';
 import { localizeFlow } from '@/lib/a11y';
 import { NODE_LABEL, STATUS_LABEL } from '@/lib/format';
 import { toFlowEdge, toFlowNode } from '@/lib/flow';
@@ -30,8 +31,8 @@ const nodes = computed(() =>
     return {
       ...toFlowNode(n, { status, agentName: agent?.name, agentColor: agent?.color, workflowName }),
       // Lo que oye un lector de pantalla al enfocar el nodo: tipo, etiqueta y estado del paso.
-      ariaLabel: `${NODE_LABEL[n.type]}: ${n.label || n.id}, ${STATUS_LABEL[status].toLowerCase()}`,
-      domAttributes: { 'aria-roledescription': 'paso' },
+      ariaLabel: t('runGraph.node', { type: NODE_LABEL[n.type], label: n.label || n.id, status: STATUS_LABEL[status].toLowerCase() }),
+      domAttributes: { 'aria-roledescription': t('runGraph.stepRole') },
     };
   }),
 );
@@ -39,9 +40,13 @@ const labelOf = (id: string): string => props.snapshot.workflow.nodes.find((n) =
 
 const root = ref<HTMLElement | null>(null);
 let unlocalize: (() => void) | null = null;
-onMounted(() => {
-  if (root.value) unlocalize = localizeFlow(root.value, 'Pulsa Intro o Espacio para ver el resultado de este paso.', 'Conexión entre dos pasos.');
-});
+function localize(): void {
+  unlocalize?.();
+  unlocalize = root.value ? localizeFlow(root.value, t('runGraph.nodeHint'), t('runGraph.edgeHint')) : null;
+}
+onMounted(localize);
+// Al cambiar de idioma se vuelven a escribir las ayudas que Vue Flow pinta por su cuenta.
+watch(locale, localize);
 onBeforeUnmount(() => unlocalize?.());
 /** Intro o Espacio sobre un nodo enfocado lo selecciona (Vue Flow no emite el clic con el teclado). */
 function onKey(ev: KeyboardEvent): void {
@@ -60,14 +65,14 @@ const edges = computed(() =>
     const classes = [edge.class as string | undefined];
     if (target === 'running') classes.push('flowing');
     if (source === 'skipped' || target === 'skipped' || target === 'cancelled') classes.push('dimmed');
-    const branch = e.sourceHandle === 'true' ? ' (rama sí)' : e.sourceHandle === 'false' ? ' (rama no)' : '';
-    return { ...edge, ariaLabel: `Conexión de ${labelOf(e.source)} a ${labelOf(e.target)}${branch}`, animated: target === 'running', class: classes.filter(Boolean).join(' ') };
+    const key = e.sourceHandle === 'true' ? 'runGraph.edgeYes' : e.sourceHandle === 'false' ? 'runGraph.edgeNo' : 'runGraph.edge';
+    return { ...edge, ariaLabel: t(key, { from: labelOf(e.source), to: labelOf(e.target) }), animated: target === 'running', class: classes.filter(Boolean).join(' ') };
   }),
 );
 </script>
 
 <template>
-  <div ref="root" class="run-graph" role="region" aria-label="Grafo de la ejecución" @keydown.capture="onKey">
+  <div ref="root" class="run-graph" role="region" :aria-label="t('runGraph.region')" @keydown.capture="onKey">
   <VueFlow
     :id="flowId"
     :nodes="nodes"

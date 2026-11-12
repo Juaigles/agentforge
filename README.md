@@ -122,6 +122,7 @@ proceso muere de golpe. Un segundo Ctrl+C fuerza la salida. Sondas para un orque
   **servidores MCP** (programas locales o direcciones HTTP), banco de pruebas y visor del espacio de trabajo.
 - **Ajustes**: proveedores (Ollama y compatibles con OpenAI) con prueba de conexión, límites y permisos.
 - **Glosario** integrado: los términos técnicos muestran su definición al pasar el ratón, enfocar o tocar.
+- **Español e inglés**, con selector de idioma y formatos de número y fecha de cada idioma. Ver «Idiomas».
 
 ### Exportar e importar
 
@@ -179,6 +180,20 @@ agentes o se usan en nodos de herramienta como cualquier otra. Las variables de 
 cifradas y no se vuelven a mostrar. Si el servidor se cae, sus herramientas siguen existiendo y la siguiente
 llamada intenta reconectar. Solo se usan sus herramientas (no sus recursos ni sus plantillas de prompt), y no hay
 inicio de sesión OAuth: la autenticación HTTP es por cabeceras.
+
+## Idiomas
+
+La interfaz está en **español e inglés**. El selector está al pie de la barra lateral (ES / EN): cambia al
+instante, se recuerda en el navegador y, si no se ha elegido, se usa el idioma del navegador. Números, fechas y
+duraciones siguen al idioma.
+
+Lo que escribe el servidor sigue en español también con la interfaz en inglés: el detalle de los errores de
+validación, los motivos de fallo de una ejecución, las descripciones de las herramientas integradas y los datos de
+ejemplo. Los errores genéricos (no encontrado, demasiadas peticiones, falta la clave…) y la validación de los
+workflows sí se traducen, porque el servidor los envía con un código.
+
+Para añadir textos: `web/src/i18n/es/<ámbito>.ts` y `web/src/i18n/en/<ámbito>.ts` con las mismas claves (un test lo
+comprueba), y en el código `t('ámbito.clave')` o `tn('ámbito.clave', n)` para plurales, importados de `@/i18n`.
 
 ## Teclado y accesibilidad
 

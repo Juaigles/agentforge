@@ -4,8 +4,8 @@ import type { RunSummary } from '@shared/types';
 import { LoaderCircle, SkipForward, TriangleAlert } from 'lucide-vue-next';
 import { onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { t, tn } from '@/i18n';
 import { api, errorText } from '@/lib/api';
-import { plural } from '@/lib/format';
 import { useRuns } from '@/stores/runs';
 import { useUi } from '@/stores/ui';
 import Term from './Term.vue';
@@ -40,10 +40,10 @@ async function resume(): Promise<void> {
     runsStore.seed(resumed);
     pending.value = [];
     if (resumed.length === 1) {
-      ui.success(`«${resumed[0].name}» se ha reanudado.`);
+      ui.success(t('interrupted.toast.resumedOne', { name: resumed[0].name }));
       await router.push(`/runs/${resumed[0].id}`);
     } else {
-      ui.success(`${plural(resumed.length, 'ejecución reanudada', 'ejecuciones reanudadas')}.`, { label: 'Ver', to: '/runs' });
+      ui.success(tn('interrupted.toast.resumedMany', resumed.length), { label: t('runs.toast.view'), to: '/runs' });
     }
   } catch (err) {
     ui.error(errorText(err));
@@ -71,26 +71,25 @@ async function dismiss(): Promise<void> {
     <TriangleAlert class="ico" aria-hidden="true" />
     <div class="grow">
       <strong>
-        {{ pending.length === 1 ? 'Una ejecución se interrumpió' : `${pending.length} ejecuciones se interrumpieron` }} al apagarse el servidor.
+        {{ tn('interrupted.title', pending.length) }}
       </strong>
-      <p class="small">
-        Puedes reanudar cada <Term id="ejecucion">ejecución</Term> donde se quedó: los pasos que ya habían terminado se reutilizan y solo se
-        repite el resto.
-      </p>
+      <i18n-t keypath="interrupted.body" tag="p" class="small" scope="global">
+        <template #run><Term id="ejecucion">{{ t('interrupted.bodyRun') }}</Term></template>
+      </i18n-t>
       <ul class="small">
         <li v-for="run in pending.slice(0, 3)" :key="run.id">
           <RouterLink :to="`/runs/${run.id}`">{{ run.name }}</RouterLink>
           <span v-if="run.input" class="muted truncate"> · {{ run.input }}</span>
         </li>
-        <li v-if="pending.length > 3" class="muted">y {{ pending.length - 3 }} más</li>
+        <li v-if="pending.length > 3" class="muted">{{ t('interrupted.more', { n: pending.length - 3 }) }}</li>
       </ul>
     </div>
     <div class="actions">
       <button class="btn btn-primary" type="button" :disabled="!!busy" @click="resume">
         <LoaderCircle v-if="busy === 'resume'" class="spin" /><SkipForward v-else />
-        {{ pending.length === 1 ? 'Reanudar' : 'Reanudar todas' }}
+        {{ tn('interrupted.resume', pending.length) }}
       </button>
-      <button class="btn" type="button" :disabled="!!busy" @click="dismiss">Descartar</button>
+      <button class="btn" type="button" :disabled="!!busy" @click="dismiss">{{ t('interrupted.dismiss') }}</button>
     </div>
   </div>
 </template>

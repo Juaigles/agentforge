@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Activity, Bot, BookOpen, LayoutDashboard, Monitor, Moon, Settings, Sun, Unplug, Workflow, Wrench } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { LOCALES, locale, setLocale, t, tn } from '@/i18n';
 import { announce, announcement, installFormA11y } from '@/lib/a11y';
 import { api, authRequired } from '@/lib/api';
 import AccessGate from '@/components/AccessGate.vue';
@@ -16,27 +17,27 @@ const runs = useRuns();
 const ui = useUi();
 
 const NAV = [
-  { to: '/', label: 'Panel', icon: LayoutDashboard, exact: true },
-  { to: '/agents', label: 'Agentes', icon: Bot },
-  { to: '/workflows', label: 'Workflows', icon: Workflow },
-  { to: '/runs', label: 'Ejecuciones', icon: Activity },
-  { to: '/tools', label: 'Herramientas', icon: Wrench },
-  { to: '/settings', label: 'Ajustes', icon: Settings },
+  { to: '/', labelKey: 'app.nav.dashboard', icon: LayoutDashboard, exact: true },
+  { to: '/agents', labelKey: 'app.nav.agents', icon: Bot },
+  { to: '/workflows', labelKey: 'app.nav.workflows', icon: Workflow },
+  { to: '/runs', labelKey: 'app.nav.runs', icon: Activity },
+  { to: '/tools', labelKey: 'app.nav.tools', icon: Wrench },
+  { to: '/settings', labelKey: 'app.nav.settings', icon: Settings },
 ];
 
-const THEMES: Array<{ value: Theme; label: string; icon: typeof Sun }> = [
-  { value: 'light', label: 'Tema claro', icon: Sun },
-  { value: 'system', label: 'Tema del sistema', icon: Monitor },
-  { value: 'dark', label: 'Tema oscuro', icon: Moon },
+const THEMES: Array<{ value: Theme; labelKey: string; icon: typeof Sun }> = [
+  { value: 'light', labelKey: 'app.theme.light', icon: Sun },
+  { value: 'system', labelKey: 'app.theme.system', icon: Monitor },
+  { value: 'dark', labelKey: 'app.theme.dark', icon: Moon },
 ];
 
 const providerStatus = computed(() => {
-  if (!catalog.online) return { tone: 'danger', text: 'Servidor sin conexión' };
-  if (catalog.loadError && !catalog.loaded) return { tone: 'danger', text: 'Servidor sin conexión' };
-  if (!catalog.health.length) return { tone: '', text: catalog.providers.length ? 'Comprobando modelos…' : 'Sin proveedores' };
+  if (!catalog.online) return { tone: 'danger', text: t('app.status.offline') };
+  if (catalog.loadError && !catalog.loaded) return { tone: 'danger', text: t('app.status.offline') };
+  if (!catalog.health.length) return { tone: '', text: catalog.providers.length ? t('app.status.checking') : t('app.status.noProviders') };
   const ok = catalog.health.filter((h) => h.ok).length;
-  if (ok === catalog.health.length) return { tone: 'success', text: ok === 1 ? `${catalog.health[0].name} disponible` : `${ok} proveedores disponibles` };
-  return { tone: 'danger', text: ok ? `${ok} de ${catalog.health.length} proveedores disponibles` : 'Proveedor no disponible' };
+  if (ok === catalog.health.length) return { tone: 'success', text: ok === 1 ? t('app.status.oneAvailable', { name: catalog.health[0].name }) : tn('app.providersAvailable', ok) };
+  return { tone: 'danger', text: ok ? t('app.status.someAvailable', { ok, total: catalog.health.length }) : t('app.status.unavailable') };
 });
 
 /** Hasta saber si el servidor exige clave no se pinta la aplicación (ni se abren flujos que serían rechazados). */
@@ -81,12 +82,12 @@ watch(
   (online) => {
     clearInterval(retryTimer);
     if (!online) {
-      announce('Se ha perdido la conexión con el servidor de AgentForge. Reintentando.');
+      announce(t('app.offline.lost'));
       retryTimer = setInterval(() => void catalog.checkServer(), 3000);
       return;
     }
-    announce('Conexión con el servidor recuperada.');
-    ui.success('Conexión con el servidor recuperada.');
+    announce(t('app.offline.restored'));
+    ui.success(t('app.offline.restored'));
     // Lo que cambió mientras no había conexión no llegó por el canal de eventos: se vuelve a pedir.
     void catalog.reload().catch(() => undefined);
     void catalog.refreshHealth();
@@ -101,9 +102,9 @@ onBeforeUnmount(() => {
 <template>
   <AccessGate v-if="authRequired" />
   <div v-else-if="ready" class="shell">
-    <a class="skip-link" href="#contenido">Saltar al contenido</a>
+    <a class="skip-link" href="#contenido">{{ t('app.skip') }}</a>
     <aside class="sidebar">
-      <RouterLink to="/" class="brand" aria-label="AgentForge, ir al panel">
+      <RouterLink to="/" class="brand" :aria-label="t('app.brand')">
         <svg viewBox="0 0 32 32" aria-hidden="true">
           <rect width="32" height="32" rx="8" fill="var(--accent)" />
           <path d="M9 22l5-12 3 6 2-3 4 9z" fill="var(--accent-text)" />
@@ -112,32 +113,47 @@ onBeforeUnmount(() => {
         <span>AgentForge</span>
       </RouterLink>
 
-      <nav aria-label="Principal">
-        <RouterLink v-for="item in NAV" :key="item.to" :to="item.to" class="nav-item" :class="{ exact: item.exact }" :aria-label="item.label" :title="item.label">
+      <nav :aria-label="t('app.nav.label')">
+        <RouterLink v-for="item in NAV" :key="item.to" :to="item.to" class="nav-item" :class="{ exact: item.exact }" :aria-label="t(item.labelKey)" :title="t(item.labelKey)">
           <component :is="item.icon" aria-hidden="true" />
-          <span>{{ item.label }}</span>
-          <span v-if="item.to === '/runs' && runs.active.length" class="count" :title="`${runs.active.length} en curso`">{{ runs.active.length }}</span>
+          <span>{{ t(item.labelKey) }}</span>
+          <span v-if="item.to === '/runs' && runs.active.length" class="count" :title="tn('app.runningCount', runs.active.length)">{{ runs.active.length }}</span>
         </RouterLink>
       </nav>
 
       <div class="sidebar-foot">
-        <RouterLink to="/glosario" class="nav-item subtle" aria-label="Glosario" title="Glosario"><BookOpen aria-hidden="true" /><span>Glosario</span></RouterLink>
-        <RouterLink to="/settings" class="status" :title="providerStatus.text" :aria-label="`Estado: ${providerStatus.text}`">
+        <RouterLink to="/glosario" class="nav-item subtle" :aria-label="t('app.nav.glossary')" :title="t('app.nav.glossary')"><BookOpen aria-hidden="true" /><span>{{ t('app.nav.glossary') }}</span></RouterLink>
+        <RouterLink to="/settings" class="status" :title="providerStatus.text" :aria-label="t('app.status.label', { text: providerStatus.text })">
           <span class="dot" :class="[providerStatus.tone, { pulse: !providerStatus.tone && catalog.providers.length > 0 }]" />
           <span class="truncate">{{ providerStatus.text }}</span>
         </RouterLink>
-        <div class="themes" role="group" aria-label="Tema">
+        <div class="themes" role="group" :aria-label="t('app.theme.label')">
           <button
-            v-for="t in THEMES"
-            :key="t.value"
+            v-for="theme in THEMES"
+            :key="theme.value"
             type="button"
-            :class="{ active: ui.theme === t.value }"
-            :aria-label="t.label"
-            :aria-pressed="ui.theme === t.value"
-            :title="t.label"
-            @click="ui.setTheme(t.value)"
+            :class="{ active: ui.theme === theme.value }"
+            :aria-label="t(theme.labelKey)"
+            :aria-pressed="ui.theme === theme.value"
+            :title="t(theme.labelKey)"
+            @click="ui.setTheme(theme.value)"
           >
-            <component :is="t.icon" />
+            <component :is="theme.icon" />
+          </button>
+        </div>
+        <div class="themes langs" role="group" :aria-label="t('app.language')">
+          <button
+            v-for="l in LOCALES"
+            :key="l.value"
+            type="button"
+            :class="{ active: locale === l.value }"
+            :aria-label="l.label"
+            :aria-pressed="locale === l.value"
+            :title="l.label"
+            :lang="l.value"
+            @click="setLocale(l.value)"
+          >
+            {{ l.short }}
           </button>
         </div>
       </div>
@@ -147,10 +163,10 @@ onBeforeUnmount(() => {
       <div v-if="!catalog.online" class="offline" role="alert" data-testid="offline">
         <Unplug aria-hidden="true" />
         <div class="grow">
-          <strong>Sin conexión con el servidor de AgentForge.</strong>
-          Lo que ves puede no estar al día y los cambios no se guardarán. Se reintenta solo cada pocos segundos; comprueba que el servidor sigue en marcha.
+          <strong>{{ t('app.offline.title') }}</strong>
+          {{ t('app.offline.body') }}
         </div>
-        <button class="btn btn-sm" type="button" @click="catalog.checkServer()">Reintentar ahora</button>
+        <button class="btn btn-sm" type="button" @click="catalog.checkServer()">{{ t('app.offline.retry') }}</button>
       </div>
       <InterruptedBanner />
       <ApprovalsBanner />
@@ -319,6 +335,11 @@ nav {
 .offline .grow {
   flex: 1 1 240px;
   min-width: 0;
+}
+.langs button {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 .main:focus {
   outline: none;

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // Término del glosario: muestra su definición al pasar el ratón, enfocar o tocar, y enlaza a la página Glosario.
 import { computed, nextTick, onBeforeUnmount, ref, useId } from 'vue';
-import { GLOSSARY, type GlossaryId } from '@/lib/glossary';
+import { t } from '@/i18n';
+import { glossaryEntry, type GlossaryId } from '@/lib/glossary';
 
 const props = defineProps<{ id: GlossaryId }>();
-const entry = computed(() => GLOSSARY[props.id]);
+const entry = computed(() => glossaryEntry(props.id));
 const tipId = useId();
 const anchor = ref<HTMLElement | null>(null);
 const tip = ref<HTMLElement | null>(null);
@@ -68,7 +69,7 @@ onBeforeUnmount(hide);
     <div v-if="open" :id="tipId" ref="tip" class="term-tip" role="tooltip" :style="style">
       <strong>{{ entry.term }}</strong>
       <span>{{ entry.definition }}</span>
-      <em v-if="viaTouch">Toca otra vez para ir al glosario</em>
+      <em v-if="viaTouch">{{ t('term.tapAgain') }}</em>
     </div>
   </Teleport>
 </template>

@@ -6,8 +6,9 @@ import { CalendarClock, CircleAlert, Copy, KeyRound, LoaderCircle, Pencil, Play,
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, ApiError, errorText } from '@/lib/api';
+import { t } from '@/i18n';
 import { formatDateTime, relativeTime } from '@/lib/format';
-import { describeTrigger, splitInterval, toMinutes, WEEKDAYS, type IntervalUnit } from '@/lib/transfer';
+import { describeTrigger, splitInterval, toMinutes, weekdays, type IntervalUnit } from '@/lib/transfer';
 import { useUi } from '@/stores/ui';
 import AppModal from './AppModal.vue';
 import Term from './Term.vue';
@@ -38,14 +39,14 @@ async function load(): Promise<void> {
 onMounted(load);
 
 const hookUrl = (id: string): string => `${window.location.origin}/api/hooks/${id}`;
-const curlExample = (id: string, secret: string): string => `curl -X POST "${hookUrl(id)}" -H "Authorization: Bearer ${secret}" -H "Content-Type: text/plain" --data "texto de entrada"`;
+const curlExample = (id: string, secret: string): string => `curl -X POST "${hookUrl(id)}" -H "Authorization: Bearer ${secret}" -H "Content-Type: text/plain" --data "${t('triggers.curlSample')}"`;
 
 async function copy(text: string, what: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
-    ui.success(`${what} en el portapapeles.`);
+    ui.success(t('triggers.toast.copied', { what }));
   } catch {
-    ui.error('No se pudo copiar. Selecciona el texto y cópialo a mano.');
+    ui.error(t('triggers.toast.copyFailed'));
   }
 }
 
@@ -63,67 +64,67 @@ async function act(key: string, fn: () => Promise<void>): Promise<void> {
   }
 }
 
-const toInput = (t: Trigger, patch: Partial<TriggerInput> = {}): TriggerInput => ({
-  kind: t.kind,
-  name: t.name,
-  intervalMinutes: t.intervalMinutes,
-  time: t.time,
-  weekdays: t.weekdays,
-  cron: t.cron,
-  timezone: t.timezone,
-  input: t.input,
-  enabled: t.enabled,
+const toInput = (trigger: Trigger, patch: Partial<TriggerInput> = {}): TriggerInput => ({
+  kind: trigger.kind,
+  name: trigger.name,
+  intervalMinutes: trigger.intervalMinutes,
+  time: trigger.time,
+  weekdays: trigger.weekdays,
+  cron: trigger.cron,
+  timezone: trigger.timezone,
+  input: trigger.input,
+  enabled: trigger.enabled,
   ...patch,
 });
 
-const toggle = (t: Trigger) =>
-  act(`toggle:${t.id}`, async () => {
-    await api.triggers.update(t.id, toInput(t, { enabled: !t.enabled }));
+const toggle = (trigger: Trigger) =>
+  act(`toggle:${trigger.id}`, async () => {
+    await api.triggers.update(trigger.id, toInput(trigger, { enabled: !trigger.enabled }));
     await load();
   });
 
-const remove = (t: Trigger) =>
-  act(`remove:${t.id}`, async () => {
+const remove = (trigger: Trigger) =>
+  act(`remove:${trigger.id}`, async () => {
     const ok = await ui.confirm({
-      title: 'Eliminar disparador',
-      message: t.kind === 'webhook' ? 'Los programas que llamen a esta dirección dejarán de lanzar el workflow.' : `El workflow dejará de ejecutarse ${describeTrigger(t)}.`,
-      confirmLabel: 'Eliminar disparador',
+      title: t('triggers.confirm.deleteTitle'),
+      message: trigger.kind === 'webhook' ? t('triggers.confirm.deleteWebhook') : t('triggers.confirm.deleteSchedule', { when: describeTrigger(trigger) }),
+      confirmLabel: t('triggers.confirm.deleteTitle'),
       danger: true,
     });
     if (!ok) return;
-    await api.triggers.remove(t.id);
-    if (revealed.value?.id === t.id) revealed.value = null;
+    await api.triggers.remove(trigger.id);
+    if (revealed.value?.id === trigger.id) revealed.value = null;
     await load();
-    ui.success('Disparador eliminado.');
+    ui.success(t('triggers.toast.deleted'));
   });
 
-const runNow = (t: Trigger) =>
-  act(`run:${t.id}`, async () => {
-    const run = await api.triggers.runNow(t.id);
+const runNow = (trigger: Trigger) =>
+  act(`run:${trigger.id}`, async () => {
+    const run = await api.triggers.runNow(trigger.id);
     emit('close');
     await router.push(`/runs/${run.id}`);
   });
 
-const renewSecret = (t: Trigger) =>
-  act(`secret:${t.id}`, async () => {
+const renewSecret = (trigger: Trigger) =>
+  act(`secret:${trigger.id}`, async () => {
     const ok = await ui.confirm({
-      title: 'Generar un secreto nuevo',
-      message: 'El secreto actual dejará de valer en el acto: tendrás que cambiarlo en los programas que llaman a este webhook.',
-      confirmLabel: 'Generar secreto',
+      title: t('triggers.confirm.renewTitle'),
+      message: t('triggers.confirm.renewMessage'),
+      confirmLabel: t('triggers.confirm.renewConfirm'),
       danger: true,
     });
     if (!ok) return;
-    const renewed = await api.triggers.renewSecret(t.id);
-    if (renewed.secret) revealed.value = { id: t.id, secret: renewed.secret };
+    const renewed = await api.triggers.renewSecret(trigger.id);
+    if (renewed.secret) revealed.value = { id: trigger.id, secret: renewed.secret };
     await load();
   });
 
 // ---------- Formulario ----------
-const KINDS: Array<{ kind: TriggerKind; label: string }> = [
-  { kind: 'interval', label: 'Cada cierto tiempo' },
-  { kind: 'daily', label: 'Días y hora' },
-  { kind: 'cron', label: 'Cron' },
-  { kind: 'webhook', label: 'Webhook' },
+const KINDS: Array<{ kind: TriggerKind; labelKey: string }> = [
+  { kind: 'interval', labelKey: 'triggers.kind.interval' },
+  { kind: 'daily', labelKey: 'triggers.kind.daily' },
+  { kind: 'cron', labelKey: 'triggers.kind.cron' },
+  { kind: 'webhook', labelKey: 'triggers.kind.webhook' },
 ];
 const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const zones: string[] = (() => {
@@ -152,29 +153,29 @@ const form = reactive({
   enabled: true,
 });
 
-function openForm(t: Trigger | null): void {
+function openForm(trigger: Trigger | null): void {
   fieldErrors.value = {};
   formError.value = null;
   preview.value = null;
   Object.assign(form, { kind: 'interval', name: '', every: 60, unit: 'minutes', time: '09:00', weekdays: [], cron: '0 9 * * 1-5', timezone: '', input: props.defaultInput ?? '', enabled: true });
-  if (t) {
-    Object.assign(form, { kind: t.kind, name: t.name, weekdays: [...t.weekdays], timezone: t.timezone ?? '', input: t.input, enabled: t.enabled });
-    if (t.intervalMinutes) Object.assign(form, { every: splitInterval(t.intervalMinutes).value, unit: splitInterval(t.intervalMinutes).unit });
-    if (t.time) form.time = t.time;
-    if (t.cron) form.cron = t.cron;
+  if (trigger) {
+    Object.assign(form, { kind: trigger.kind, name: trigger.name, weekdays: [...trigger.weekdays], timezone: trigger.timezone ?? '', input: trigger.input, enabled: trigger.enabled });
+    if (trigger.intervalMinutes) Object.assign(form, { every: splitInterval(trigger.intervalMinutes).value, unit: splitInterval(trigger.intervalMinutes).unit });
+    if (trigger.time) form.time = trigger.time;
+    if (trigger.cron) form.cron = trigger.cron;
   }
-  editing.value = t?.id ?? 'new';
+  editing.value = trigger?.id ?? 'new';
 }
 
 const isNew = computed(() => editing.value === 'new');
 const minutes = computed(() => toMinutes(Number(form.every), form.unit));
 const intervalError = computed(() => {
   if (form.kind !== 'interval') return '';
-  if (!Number.isFinite(minutes.value) || !Number.isInteger(Number(form.every)) || minutes.value < 1) return 'Indica un número entero de al menos 1 minuto.';
-  return minutes.value > 43_200 ? 'El intervalo máximo son 30 días.' : '';
+  if (!Number.isFinite(minutes.value) || !Number.isInteger(Number(form.every)) || minutes.value < 1) return t('triggers.error.interval');
+  return minutes.value > 43_200 ? t('triggers.error.intervalMax') : '';
 });
-const timeError = computed(() => (form.kind === 'daily' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(form.time) ? 'Indica una hora válida (HH:MM).' : ''));
-const cronError = computed(() => (form.kind === 'cron' && !form.cron.trim() ? 'Escribe la expresión cron.' : ''));
+const timeError = computed(() => (form.kind === 'daily' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(form.time) ? t('triggers.error.time') : ''));
+const cronError = computed(() => (form.kind === 'cron' && !form.cron.trim() ? t('triggers.error.cron') : ''));
 const invalid = computed(() => Boolean(intervalError.value || timeError.value || cronError.value));
 
 function payload(): TriggerInput {
@@ -231,10 +232,10 @@ async function save(): Promise<void> {
     if (isNew.value) {
       const created = await api.triggers.create(props.workflowId, payload());
       if (created.secret) revealed.value = { id: created.id, secret: created.secret };
-      ui.success(created.kind === 'webhook' ? 'Webhook creado. Copia ahora su secreto: no se volverá a mostrar.' : `«${props.workflowName}» se ejecutará ${describeTrigger(created)}.`);
+      ui.success(created.kind === 'webhook' ? t('triggers.toast.webhookCreated') : t('triggers.toast.scheduled', { name: props.workflowName, when: describeTrigger(created) }));
     } else {
       const saved = await api.triggers.update(editing.value, payload());
-      ui.success(saved.enabled ? 'Disparador guardado.' : 'Disparador guardado, pero desactivado.');
+      ui.success(saved.enabled ? t('triggers.toast.saved') : t('triggers.toast.savedOff'));
     }
     editing.value = null;
     await load();
@@ -248,7 +249,7 @@ async function save(): Promise<void> {
 </script>
 
 <template>
-  <AppModal :title="editing ? (isNew ? `Nuevo disparador de «${workflowName}»` : 'Editar disparador') : `Disparadores de «${workflowName}»`" :width="640" @close="emit('close')">
+  <AppModal :title="editing ? (isNew ? t('triggers.title.new', { name: workflowName }) : t('triggers.title.edit')) : t('triggers.title.list', { name: workflowName })" :width="640" @close="emit('close')">
     <div v-if="loading" class="col">
       <div class="skeleton" style="height: 34px" />
       <div class="skeleton" style="height: 84px" />
@@ -257,162 +258,166 @@ async function save(): Promise<void> {
 
     <!-- Lista -->
     <div v-else-if="!editing" class="col" style="gap: 14px">
-      <p class="muted small">
-        Un <Term id="disparador">disparador</Term> lanza el <Term id="workflow">workflow</Term> sin que nadie pulse «Ejecutar»: a ciertas horas o cuando otro programa llama a
-        un <Term id="webhook">webhook</Term>. Los que tienen horario solo funcionan mientras AgentForge esté en marcha.
-      </p>
+      <i18n-t keypath="triggers.intro" tag="p" class="muted small" scope="global">
+        <template #trigger><Term id="disparador">{{ t('triggers.introTrigger') }}</Term></template>
+        <template #workflow><Term id="workflow">{{ t('triggers.introWorkflow') }}</Term></template>
+        <template #webhook><Term id="webhook">{{ t('triggers.introWebhook') }}</Term></template>
+      </i18n-t>
 
       <div v-if="revealed" class="callout secret" role="status">
         <KeyRound />
         <div class="col" style="gap: 8px; min-width: 0">
-          <strong>Secreto del webhook: cópialo ahora, no se volverá a mostrar.</strong>
+          <strong>{{ t('triggers.secret.title') }}</strong>
           <code class="mono wrap-any" data-testid="webhook-secret">{{ revealed.secret }}</code>
           <div class="row wrap" style="gap: 6px">
-            <button class="btn btn-sm" type="button" @click="copy(revealed.secret, 'Secreto copiado')"><Copy /> Copiar secreto</button>
-            <button class="btn btn-sm" type="button" @click="copy(curlExample(revealed.id, revealed.secret), 'Ejemplo copiado')"><Copy /> Copiar ejemplo con curl</button>
-            <button class="btn btn-ghost btn-sm" type="button" @click="revealed = null">Ya lo he guardado</button>
+            <button class="btn btn-sm" type="button" @click="copy(revealed.secret, t('triggers.secret.copiedSecret'))"><Copy /> {{ t('triggers.secret.copySecret') }}</button>
+            <button class="btn btn-sm" type="button" @click="copy(curlExample(revealed.id, revealed.secret), t('triggers.secret.copiedExample'))"><Copy /> {{ t('triggers.secret.copyExample') }}</button>
+            <button class="btn btn-ghost btn-sm" type="button" @click="revealed = null">{{ t('triggers.secret.saved') }}</button>
           </div>
         </div>
       </div>
 
-      <ul v-if="triggers.length" class="list" aria-label="Disparadores del workflow">
-        <li v-for="t in triggers" :key="t.id" class="item" :class="{ off: !t.enabled }">
+      <ul v-if="triggers.length" class="list" :aria-label="t('triggers.listAria')">
+        <li v-for="trg in triggers" :key="trg.id" class="item" :class="{ off: !trg.enabled }">
           <div class="head">
-            <component :is="t.kind === 'webhook' ? Webhook : CalendarClock" class="kind-icon" aria-hidden="true" />
+            <component :is="trg.kind === 'webhook' ? Webhook : CalendarClock" class="kind-icon" aria-hidden="true" />
             <div class="grow" style="min-width: 0">
-              <strong class="wrap-any">{{ t.name || (t.kind === 'webhook' ? 'Webhook' : describeTrigger(t)) }}</strong>
-              <div v-if="t.name" class="small muted wrap-any">{{ describeTrigger(t) }}</div>
+              <strong class="wrap-any">{{ trg.name || (trg.kind === 'webhook' ? t('triggers.kind.webhook') : describeTrigger(trg)) }}</strong>
+              <div v-if="trg.name" class="small muted wrap-any">{{ describeTrigger(trg) }}</div>
             </div>
-            <label class="check" :title="t.enabled ? 'Desactivar' : 'Activar'">
-              <input type="checkbox" class="switch" :checked="t.enabled" :disabled="!!busy" :aria-label="`Disparador activo: ${t.name || describeTrigger(t)}`" @change="toggle(t)" />
+            <label class="check" :title="trg.enabled ? t('triggers.turnOff') : t('triggers.turnOn')">
+              <input type="checkbox" class="switch" :checked="trg.enabled" :disabled="!!busy" :aria-label="t('triggers.activeAria', { name: trg.name || describeTrigger(trg) })" @change="toggle(trg)" />
             </label>
           </div>
 
-          <div v-if="t.kind === 'webhook'" class="hook small">
-            <code class="mono wrap-any">POST {{ hookUrl(t.id) }}</code>
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Copiar la dirección del webhook" title="Copiar la dirección" @click="copy(hookUrl(t.id), 'Dirección copiada')"><Copy /></button>
+          <div v-if="trg.kind === 'webhook'" class="hook small">
+            <code class="mono wrap-any">POST {{ hookUrl(trg.id) }}</code>
+            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('triggers.copyAddressAria')" :title="t('triggers.copyAddress')" @click="copy(hookUrl(trg.id), t('triggers.copiedAddress'))"><Copy /></button>
           </div>
           <div class="state small">
-            <span v-if="t.kind !== 'webhook'">
-              <span class="eyebrow">Próxima</span>
-              <span v-if="t.enabled && t.nextRunAt" :title="relativeTime(t.nextRunAt)">{{ formatDateTime(t.nextRunAt) }}</span>
-              <span v-else class="muted">{{ t.enabled ? 'Sin fecha' : 'En pausa' }}</span>
+            <span v-if="trg.kind !== 'webhook'">
+              <span class="eyebrow">{{ t('triggers.next') }}</span>
+              <span v-if="trg.enabled && trg.nextRunAt" :title="relativeTime(trg.nextRunAt)">{{ formatDateTime(trg.nextRunAt) }}</span>
+              <span v-else class="muted">{{ trg.enabled ? t('triggers.noDate') : t('triggers.paused') }}</span>
             </span>
             <span>
-              <span class="eyebrow">Última</span>
-              <RouterLink v-if="t.lastRunId && t.lastRunAt" :to="`/runs/${t.lastRunId}`" @click="emit('close')">{{ formatDateTime(t.lastRunAt) }}</RouterLink>
-              <span v-else class="muted">Todavía ninguna</span>
+              <span class="eyebrow">{{ t('triggers.last') }}</span>
+              <RouterLink v-if="trg.lastRunId && trg.lastRunAt" :to="`/runs/${trg.lastRunId}`" @click="emit('close')">{{ formatDateTime(trg.lastRunAt) }}</RouterLink>
+              <span v-else class="muted">{{ t('triggers.never') }}</span>
             </span>
           </div>
-          <p v-if="t.lastError" class="last-error small"><CircleAlert /> {{ t.lastError }}</p>
+          <p v-if="trg.lastError" class="last-error small"><CircleAlert /> {{ trg.lastError }}</p>
 
           <div class="row wrap actions">
-            <button class="btn btn-sm" type="button" :disabled="!!busy" title="Lanza ahora una ejecución con la entrada guardada" @click="runNow(t)">
-              <LoaderCircle v-if="busy === `run:${t.id}`" class="spin" /><Play v-else /> Ejecutar ahora
+            <button class="btn btn-sm" type="button" :disabled="!!busy" :title="t('triggers.runNowTitle')" @click="runNow(trg)">
+              <LoaderCircle v-if="busy === `run:${trg.id}`" class="spin" /><Play v-else /> {{ t('triggers.runNow') }}
             </button>
-            <button class="btn btn-sm" type="button" :disabled="!!busy" @click="openForm(t)"><Pencil /> Editar</button>
-            <button v-if="t.kind === 'webhook'" class="btn btn-sm" type="button" :disabled="!!busy" @click="renewSecret(t)"><KeyRound /> Nuevo secreto</button>
+            <button class="btn btn-sm" type="button" :disabled="!!busy" @click="openForm(trg)"><Pencil /> {{ t('common.actions.edit') }}</button>
+            <button v-if="trg.kind === 'webhook'" class="btn btn-sm" type="button" :disabled="!!busy" @click="renewSecret(trg)"><KeyRound /> {{ t('triggers.newSecret') }}</button>
             <span class="grow" />
-            <button class="btn btn-ghost btn-icon btn-sm btn-danger" type="button" :disabled="!!busy" :aria-label="`Eliminar el disparador ${t.name || describeTrigger(t)}`" title="Eliminar" @click="remove(t)">
+            <button class="btn btn-ghost btn-icon btn-sm btn-danger" type="button" :disabled="!!busy" :aria-label="t('triggers.deleteAria', { name: trg.name || describeTrigger(trg) })" :title="t('common.actions.delete')" @click="remove(trg)">
               <Trash2 />
             </button>
           </div>
         </li>
       </ul>
-      <p v-else class="empty-note">Este workflow todavía no tiene disparadores: solo se ejecuta cuando lo lanzas tú.</p>
+      <p v-else class="empty-note">{{ t('triggers.emptyNote') }}</p>
       <div v-if="listError" class="callout danger" role="alert"><CircleAlert /><span>{{ listError }}</span></div>
     </div>
 
     <!-- Formulario -->
     <form v-else id="trigger-form" class="col" style="gap: 16px" novalidate @submit.prevent="save">
       <div v-if="isNew" class="field">
-        <span class="label">Qué lo dispara</span>
-        <div class="segmented" role="radiogroup" aria-label="Tipo de disparador">
+        <span class="label">{{ t('triggers.whatTriggers') }}</span>
+        <div class="segmented" role="radiogroup" :aria-label="t('triggers.kindAria')">
           <button v-for="k in KINDS" :key="k.kind" type="button" role="radio" :aria-checked="form.kind === k.kind" :class="{ active: form.kind === k.kind }" @click="form.kind = k.kind">
-            {{ k.label }}
+            {{ t(k.labelKey) }}
           </button>
         </div>
       </div>
 
       <div v-if="form.kind === 'interval'" class="field">
-        <label for="trg-every">Repetir cada</label>
+        <label for="trg-every">{{ t('triggers.repeatEvery') }}</label>
         <div class="row">
           <input id="trg-every" v-model.number="form.every" class="input num" type="number" min="1" step="1" style="width: 110px" :aria-invalid="!!(intervalError || fieldErrors.intervalMinutes)" />
-          <select v-model="form.unit" class="select" style="width: auto" aria-label="Unidad del intervalo">
-            <option value="minutes">minutos</option>
-            <option value="hours">horas</option>
-            <option value="days">días</option>
+          <select v-model="form.unit" class="select" style="width: auto" :aria-label="t('triggers.unitAria')">
+            <option value="minutes">{{ t('triggers.unit.minutes') }}</option>
+            <option value="hours">{{ t('triggers.unit.hours') }}</option>
+            <option value="days">{{ t('triggers.unit.days') }}</option>
           </select>
         </div>
         <span v-if="intervalError || fieldErrors.intervalMinutes" class="error" role="alert">{{ intervalError || fieldErrors.intervalMinutes }}</span>
-        <span v-else class="hint">El intervalo se cuenta desde que guardas.</span>
+        <span v-else class="hint">{{ t('triggers.intervalHint') }}</span>
       </div>
 
       <template v-else-if="form.kind === 'daily'">
         <div class="field">
-          <label for="trg-time">Hora</label>
+          <label for="trg-time">{{ t('triggers.time') }}</label>
           <input id="trg-time" v-model="form.time" class="input num" type="time" style="width: 140px" :aria-invalid="!!(timeError || fieldErrors.time)" />
           <span v-if="timeError || fieldErrors.time" class="error" role="alert">{{ timeError || fieldErrors.time }}</span>
         </div>
         <div class="field">
-          <span class="label">Días</span>
-          <div class="days" role="group" aria-label="Días de la semana">
-            <button v-for="d in WEEKDAYS" :key="d.value" type="button" class="day" :class="{ active: form.weekdays.includes(d.value) }" :aria-pressed="form.weekdays.includes(d.value)" :aria-label="d.long" @click="toggleDay(d.value)">
+          <span class="label">{{ t('triggers.days') }}</span>
+          <div class="days" role="group" :aria-label="t('triggers.daysAria')">
+            <button v-for="d in weekdays()" :key="d.value" type="button" class="day" :class="{ active: form.weekdays.includes(d.value) }" :aria-pressed="form.weekdays.includes(d.value)" :aria-label="d.long" @click="toggleDay(d.value)">
               {{ d.short }}
             </button>
           </div>
-          <span class="hint">{{ form.weekdays.length ? 'Solo los días marcados.' : 'Sin marcar ninguno, se ejecuta todos los días.' }}</span>
+          <span class="hint">{{ form.weekdays.length ? t('triggers.daysSelected') : t('triggers.daysNone') }}</span>
         </div>
       </template>
 
       <div v-else-if="form.kind === 'cron'" class="field">
-        <label for="trg-cron">Expresión <Term id="cron">cron</Term></label>
+        <i18n-t keypath="triggers.cronLabel" tag="label" for="trg-cron" scope="global">
+          <template #cron><Term id="cron">{{ t('triggers.cronTerm') }}</Term></template>
+        </i18n-t>
         <input id="trg-cron" v-model="form.cron" class="input mono" type="text" spellcheck="false" autocomplete="off" placeholder="0 9 * * 1-5" :aria-invalid="!!(cronError || fieldErrors.cron || previewError)" />
         <span v-if="cronError || fieldErrors.cron || previewError" class="error" role="alert">{{ cronError || fieldErrors.cron || previewError }}</span>
-        <span v-else class="hint">Cinco campos: minuto, hora, día del mes, mes y día de la semana. «0 9 * * 1-5» = de lunes a viernes a las 9:00.</span>
+        <span v-else class="hint">{{ t('triggers.cronHint') }}</span>
       </div>
 
       <p v-else class="callout small">
         <Webhook />
-        <span>
-          Al guardar se crea una dirección y un secreto. Cualquier programa que envíe un <code>POST</code> a esa dirección con el secreto lanza el workflow, y el
-          cuerpo de la petición es su texto de entrada.
-        </span>
+        <i18n-t keypath="triggers.webhookNote" tag="span" scope="global">
+          <template #post><code>POST</code></template>
+        </i18n-t>
       </p>
 
       <div v-if="form.kind === 'daily' || form.kind === 'cron'" class="field">
-        <label for="trg-zone"><Term id="zona-horaria">Zona horaria</Term></label>
-        <input id="trg-zone" v-model="form.timezone" class="input" type="text" list="trg-zones" spellcheck="false" autocomplete="off" :placeholder="`La del servidor (este navegador: ${browserZone})`" :aria-invalid="!!fieldErrors.timezone" />
+        <label for="trg-zone"><Term id="zona-horaria">{{ t('triggers.zone') }}</Term></label>
+        <input id="trg-zone" v-model="form.timezone" class="input" type="text" list="trg-zones" spellcheck="false" autocomplete="off" :placeholder="t('triggers.zonePlaceholder', { zone: browserZone })" :aria-invalid="!!fieldErrors.timezone" />
         <datalist id="trg-zones"><option v-for="z in zones" :key="z" :value="z" /></datalist>
         <span v-if="fieldErrors.timezone" class="error" role="alert">{{ fieldErrors.timezone }}</span>
-        <span v-else class="hint">Déjala vacía para usar la del equipo donde corre AgentForge. Con una zona, el cambio de hora de verano se aplica solo.</span>
+        <span v-else class="hint">{{ t('triggers.zoneHint') }}</span>
       </div>
 
       <div v-if="preview && preview.next.length" class="preview small" aria-live="polite">
-        <span class="eyebrow">Próximas ejecuciones ({{ preview.timezone }})</span>
+        <span class="eyebrow">{{ t('triggers.upcoming', { zone: preview.timezone }) }}</span>
         <ol>
           <li v-for="at in preview.next" :key="at">{{ formatDateTime(at) }}</li>
         </ol>
       </div>
 
       <div class="field">
-        <label for="trg-name">Nombre <span class="muted">(opcional)</span></label>
-        <input id="trg-name" v-model="form.name" class="input" type="text" maxlength="80" placeholder="Para distinguirlo si hay varios" />
+        <label for="trg-name">{{ t('triggers.name') }} <span class="muted">{{ t('triggers.optional') }}</span></label>
+        <input id="trg-name" v-model="form.name" class="input" type="text" maxlength="80" :placeholder="t('triggers.namePlaceholder')" />
       </div>
 
       <div class="field">
-        <label for="trg-input">{{ form.kind === 'webhook' ? 'Entrada (plantilla)' : 'Entrada de cada ejecución' }}</label>
-        <textarea id="trg-input" v-model="form.input" class="textarea" rows="3" :placeholder="form.kind === 'webhook' ? 'Vacía: el cuerpo de la petición tal cual' : 'Texto con el que arranca el workflow cada vez'" />
-        <span v-if="form.kind === 'webhook'" class="hint">
-          Escribe <code v-pre>{{body}}</code> donde deba ir el cuerpo de la petición. Si el cuerpo es <Term id="json">JSON</Term> con un campo <code>input</code>, se usa ese campo.
-        </span>
+        <label for="trg-input">{{ form.kind === 'webhook' ? t('triggers.inputTemplate') : t('triggers.inputEach') }}</label>
+        <textarea id="trg-input" v-model="form.input" class="textarea" rows="3" :placeholder="form.kind === 'webhook' ? t('triggers.inputPlaceholderWebhook') : t('triggers.inputPlaceholder')" />
+        <i18n-t v-if="form.kind === 'webhook'" keypath="triggers.inputHint" tag="span" class="hint" scope="global">
+          <template #body><code v-pre>{{body}}</code></template>
+          <template #json><Term id="json">JSON</Term></template>
+          <template #input><code>input</code></template>
+        </i18n-t>
       </div>
 
       <label class="check">
         <input v-model="form.enabled" type="checkbox" class="switch" />
         <span>
-          <strong>Disparador activo</strong>
-          <span class="muted small" style="display: block">Desactívalo para pausarlo sin perder la configuración.</span>
+          <strong>{{ t('triggers.active') }}</strong>
+          <span class="muted small" style="display: block">{{ t('triggers.activeHint') }}</span>
         </span>
       </label>
 
@@ -421,13 +426,13 @@ async function save(): Promise<void> {
 
     <template #footer>
       <template v-if="!editing">
-        <button class="btn" type="button" style="margin-right: auto" :disabled="loading || !!loadError" @click="openForm(null)"><Plus /> Añadir disparador</button>
-        <button class="btn btn-primary" type="button" @click="emit('close')">Hecho</button>
+        <button class="btn" type="button" style="margin-right: auto" :disabled="loading || !!loadError" @click="openForm(null)"><Plus /> {{ t('triggers.add') }}</button>
+        <button class="btn btn-primary" type="button" @click="emit('close')">{{ t('triggers.done') }}</button>
       </template>
       <template v-else>
-        <button class="btn" type="button" @click="editing = null">Volver</button>
+        <button class="btn" type="button" @click="editing = null">{{ t('common.actions.back') }}</button>
         <button class="btn btn-primary" type="submit" form="trigger-form" :disabled="saving || invalid">
-          <LoaderCircle v-if="saving" class="spin" /> {{ isNew ? 'Crear disparador' : 'Guardar disparador' }}
+          <LoaderCircle v-if="saving" class="spin" /> {{ isNew ? t('triggers.create') : t('triggers.saveTrigger') }}
         </button>
       </template>
     </template>

@@ -85,6 +85,9 @@ async function startApp(): Promise<AppHandle> {
         AGENTFORGE_DEFAULT_MODEL: '',
         AGENTFORGE_LOG: '0',
         AGENTFORGE_SCHEDULER_TICK_MS: '1000',
+        // La suite carga decenas de pantallas por minuto, muy por encima de un uso real: el límite de tasa por
+        // defecto (1 200 peticiones por minuto) la cortaría. El límite tiene sus propios tests en el servidor.
+        AGENTFORGE_RATE_LIMIT: '60000',
       },
       // Con canal IPC: permite pedir el apagado ordenado, que en Windows no se puede pedir con una señal.
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],

@@ -9,6 +9,7 @@ import RunActivity from '@/components/RunActivity.vue';
 import RunGraph from '@/components/RunGraph.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import Term from '@/components/Term.vue';
+import { t, tn } from '@/i18n';
 import { announce } from '@/lib/a11y';
 import { api, errorText } from '@/lib/api';
 import { elapsedMs, formatCompact, formatDateTime, formatDuration, formatNumber, NODE_LABEL, STATUS_LABEL } from '@/lib/format';
@@ -61,7 +62,8 @@ watch(
     if (!status || !previous || status === previous || !live.value) return;
     const took = elapsedMs(live.value.startedAt, live.value.finishedAt, Date.now());
     const ended = ['completed', 'failed', 'cancelled'].includes(status);
-    announce(`Ejecución: ${STATUS_LABEL[status].toLowerCase()}${ended && took !== null ? ` en ${formatDuration(took)}` : ''}.`);
+    const state = STATUS_LABEL[status].toLowerCase();
+    announce(ended && took !== null ? t('runDetail.announce.runIn', { status: state, time: formatDuration(took) }) : t('runDetail.announce.run', { status: state }));
   },
 );
 watch(
@@ -71,7 +73,7 @@ watch(
     const before = new Map(previous.split('|').map((entry) => [entry.slice(0, entry.lastIndexOf(':')), entry.slice(entry.lastIndexOf(':') + 1)]));
     for (const s of steps.value) {
       const was = before.get(s.nodeId);
-      if (was && was !== s.status && ['completed', 'failed', 'waiting'].includes(s.status)) announce(`Paso ${s.label}: ${STATUS_LABEL[s.status].toLowerCase()}.`);
+      if (was && was !== s.status && ['completed', 'failed', 'waiting'].includes(s.status)) announce(t('runDetail.announce.step', { label: s.label, status: STATUS_LABEL[s.status].toLowerCase() }));
     }
     void current;
   },
@@ -155,7 +157,7 @@ const retry = (mode: 'all' | 'failed') =>
     await router.push(`/runs/${next.id}`);
   });
 async function remove(): Promise<void> {
-  const ok = await ui.confirm({ title: 'Eliminar ejecución', message: 'Se eliminará esta ejecución con todos sus eventos.', confirmLabel: 'Eliminar', danger: true });
+  const ok = await ui.confirm({ title: t('runDetail.confirm.deleteTitle'), message: t('runDetail.confirm.deleteMessage'), confirmLabel: t('common.actions.delete'), danger: true });
   if (!ok) return;
   await act(async () => {
     await api.runs.remove(runId.value);
@@ -166,9 +168,9 @@ async function remove(): Promise<void> {
 async function copy(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
-    ui.success('Copiado al portapapeles.');
+    ui.success(t('runDetail.toast.copied'));
   } catch {
-    ui.error('No se pudo copiar al portapapeles.');
+    ui.error(t('runDetail.toast.copyFailed'));
   }
 }
 </script>
@@ -177,9 +179,9 @@ async function copy(text: string): Promise<void> {
   <div class="page">
     <div v-if="error" class="card empty">
       <CircleAlert />
-      <h3>No se pudo cargar la ejecución</h3>
+      <h3>{{ t('runDetail.loadError') }}</h3>
       <p>{{ error }}</p>
-      <RouterLink class="btn" to="/runs">Volver a ejecuciones</RouterLink>
+      <RouterLink class="btn" to="/runs">{{ t('runDetail.backToRuns') }}</RouterLink>
     </div>
 
     <div v-else-if="loading || !run || !live" class="card skeleton" style="height: 420px" aria-busy="true" />
@@ -187,37 +189,37 @@ async function copy(text: string): Promise<void> {
     <template v-else>
       <header class="page-header">
         <div class="row" style="gap: 12px; align-items: flex-start">
-          <RouterLink class="btn btn-ghost btn-icon" to="/runs" aria-label="Volver a ejecuciones"><ArrowLeft /></RouterLink>
+          <RouterLink class="btn btn-ghost btn-icon" to="/runs" :aria-label="t('runDetail.backToRuns')"><ArrowLeft /></RouterLink>
           <div>
             <div class="row wrap">
-              <component :is="isWorkflow ? Workflow : Bot" style="width: 18px; height: 18px; color: var(--text-3)" :aria-label="isWorkflow ? 'Workflow' : 'Agente'" />
+              <component :is="isWorkflow ? Workflow : Bot" style="width: 18px; height: 18px; color: var(--text-3)" :aria-label="isWorkflow ? t('runDetail.kind.workflow') : t('runDetail.kind.agent')" />
               <h1>{{ run.name }}</h1>
               <StatusBadge :status="live.status" />
             </div>
             <p class="subtitle small">
               {{ formatDateTime(run.createdAt) }}
-              <template v-if="run.triggerKind === 'webhook'"> · lanzada por un webhook</template>
-              <template v-else-if="run.scheduled"> · ejecución programada</template>
-              <template v-if="run.retryOf"> · <RouterLink :to="`/runs/${run.retryOf}`">reintento de una ejecución anterior</RouterLink></template>
-              <template v-if="run.parentRunId"> · <RouterLink :to="`/runs/${run.parentRunId}`">subejecución lanzada por otro workflow</RouterLink></template>
-              <template v-if="isActive && steps.length > 1"> · {{ progress.done }} de {{ progress.total }} pasos</template>
+              <template v-if="run.triggerKind === 'webhook'"> · {{ t('runDetail.header.viaWebhook') }}</template>
+              <template v-else-if="run.scheduled"> · {{ t('runDetail.header.scheduled') }}</template>
+              <template v-if="run.retryOf"> · <RouterLink :to="`/runs/${run.retryOf}`">{{ t('runDetail.header.retryOf') }}</RouterLink></template>
+              <template v-if="run.parentRunId"> · <RouterLink :to="`/runs/${run.parentRunId}`">{{ t('runDetail.header.childOf') }}</RouterLink></template>
+              <template v-if="isActive && steps.length > 1"> · {{ t('runDetail.progress.text', progress) }}</template>
             </p>
           </div>
         </div>
         <div class="row wrap">
-          <button v-if="isActive" class="btn btn-danger" type="button" :disabled="busy" @click="cancel"><Square /> Cancelar</button>
+          <button v-if="isActive" class="btn btn-danger" type="button" :disabled="busy" @click="cancel"><Square /> {{ t('common.actions.cancel') }}</button>
           <template v-else>
-            <button v-if="canResume" class="btn btn-primary" type="button" :disabled="busy" title="Reutiliza los pasos que terminaron bien" @click="retry('failed')">
-              <SkipForward /> Reintentar desde el fallo
+            <button v-if="canResume" class="btn btn-primary" type="button" :disabled="busy" :title="t('runDetail.actions.resumeTitle')" @click="retry('failed')">
+              <SkipForward /> {{ t('runDetail.actions.resume') }}
             </button>
-            <button class="btn" type="button" :disabled="busy" @click="retry('all')"><RotateCcw /> Repetir</button>
-            <RouterLink v-if="sourceExists" class="btn" :to="sourceLink"><Pencil /> {{ isWorkflow ? 'Abrir workflow' : 'Abrir agente' }}</RouterLink>
-            <button class="btn btn-ghost btn-icon" type="button" aria-label="Eliminar ejecución" title="Eliminar" :disabled="busy" @click="remove"><Trash2 /></button>
+            <button class="btn" type="button" :disabled="busy" @click="retry('all')"><RotateCcw /> {{ t('runDetail.actions.repeat') }}</button>
+            <RouterLink v-if="sourceExists" class="btn" :to="sourceLink"><Pencil /> {{ isWorkflow ? t('runDetail.actions.openWorkflow') : t('runDetail.actions.openAgent') }}</RouterLink>
+            <button class="btn btn-ghost btn-icon" type="button" :aria-label="t('runDetail.actions.deleteLabel')" :title="t('common.actions.delete')" :disabled="busy" @click="remove"><Trash2 /></button>
           </template>
         </div>
       </header>
 
-      <div v-if="isActive && steps.length > 1" class="progress" role="progressbar" :aria-valuenow="progress.done" aria-valuemin="0" :aria-valuemax="progress.total" :aria-valuetext="`${progress.done} de ${progress.total} pasos`" aria-label="Progreso">
+      <div v-if="isActive && steps.length > 1" class="progress" role="progressbar" :aria-valuenow="progress.done" aria-valuemin="0" :aria-valuemax="progress.total" :aria-valuetext="t('runDetail.progress.text', progress)" :aria-label="t('runDetail.progress.label')">
         <span :style="{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }" />
       </div>
 
@@ -226,12 +228,13 @@ async function copy(text: string): Promise<void> {
       </div>
 
       <section class="stats card">
-        <div><span class="eyebrow">Duración</span><strong class="num">{{ formatDuration(duration) }}</strong></div>
-        <div><span class="eyebrow">Llamadas al <Term id="llm">LLM</Term></span><strong class="num">{{ usage?.llmCalls ?? 0 }}</strong></div>
-        <div><span class="eyebrow"><Term id="herramienta">Herramientas</Term></span><strong class="num">{{ usage?.toolCalls ?? 0 }}</strong></div>
+        <div><span class="eyebrow">{{ t('runDetail.stats.duration') }}</span><strong class="num">{{ formatDuration(duration) }}</strong></div>
         <div>
-          <span class="eyebrow"><Term id="tokens">Tokens</Term></span>
-          <strong class="num" :title="`${formatNumber(usage?.promptTokens ?? 0)} de entrada · ${formatNumber(usage?.completionTokens ?? 0)} de salida`">
+          <i18n-t keypath="runDetail.stats.llmCalls" tag="span" class="eyebrow" scope="global"><template #llm><Term id="llm">LLM</Term></template></i18n-t><strong class="num">{{ usage?.llmCalls ?? 0 }}</strong></div>
+        <div><span class="eyebrow"><Term id="herramienta">{{ t('runDetail.stats.tools') }}</Term></span><strong class="num">{{ usage?.toolCalls ?? 0 }}</strong></div>
+        <div>
+          <span class="eyebrow"><Term id="tokens">{{ t('runDetail.stats.tokens') }}</Term></span>
+          <strong class="num" :title="t('runDetail.stats.tokensTitle', { input: formatNumber(usage?.promptTokens ?? 0), output: formatNumber(usage?.completionTokens ?? 0) })">
             {{ formatCompact((usage?.promptTokens ?? 0) + (usage?.completionTokens ?? 0)) }}
           </strong>
         </div>
@@ -239,16 +242,17 @@ async function copy(text: string): Promise<void> {
 
       <section v-if="isWorkflow" class="card graph">
         <RunGraph :snapshot="run.snapshot" :live="live" :selected="selected" @select="selected = $event" />
-        <p class="tiny faint snapshot-note">
-          Se muestra la <Term id="instantanea">instantánea</Term> del <Term id="workflow">workflow</Term> tal como era al lanzar esta ejecución.
-        </p>
+        <i18n-t keypath="runDetail.snapshotNote" tag="p" class="tiny faint snapshot-note" scope="global">
+          <template #snapshot><Term id="instantanea">{{ t('runDetail.snapshotNoteSnapshot') }}</Term></template>
+          <template #workflow><Term id="workflow">{{ t('runDetail.snapshotNoteWorkflow') }}</Term></template>
+        </i18n-t>
       </section>
 
       <div class="detail">
-        <nav class="card steps" aria-label="Pasos">
+        <nav class="card steps" :aria-label="t('runDetail.steps.label')">
           <button class="step" :class="{ active: selected === null }" type="button" @click="selected = null">
             <LayoutList class="sum-ico" />
-            <span class="grow"><strong>Resumen</strong><span class="tiny muted">Resultado final y toda la actividad</span></span>
+            <span class="grow"><strong>{{ t('runDetail.steps.summary') }}</strong><span class="tiny muted">{{ t('runDetail.steps.summaryHint') }}</span></span>
           </button>
           <button v-for="s in steps" :key="s.nodeId" class="step" :class="{ active: selected === s.nodeId }" type="button" @click="selected = s.nodeId">
             <StatusBadge :status="s.status" icon-only />
@@ -256,7 +260,7 @@ async function copy(text: string): Promise<void> {
               <strong class="truncate">{{ s.label }}</strong>
               <span class="tiny muted">
                 {{ NODE_LABEL[s.nodeType] }}
-                <template v-if="s.attempt > 1"> · intento {{ s.attempt }}</template>
+                <template v-if="s.attempt > 1"> · {{ t('runDetail.steps.attempt', { n: s.attempt }) }}</template>
                 <template v-if="stepDuration(s)"> · {{ stepDuration(s) }}</template>
               </span>
             </span>
@@ -267,11 +271,11 @@ async function copy(text: string): Promise<void> {
         <section class="card panel">
           <div class="panel-head">
             <div class="tabs" role="tablist">
-              <button class="tab" :class="{ active: tab === 'result' }" role="tab" :aria-selected="tab === 'result'" type="button" @click="tab = 'result'">Resultado</button>
+              <button class="tab" :class="{ active: tab === 'result' }" role="tab" :aria-selected="tab === 'result'" type="button" @click="tab = 'result'">{{ t('runDetail.tabs.result') }}</button>
               <button class="tab" :class="{ active: tab === 'activity' }" role="tab" :aria-selected="tab === 'activity'" type="button" @click="tab = 'activity'">
-                Actividad <span class="badge" style="height: 18px">{{ live.events.filter((e) => !selected || e.nodeId === selected).length }}</span>
+                {{ t('runDetail.tabs.activity') }} <span class="badge" style="height: 18px">{{ live.events.filter((e) => !selected || e.nodeId === selected).length }}</span>
               </button>
-              <button class="tab" :class="{ active: tab === 'input' }" role="tab" :aria-selected="tab === 'input'" type="button" @click="tab = 'input'">Entrada</button>
+              <button class="tab" :class="{ active: tab === 'input' }" role="tab" :aria-selected="tab === 'input'" type="button" @click="tab = 'input'">{{ t('runDetail.tabs.input') }}</button>
             </div>
           </div>
 
@@ -282,13 +286,13 @@ async function copy(text: string): Promise<void> {
 
               <template v-if="resultText">
                 <div class="row between">
-                  <span class="eyebrow">{{ step ? (step.status === 'running' ? 'Generando…' : isPartial ? 'Texto generado antes de interrumpirse' : 'Salida del paso') : 'Resultado final' }}</span>
+                  <span class="eyebrow">{{ step ? (step.status === 'running' ? t('runDetail.result.generating') : isPartial ? t('runDetail.result.partial') : t('runDetail.result.stepOutput')) : t('runDetail.result.final') }}</span>
                   <div class="row" style="gap: 4px">
                     <div class="segmented">
-                      <button type="button" :class="{ active: !raw }" @click="raw = false">Formato</button>
-                      <button type="button" :class="{ active: raw }" @click="raw = true">Texto</button>
+                      <button type="button" :class="{ active: !raw }" @click="raw = false">{{ t('runDetail.result.formatted') }}</button>
+                      <button type="button" :class="{ active: raw }" @click="raw = true">{{ t('runDetail.result.plain') }}</button>
                     </div>
-                    <button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Copiar resultado" title="Copiar" @click="copy(resultText)"><Copy /></button>
+                    <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('runDetail.result.copyLabel')" :title="t('common.actions.copy')" @click="copy(resultText)"><Copy /></button>
                   </div>
                 </div>
                 <pre v-if="raw" class="codeblock" style="max-height: none">{{ resultText }}</pre>
@@ -299,12 +303,9 @@ async function copy(text: string): Promise<void> {
               <template v-else-if="!step && isActive">
                 <p v-if="waitingSteps.length" class="callout warning" role="status">
                   <Hourglass />
-                  <span>
-                    La ejecución está detenida en «{{ waitingSteps.map((s) => s.label).join('», «') }}» a la espera de que alguien apruebe o rechace. Decide en el aviso de la parte superior de
-                    la página.
-                  </span>
+                  <span>{{ t('runDetail.result.waitingApproval', { steps: waitingSteps.map((s) => s.label).join(t('runDetail.result.waitingJoin')) }) }}</span>
                 </p>
-                <p v-else-if="!runningSteps.length" class="muted row"><span class="dot info pulse" /> {{ live.status === 'queued' ? 'En cola, esperando turno…' : 'Preparando el siguiente paso…' }}</p>
+                <p v-else-if="!runningSteps.length" class="muted row"><span class="dot info pulse" /> {{ live.status === 'queued' ? t('runDetail.result.queued') : t('runDetail.result.preparing') }}</p>
                 <div v-for="s in runningSteps" :key="s.nodeId" class="stream">
                   <button class="row stream-head" type="button" @click="selected = s.nodeId">
                     <StatusBadge status="running" icon-only /> <strong>{{ s.label }}</strong>
@@ -312,25 +313,25 @@ async function copy(text: string): Promise<void> {
                   </button>
                   <div v-if="s.streamText" class="output"><MarkdownView :source="s.streamText" /><span class="caret" aria-hidden="true" /></div>
                   <p v-else-if="s.thinkingText" class="small muted thinking">{{ s.thinkingText.slice(-300) }}</p>
-                  <p v-else class="small muted">Esperando al modelo…</p>
+                  <p v-else class="small muted">{{ t('runDetail.result.waitingModel') }}</p>
                 </div>
               </template>
 
               <template v-else-if="step">
                 <p v-if="step.status === 'running'" class="muted row">
-                  <span class="dot info pulse" /> {{ step.thinkingText ? 'El modelo está razonando…' : 'Esperando al modelo…' }}
+                  <span class="dot info pulse" /> {{ step.thinkingText ? t('runDetail.result.reasoning') : t('runDetail.result.waitingModel') }}
                 </p>
-                <p v-else-if="step.status === 'waiting'" class="muted row"><Hourglass style="width: 15px; height: 15px" /> Esperando a que una persona apruebe o rechace.</p>
-                <p v-else-if="step.status === 'pending'" class="muted">Este paso todavía no ha empezado.</p>
-                <p v-else-if="step.status === 'skipped'" class="muted">Este paso se omitió: pertenece a una rama no tomada o dependía de un paso fallido.</p>
-                <p v-else-if="step.status === 'cancelled'" class="muted">Este paso se canceló antes de terminar.</p>
-                <p v-else-if="!step.error" class="muted">Este paso no produjo salida.</p>
+                <p v-else-if="step.status === 'waiting'" class="muted row"><Hourglass style="width: 15px; height: 15px" /> {{ t('runDetail.result.stepWaiting') }}</p>
+                <p v-else-if="step.status === 'pending'" class="muted">{{ t('runDetail.result.stepPending') }}</p>
+                <p v-else-if="step.status === 'skipped'" class="muted">{{ t('runDetail.result.stepSkipped') }}</p>
+                <p v-else-if="step.status === 'cancelled'" class="muted">{{ t('runDetail.result.stepCancelled') }}</p>
+                <p v-else-if="!step.error" class="muted">{{ t('runDetail.result.stepNoOutput') }}</p>
               </template>
-              <p v-else-if="!live.error" class="muted">La ejecución no produjo ningún resultado.</p>
+              <p v-else-if="!live.error" class="muted">{{ t('runDetail.result.runNoOutput') }}</p>
 
               <!-- Subejecuciones lanzadas por este paso (subworkflow, o «para cada» con un subworkflow por elemento) -->
               <div v-if="stepChildren.length" class="children">
-                <span class="eyebrow">{{ stepChildren.length === 1 ? 'Subejecución' : `Subejecuciones (${stepChildren.length})` }}</span>
+                <span class="eyebrow">{{ tn('runDetail.children.title', stepChildren.length) }}</span>
                 <ul>
                   <li v-for="child in stepChildren" :key="child.id">
                     <StatusBadge :status="child.status" icon-only />
@@ -346,10 +347,12 @@ async function copy(text: string): Promise<void> {
 
             <!-- Entrada -->
             <template v-else>
-              <span v-if="step?.nodeType === 'agent'" class="eyebrow">Tarea enviada al agente (<Term id="plantilla">plantilla</Term> ya resuelta)</span>
-              <span v-else class="eyebrow">{{ step ? 'Datos de entrada del paso' : 'Entrada de la ejecución' }}</span>
+              <i18n-t v-if="step?.nodeType === 'agent'" keypath="runDetail.input.agentTask" tag="span" class="eyebrow" scope="global">
+                <template #template><Term id="plantilla">{{ t('runDetail.input.agentTaskTemplate') }}</Term></template>
+              </i18n-t>
+              <span v-else class="eyebrow">{{ step ? t('runDetail.input.stepInput') : t('runDetail.input.runInput') }}</span>
               <pre v-if="step ? step.input : run.input" class="codeblock" style="max-height: none">{{ step ? step.input : run.input }}</pre>
-              <p v-else class="muted">{{ step ? 'Este paso no registró ninguna entrada.' : 'La ejecución se lanzó sin texto de entrada.' }}</p>
+              <p v-else class="muted">{{ step ? t('runDetail.input.stepNone') : t('runDetail.input.runNone') }}</p>
             </template>
           </div>
         </section>

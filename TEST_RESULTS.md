@@ -6,12 +6,12 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 ## 1. Tests automatizados
 
 Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
-Resultados del 2026-11-12 (hito 5, tras la fase 6):
+Resultados del 2026-11-12 (hito 5, tras la fase 7):
 
 ```
 servidor     Test Files  17 passed (17)   Tests  379 passed | 1 skipped (380)
-frontend     Test Files  10 passed (10)   Tests   61 passed (61)
-end-to-end   66 passed (4.3m)
+frontend     Test Files  13 passed (13)   Tests   79 passed (79)
+end-to-end   71 passed (4.5m)
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
 npm audit    found 0 vulnerabilities
 ```
@@ -44,6 +44,9 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `web/src/lib/run-state.test.ts` | Reductor de eventos del monitor en vivo, emparejado de llamadas a herramientas, formato | Ninguno |
 | `web/src/lib/glossary.test.ts` | Coherencia del glosario: ids existentes, entradas usadas, términos fuera de botones/enlaces/código/títulos, definiciones aptas para tooltip | Ninguno (analiza las plantillas reales) |
 | `web/src/lib/transfer.test.ts` | Nombre del archivo exportado y descripción de la cadencia en lenguaje natural | Ninguno |
+| `web/src/i18n/i18n.test.ts` | Idiomas: mismas claves en español e inglés, ningún texto vacío, mismos huecos y formas de plural, toda clave escrita en el código existe, idioma por defecto según el navegador y elección recordada, y textos, plurales y formatos (números, duraciones, tiempos relativos) en los dos idiomas | Ninguno (`localStorage` y `navigator` se sustituyen en un caso) |
+| `web/src/lib/validation-en.test.ts` | Validación de workflows en inglés: mismos códigos que la tabla en español, mismos parámetros y referencias en cada mensaje, y `issueText` según el idioma con problemas reales de `validateWorkflow` | Ninguno |
+| `web/src/stores/catalog.test.ts` | Catálogo (carga, altas, cambios y bajas en memoria, salud de proveedores) y **estado de conexión**: con el cupo de peticiones agotado de verdad el servidor responde 429 y sigue contando como conectado; con el servidor parado pasa a «sin conexión» y el error lleva el código `network` | Solo el proveedor LLM: usa la **API real** en memoria |
 | `web/src/lib/builder.test.ts` | Historial de deshacer/rehacer (agrupado, tope, rama descartada), disposición automática por capas, destinos de conexión válidos (sin ciclos, ramas de una condición) y copia de nodos con sus conexiones internas | Ninguno |
 | `web/src/lib/usage.test.ts` | Qué workflows usan un agente y el texto del aviso al eliminarlo (singular, plural, resumen) | Ninguno |
 | `web/src/components/GettingStarted.test.ts` | Guía de primeros pasos: proveedor Ollama caído (explicación, enlace de descarga, comando con el modelo configurado), «Probar conexión» antes y después de que responda, sin proveedores, y «Ocultar guía» recordado | Solo el proveedor LLM: usa la **API real** en memoria |
@@ -51,7 +54,7 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
 | `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
 | `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
-| `e2e/*.spec.ts` (66 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
+| `e2e/*.spec.ts` (71 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
 Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
 puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
@@ -161,6 +164,25 @@ del nodo). En el navegador, sobre los datos reales: Intro sobre el nodo «Redact
 etiqueta, el nodo se anuncia como «Agente: Redactar informe», las conexiones como «Conexión de Tema a Investigar
 hechos», los botones de zoom se llaman «Acercar», «Alejar» y «Encuadrar todo el grafo», y el bloque «Conexiones»
 lista lo que recibe y envía; sin errores en la consola.
+
+Añadido en la fase 7 del hito 5 (`e2e/i18n.spec.ts`, 5 tests):
+
+| Requisito | Evidencia que exige |
+|---|---|
+| Selector de idioma | Al pulsar «English» cambian el encabezado, el menú, el título de la pestaña, `<html lang>` y el enlace «Skip to content», sin recargar; se conserva al recargar y al navegar; el cambio de página se anuncia «Page: Agents»; se vuelve al español |
+| Todas las pantallas en inglés | Las 7 secciones, la ficha de un agente, el monitor de una ejecución («Completed»), el constructor («Undo», «Run») y el glosario muestran inglés; la validación del workflow dice «needs an incoming connection»; en ninguna pantalla aparece una clave sin traducir (texto, `aria-label`, `title`, `placeholder`) |
+| Español sin claves sueltas | Las mismas pantallas en español tampoco muestran ninguna clave |
+| Formatos y errores | «ahora mismo» pasa a «just now»; el filtro «Completadas» a «Completed»; una ejecución inexistente muestra «The run could not be loaded … was not found» y, en español, «Ejecución no encontrada» |
+| Idioma del navegador | Un navegador `en-GB` arranca en inglés y uno `es-MX` en español |
+
+Las 66 pruebas e2e anteriores, que buscan los textos en español, pasan sin cambios tras mover todos los textos a
+los catálogos: el español de la interfaz es el mismo que antes.
+
+Verificado además en el navegador con Ollama real (2026-11-12): con la interfaz en inglés, el agente «Calculista»
+respondió en el banco de pruebas a «What is 17.5% of 2,480?» con 434; la cabecera mostró «Completed»,
+«5.8 s · 1,300 tokens» y «just now». El Panel, Ajustes y el constructor se revisaron en inglés (menú, indicadores,
+propiedades, paleta, «Valid», «Workflow settings») sin errores en la consola, y al volver al español el título de
+la pestaña volvió a «Agente · AgentForge».
 
 ### 1.2 Prueba de carga (`npm run loadtest`)
 
@@ -359,6 +381,10 @@ de una ejecución anterior al reinicio.
   la creación de proveedores, herramientas y subworkflows y la sustitución están probadas en tests y e2e.
 - **Cifrado de cabeceras antiguas sobre los datos reales**: la instalación real no tiene herramientas HTTP
   personalizadas, así que el cifrado al arrancar solo se ha ejercitado en los tests.
+- **Inglés revisado por una persona nativa**: la traducción no se ha revisado; lo comprobado es que existe para
+  todas las claves, que conserva huecos y plurales y que las pantallas la muestran.
+- **Inglés con datos reales en todas las pantallas**: en el navegador se han visto el Panel, Ajustes, el
+  constructor y la ficha de un agente; el resto de pantallas en inglés se ha recorrido en la suite e2e.
 - **Lector de pantalla real**: los nombres, roles, foco y regiones vivas están comprobados en el DOM (e2e y
   navegador); no se ha escuchado la interfaz con NVDA, JAWS ni VoiceOver.
 - **Guía de primeros pasos sin Ollama en el navegador**: el caso «proveedor caído» está probado en el test de
