@@ -25,6 +25,14 @@ async function show(touch = false): Promise<void> {
   inForm.value = Boolean(anchor.value?.closest('[role="dialog"], form'));
   open.value = true;
   await nextTick();
+  place();
+  document.addEventListener('pointerdown', onOutside, true);
+  // En captura: Esc cierra solo la definición, antes de que el diálogo que la contiene lo reciba y se cierre.
+  document.addEventListener('keydown', onEsc, true);
+  window.addEventListener('scroll', onScroll, true);
+}
+/** Coloca la definición sobre el término (o debajo, si no cabe arriba), sin salirse de la pantalla. */
+function place(): void {
   if (!anchor.value || !tip.value) return;
   const r = anchor.value.getBoundingClientRect();
   const w = tip.value.offsetWidth;
@@ -32,16 +40,21 @@ async function show(touch = false): Promise<void> {
   const left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
   const above = r.top - h - 8;
   style.value = { left: `${left}px`, top: `${above > 8 ? above : r.bottom + 8}px` };
-  document.addEventListener('pointerdown', onOutside, true);
-  // En captura: Esc cierra solo la definición, antes de que el diálogo que la contiene lo reciba y se cierre.
-  document.addEventListener('keydown', onEsc, true);
-  window.addEventListener('scroll', hide, true);
+}
+/**
+ * Al desplazar, la definición acompaña al término y solo se cierra si el término sale de la vista. (Cerrarla con
+ * cualquier desplazamiento la hacía desaparecer al tocar un término que el navegador desplaza para enfocarlo.)
+ */
+function onScroll(): void {
+  const r = anchor.value?.getBoundingClientRect();
+  if (!r || r.bottom < 0 || r.top > window.innerHeight) hide();
+  else place();
 }
 function hide(): void {
   open.value = false;
   document.removeEventListener('pointerdown', onOutside, true);
   document.removeEventListener('keydown', onEsc, true);
-  window.removeEventListener('scroll', hide, true);
+  window.removeEventListener('scroll', onScroll, true);
 }
 const inside = (target: EventTarget | null): boolean => target instanceof Node && Boolean(anchor.value?.contains(target) || tip.value?.contains(target));
 function onOutside(ev: Event): void {

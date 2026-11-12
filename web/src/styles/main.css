@@ -267,6 +267,7 @@ pre,
 }
 .card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -678,6 +679,12 @@ input[type='range'] {
 }
 .empty p {
   max-width: 46ch;
+}
+/* Un botón con un nombre largo (p. ej. «Abrir «…»») se parte en varias líneas en vez de salirse en el móvil. */
+.empty .btn {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .callout {
   display: flex;

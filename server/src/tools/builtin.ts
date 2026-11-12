@@ -39,7 +39,9 @@ export async function workspaceSize(root: string): Promise<number> {
 /** Resuelve una ruta relativa dentro del workspace e impide salir de él (path traversal). */
 export function resolveInWorkspace(root: string, relPath: string): string {
   const base = path.resolve(root);
-  const target = path.resolve(base, relPath.replace(/^[/\\]+/, ''));
+  // La barra invertida es separador en todas las plataformas: «..\\x» sale del espacio también en Linux (si no,
+  // allí sería un archivo con ese nombre) y una ruta escrita en Windows significa lo mismo en cualquier servidor.
+  const target = path.resolve(base, relPath.replace(/\\/g, '/').replace(/^\/+/, ''));
   if (target !== base && !target.startsWith(base + path.sep)) {
     throw new ToolError(msg('workspaceOutside', { path: relPath }));
   }

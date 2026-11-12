@@ -286,9 +286,17 @@ export async function detectContainerEngine(force = false): Promise<{ value: Con
   let error: CodedMessage | null = null;
   let value: ContainerEngine | null = null;
   for (const engine of ['docker', 'podman'] as const) {
-    const res = await exec(engine, ['version', '--format', engine === 'docker' ? '{{.Server.Version}}' : '{{.Version}}'], 6000);
-    if (res.code === 0 && res.stdout.trim()) {
-      value = { engine, version: res.stdout.trim() };
+    // Docker también informa del sistema de sus contenedores: uno en modo «contenedores de Windows» no puede
+    // ejecutar la imagen de Linux del entorno aislado (Podman siempre ejecuta contenedores de Linux).
+    const format = engine === 'docker' ? '{{.Server.Version}} {{.Server.Os}}' : '{{.Version}}';
+    const res = await exec(engine, ['version', '--format', format], 10_000);
+    const [version, os] = res.stdout.trim().split(/\s+/);
+    if (res.code === 0 && version) {
+      if (engine === 'docker' && os && os !== 'linux') {
+        error ??= msg('containerEngineNotLinux', { engine: 'Docker', os });
+        continue;
+      }
+      value = { engine, version };
       error = null;
       break;
     }

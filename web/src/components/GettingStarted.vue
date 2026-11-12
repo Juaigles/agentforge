@@ -201,6 +201,15 @@ function hide(): void {
 .guide {
   margin-bottom: 16px;
 }
+/* Los botones llevan el nombre del agente o del workflow: si es largo, se parten en vez de salirse en el móvil. */
+.body {
+  min-width: 0;
+}
+.body .btn {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .steps {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

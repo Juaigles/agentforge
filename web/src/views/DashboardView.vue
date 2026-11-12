@@ -587,7 +587,7 @@ async function cancel(run: RunSummary): Promise<void> {
   }
   .grid-main,
   .grid-three {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-width: 520px) {

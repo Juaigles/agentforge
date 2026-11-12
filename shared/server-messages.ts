@@ -304,6 +304,8 @@ export const SERVER_MESSAGES = {
   codePendingPromise: () => 'El código devolvió una promesa que no llega a resolverse (no hay temporizadores ni red).',
   containerEngineDown: (p) => `${p.engine} está instalado pero su servicio no responde. Arráncalo e inténtalo de nuevo.`,
   containerEngineMissing: () => 'No se ha encontrado Docker ni Podman en este equipo.',
+  containerEngineNotLinux: (p) =>
+    `${p.engine} está en marcha pero ejecuta contenedores de ${p.os}, y el entorno aislado necesita contenedores de Linux. Cámbialo a contenedores de Linux.`,
   containerImageMissing: (p) => `Falta la imagen ${p.image}. Descárgala una vez con: ${p.engine} pull ${p.image}`,
   sandboxImageMissing: (p) => `Falta la imagen ${p.image} del entorno aislado. Descárgala una vez con: ${p.engine} pull ${p.image}`,
   containerStartFailed: (p) => `El contenedor no pudo arrancar: ${p.detail}`,

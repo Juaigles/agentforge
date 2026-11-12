@@ -1,8 +1,9 @@
 # Integración continua de AgentForge.
 #
-# Este archivo está preparado pero NO se ha ejecutado nunca: el repositorio no está publicado. Refleja los
-# comandos que sí se ejecutan en local (`npm run check`, `npm run test:coverage`, `npm run test:e2e:all`).
-# Antes de fiarse de él hay que verlo pasar una vez en un repositorio real.
+# Ejecuta lo mismo que las baterías locales (`npm run check`, `npm run test:coverage`, `npm run test:e2e:all`)
+# en Linux y Windows, y construye la imagen de Docker. Se estrenó al publicar el repositorio (2026-11-12); su
+# primera ejecución encontró defectos que en Windows no se veían (rutas con barra invertida, desbordamientos con
+# las fuentes de Linux, Docker con contenedores de Windows).
 name: CI
 
 on:
@@ -95,6 +96,8 @@ jobs:
           path: |
             e2e/.report
             e2e/.results
+          # Las carpetas empiezan por punto: sin esto, upload-artifact v4 las omite y no sube nada.
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 

@@ -249,6 +249,8 @@ function toggleDay(day: number): void {
 // Vista previa: las próximas ocasiones las calcula el servidor, que es quien las va a lanzar.
 const preview = ref<TriggerPreview | null>(null);
 const previewError = ref('');
+/** Un error de la vista previa que es de la zona horaria se enseña junto a ese campo, no bajo la expresión. */
+const previewZoneError = ref('');
 let previewTimer: ReturnType<typeof setTimeout> | undefined;
 let previewSeq = 0;
 watch(
@@ -256,6 +258,7 @@ watch(
   (key) => {
     clearTimeout(previewTimer);
     previewError.value = '';
+    previewZoneError.value = '';
     if (!key || invalid.value) return void (preview.value = null);
     const seq = ++previewSeq;
     previewTimer = setTimeout(async () => {
@@ -265,7 +268,9 @@ watch(
       } catch (err) {
         if (seq !== previewSeq) return;
         preview.value = null;
-        previewError.value = err instanceof ApiError && err.issues.length ? err.issues[0].message : errorText(err);
+        const issue = err instanceof ApiError ? err.issues[0] : undefined;
+        if (issue?.path === 'timezone') previewZoneError.value = issue.message;
+        else previewError.value = issue ? issue.message : errorText(err);
       }
     }, 250);
   },
@@ -546,10 +551,10 @@ async function save(): Promise<void> {
           spellcheck="false"
           autocomplete="off"
           :placeholder="t('triggers.zonePlaceholder', { zone: browserZone })"
-          :aria-invalid="!!fieldErrors.timezone"
+          :aria-invalid="!!(fieldErrors.timezone || previewZoneError)"
         />
         <datalist id="trg-zones"><option v-for="z in zones" :key="z" :value="z" /></datalist>
-        <span v-if="fieldErrors.timezone" class="error" role="alert">{{ fieldErrors.timezone }}</span>
+        <span v-if="fieldErrors.timezone || previewZoneError" class="error" role="alert">{{ fieldErrors.timezone || previewZoneError }}</span>
         <span v-else class="hint">{{ t('triggers.zoneHint') }}</span>
       </div>
 

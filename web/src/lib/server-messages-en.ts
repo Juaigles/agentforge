@@ -267,6 +267,7 @@ export const SERVER_EN: Record<ServerCode, (p: TextParams) => string> = {
   codePendingPromise: () => 'The code returned a promise that never resolves (there are no timers and no network).',
   containerEngineDown: (p) => `${p.engine} is installed but its service is not responding. Start it and try again.`,
   containerEngineMissing: () => 'Neither Docker nor Podman was found on this computer.',
+  containerEngineNotLinux: (p) => `${p.engine} is running but uses ${p.os} containers, and the sandbox needs Linux containers. Switch it to Linux containers.`,
   containerImageMissing: (p) => `The image ${p.image} is missing. Download it once with: ${p.engine} pull ${p.image}`,
   sandboxImageMissing: (p) => `The sandbox image ${p.image} is missing. Download it once with: ${p.engine} pull ${p.image}`,
   containerStartFailed: (p) => `The container could not start: ${p.detail}`,

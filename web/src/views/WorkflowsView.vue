@@ -309,10 +309,11 @@ async function remove(wf: Workflow): Promise<void> {
 <style scoped>
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
   gap: 16px;
 }
 .wf {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -368,7 +369,7 @@ footer {
 }
 @media (max-width: 420px) {
   .grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

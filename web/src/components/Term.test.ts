@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
 import { GLOSSARY } from '@/lib/glossary';
 import { setTouchDevice, testRouter } from '@/test/harness';
@@ -66,7 +66,7 @@ describe('Term', () => {
     expect(tip()).toBeNull();
   });
 
-  it('se cierra al pulsar fuera o al desplazar la página', async () => {
+  it('se cierra al pulsar fuera; al desplazar acompaña al término y se cierra solo si el término sale de la vista', async () => {
     await mountTerm();
     await wrapper.get('a.term').trigger('mouseenter');
     await flushPromises();
@@ -74,11 +74,25 @@ describe('Term', () => {
     await flushPromises();
     expect(tip()).toBeNull();
 
+    const link = wrapper.get('a.term').element as HTMLElement;
+    const at = (top: number) =>
+      vi
+        .spyOn(link, 'getBoundingClientRect')
+        .mockReturnValue({ top, bottom: top + 18, left: 40, right: 100, width: 60, height: 18, x: 40, y: top, toJSON: () => ({}) } as DOMRect);
+    at(300);
     await wrapper.get('a.term').trigger('mouseenter');
     await flushPromises();
+    // El navegador desplaza un poco para enfocar el término: la definición sigue abierta.
+    at(260);
+    window.dispatchEvent(new Event('scroll'));
+    await flushPromises();
+    expect(tip()).not.toBeNull();
+    // El término sale por arriba: se cierra.
+    at(-40);
     window.dispatchEvent(new Event('scroll'));
     await flushPromises();
     expect(tip()).toBeNull();
+    vi.restoreAllMocks();
   });
 
   it('con ratón, el clic navega a la entrada del glosario', async () => {

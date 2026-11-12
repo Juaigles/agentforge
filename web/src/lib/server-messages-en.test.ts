@@ -62,6 +62,7 @@ const SAMPLE = {
   node: 'NODOX',
   workflow: 'WORKFLOWX',
   args: 'ARGUMENTOSX',
+  os: 'SISTEMAX',
 };
 const codes = Object.keys(SERVER_MESSAGES) as ServerCode[];
 const SPANISH_LETTERS = /[áéíóúüñÁÉÍÓÚÜÑ¿¡«»]/;
