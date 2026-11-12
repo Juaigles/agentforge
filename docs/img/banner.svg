@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" role="img" aria-label="AgentForge: equipos de agentes de IA en tu equipo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" role="img" aria-label="AgentForge: local AI agent teams on your own machine">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#0b0d12"/>
@@ -19,18 +19,24 @@
   <rect width="1280" height="320" rx="18" fill="url(#bg)"/>
   <rect width="1280" height="320" rx="18" fill="url(#dots)"/>
 
-  <!-- Marca -->
+  <!-- Brand -->
   <g transform="translate(72 92)">
     <rect width="56" height="56" rx="14" fill="#c2410c"/>
-    <path d="M15.75 38.5l8.75-21 5.25 10.5 3.5-5.25 7 15.75z" fill="#fff"/>
-    <circle cx="38.5" cy="17.5" r="3.85" fill="#fed7aa"/>
+    <path d="M28 16V10" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+    <circle cx="28" cy="9" r="3.4" fill="#fed7aa"/>
+    <rect x="9.5" y="25" width="4.5" height="11" rx="2.2" fill="#fed7aa"/>
+    <rect x="42" y="25" width="4.5" height="11" rx="2.2" fill="#fed7aa"/>
+    <rect x="14" y="16" width="28" height="26" rx="8" fill="#fff"/>
+    <circle cx="22" cy="27" r="3.3" fill="#c2410c"/>
+    <circle cx="34" cy="27" r="3.3" fill="#c2410c"/>
+    <rect x="21" y="34" width="14" height="3" rx="1.5" fill="#c2410c"/>
   </g>
   <text x="146" y="138" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="58" font-weight="800" fill="#f4f4f5" letter-spacing="-1">Agent<tspan fill="url(#hot)">Forge</tspan></text>
-  <text x="74" y="196" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="22" fill="#a1a1aa">Monta un equipo de agentes de IA, conéctalos en un diagrama</text>
-  <text x="74" y="228" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="22" fill="#a1a1aa">y míralos trabajar paso a paso. Todo en tu ordenador.</text>
+  <text x="74" y="196" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="22" fill="#a1a1aa">Build a team of AI agents, wire them into a diagram</text>
+  <text x="74" y="228" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="22" fill="#a1a1aa">and watch them work step by step. All on your machine.</text>
   <text x="74" y="272" font-family="Consolas, Menlo, monospace" font-size="16" fill="#71717a">Ollama · OpenAI-compatible · Vue 3 · Fastify · SQLite · MIT</text>
 
-  <!-- Workflow de ejemplo: frío = pendiente, al rojo = en curso, temple = hecho -->
+  <!-- Example workflow: cold = pending, hot = running, quenched = done -->
   <g font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600">
     <circle cx="1040" cy="160" r="120" fill="url(#glow)"/>
     <g fill="none" stroke-width="2.2">
@@ -42,13 +48,13 @@
     </g>
     <g>
       <rect x="744" y="138" width="98" height="44" rx="10" fill="#0f172a" stroke="#60a5fa" stroke-width="1.6"/>
-      <text x="793" y="165" text-anchor="middle" fill="#bfdbfe">Tema</text>
+      <text x="793" y="165" text-anchor="middle" fill="#bfdbfe">Topic</text>
       <rect x="902" y="82" width="98" height="44" rx="10" fill="#0f172a" stroke="#60a5fa" stroke-width="1.6"/>
-      <text x="951" y="109" text-anchor="middle" fill="#bfdbfe">Investigar</text>
+      <text x="951" y="109" text-anchor="middle" fill="#bfdbfe">Research</text>
       <rect x="902" y="194" width="98" height="44" rx="10" fill="#0f172a" stroke="#60a5fa" stroke-width="1.6"/>
-      <text x="951" y="221" text-anchor="middle" fill="#bfdbfe">Analizar</text>
+      <text x="951" y="221" text-anchor="middle" fill="#bfdbfe">Analyze</text>
       <rect x="1060" y="138" width="98" height="44" rx="10" fill="#2a1306" stroke="#f97316" stroke-width="2"/>
-      <text x="1109" y="165" text-anchor="middle" fill="#fed7aa">Redactar</text>
+      <text x="1109" y="165" text-anchor="middle" fill="#fed7aa">Draft</text>
       <rect x="1190" y="138" width="60" height="44" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.6"/>
       <text x="1220" y="165" text-anchor="middle" fill="#71717a">…</text>
     </g>

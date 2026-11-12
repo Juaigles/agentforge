@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/img/banner.svg" alt="AgentForge: monta un equipo de agentes de IA, conéctalos en un diagrama y míralos trabajar" width="100%">
+  <img src="docs/img/banner.svg" alt="AgentForge: build a team of AI agents, wire them into a diagram and watch them work" width="100%">
 </p>
 
 <p align="center">
