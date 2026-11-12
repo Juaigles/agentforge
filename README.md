@@ -1,9 +1,81 @@
+<p align="center">
+  <img src="docs/img/banner.svg" alt="AgentForge: monta un equipo de agentes de IA, conéctalos en un diagrama y míralos trabajar" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Juaigles/agentforge/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Juaigles/agentforge/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="Licencia MIT" src="https://img.shields.io/badge/licencia-MIT-c2410c"></a>
+  <img alt="Versión 1.0.0" src="https://img.shields.io/badge/versión-1.0.0-f97316">
+  <img alt="Node.js ≥ 22.13" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-3c873a">
+  <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178c6">
+  <img alt="Idiomas: español e inglés" src="https://img.shields.io/badge/idiomas-es%20%C2%B7%20en-71717a">
+</p>
+
 # AgentForge
 
 Plataforma web local para crear, gestionar y ejecutar sistemas de agentes de IA: define agentes (modelo,
 instrucciones, herramientas), conéctalos en workflows visuales y observa su ejecución en tiempo real.
 Funciona al 100 % en tu equipo con [Ollama](https://ollama.com); opcionalmente con cualquier API
 compatible con OpenAI.
+
+> **English:** AgentForge is a local web platform to build multi-agent AI workflows on a visual canvas and watch
+> them run live, step by step. It runs entirely on your machine with Ollama (or any OpenAI-compatible API). The
+> interface is available in English and Spanish; the documentation is in Spanish.
+
+<p align="center">
+  <img src="docs/img/en-vivo.jpg" alt="Monitor de una ejecución en curso: grafo del workflow con dos agentes trabajando en paralelo y el texto del modelo llegando en directo" width="100%">
+</p>
+
+## Qué puedes hacer
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/img/constructor.jpg" alt="Constructor visual de workflows con paleta de agentes y bloques, lienzo y panel de propiedades">
+      <p><strong>Dibujar el flujo.</strong> Arrastra agentes y bloques (condición, «para cada», subworkflow,
+      aprobación humana, herramienta…) a un lienzo, conéctalos y valida el grafo antes de ejecutarlo. Deshacer,
+      copiar y pegar y manejo completo con teclado.</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/img/ejecucion.jpg" alt="Detalle de una ejecución terminada con el resultado de cada paso">
+      <p><strong>Ver qué pasó, paso a paso.</strong> Cada ejecución guarda sus eventos, el consumo de tokens y
+      una instantánea del workflow. Cancela, reintenta desde el fallo o reanuda tras un reinicio.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/img/agente.jpg" alt="Editor de un agente con su banco de pruebas">
+      <p><strong>Definir y probar agentes.</strong> Modelo, instrucciones, temperatura y herramientas, con un
+      banco de pruebas que responde en streaming.</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/img/panel.jpg" alt="Panel con estadísticas de ejecuciones y consumo">
+      <p><strong>El estado de un vistazo.</strong> Ejecuciones en curso, tasa de éxito, consumo y actividad
+      diaria. Disparadores con cron, intervalos y webhooks para que el trabajo se lance solo.</p>
+    </td>
+  </tr>
+</table>
+
+- **Motor multiagente**: pasos en paralelo, ramas, reintentos con espera, límites de tiempo y de llamadas,
+  subworkflows, «para cada» y aprobación humana.
+- **Herramientas**: 11 integradas (calculadora, web, archivos acotados, memoria compartida, delegación…),
+  herramientas HTTP propias desde la interfaz y servidores [MCP](https://modelcontextprotocol.io).
+- **Tus datos en tu equipo**: SQLite local, claves de API cifradas, protección frente a SSRF, copias de seguridad
+  y exportación sin secretos.
+- **Probado**: 622 tests de servidor, 382 de interfaz y 216 de extremo a extremo en Chromium, Firefox y WebKit
+  ([evidencias](TEST_RESULTS.md)).
+
+## Empezar en un minuto
+
+```bash
+git clone https://github.com/Juaigles/agentforge.git
+cd agentforge
+npm install && npm run build && npm start   # abre http://127.0.0.1:4310
+```
+
+Necesitas Node.js 22.13 o superior y [Ollama](https://ollama.com) con un modelo de chat
+(`ollama pull qwen3:8b`, por ejemplo). Más detalles en [Puesta en marcha](#puesta-en-marcha).
 
 ## Documentación
 
