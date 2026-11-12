@@ -864,7 +864,7 @@ onBeforeRouteLeave(async (to) => {
           @dragstart="onDragStart($event, 'agent', agent.id)"
           @click="addNode('agent', undefined, agent.id)"
         >
-          <AgentAvatar :name="agent.name" :color="agent.color" :size="24" />
+          <AgentAvatar :name="agent.name" :color="agent.color" :size="24" :agent-id="agent.id" />
           <span class="truncate">{{ agent.name }}</span>
         </button>
         <RouterLink v-if="!catalog.agents.length" to="/agents/new" class="small">{{ t('builder.palette.createAgent') }}</RouterLink>

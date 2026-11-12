@@ -5,6 +5,22 @@ y las versiones, [SemVer](https://semver.org/lang/es/). El proyecto no se ha pub
 del desarrollo local, cada uno con sus commits. El detalle de cada hito, con lo verificado y lo que no, está en
 [PROGRESS.md](PROGRESS.md) y [TEST_RESULTS.md](TEST_RESULTS.md).
 
+## [Sin publicar]
+
+### Añadido
+
+- **Agentes animados**: el avatar de un agente pasa a ser un orbe con un bucle por actividad (reposo, pensando,
+  herramienta, escribiendo, esperando, terminado) y el grafo de una ejecución lleva partículas hacia el paso que
+  trabaja. Con «reducir movimiento» del sistema todo queda quieto.
+- **Modo Yōkai** (interruptor en la barra lateral, opcional y recordado en el navegador): convierte la interfaz en
+  una oficina moderna vista desde arriba, en pixel art, habitada por yōkai del folclore japonés.
+  - Piel de día y de noche (`data-skin='yokai'`), cargada aparte solo al activarla.
+  - Cada agente es un yōkai (kitsune o fantasma de un ojo, según su id) con burbujas de actividad.
+  - En una ejecución de workflow, selector «Planta / Grafo»: en la planta cada tipo de paso tiene su sala y un
+    mensajero con una llama azul recorre la oficina hasta el paso que se ejecuta, mientras los yōkai de plantilla
+    van de la cocina a su cubículo. Los yōkai son botones accesibles y se pueden seleccionar.
+  - Aldea embrujada de fondo en la puerta de acceso y en el 404, y «Plantilla de hoy» en el panel.
+
 ## [1.0.0] — 2026-11-12 · Cierre de la primera versión
 
 Pasada de cierre sobre el hito 5. Las baterías y la verificación con Ollama, en `TEST_RESULTS.md`.

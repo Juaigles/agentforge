@@ -7,6 +7,7 @@ import AgentAvatar from '@/components/AgentAvatar.vue';
 import GettingStarted from '@/components/GettingStarted.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import Term from '@/components/Term.vue';
+import YokaiRoster from '@/components/YokaiRoster.vue';
 import { api, errorText } from '@/lib/api';
 import { serverText } from '@/lib/server-messages-en';
 import { intlLocale, t, tn } from '@/i18n';
@@ -57,6 +58,8 @@ watch(
 );
 
 const activeRuns = computed<RunSummary[]>(() => [...runs.active].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+// Agentes con una ejecución directa en marcha (las de workflow no dicen qué agente trabaja), para el Modo Yōkai.
+const busyAgentIds = computed(() => runs.active.flatMap((run) => (run.agentId ? [run.agentId] : [])));
 const chartMax = computed(() => Math.max(1, ...(stats.value?.daily.map((d) => d.completed + d.failed + d.cancelled) ?? [0])));
 const hasHistory = computed(() => stats.value?.daily.some((d) => d.completed + d.failed + d.cancelled > 0) ?? false);
 const totalTokens = computed(() => (stats.value ? stats.value.tokens.prompt + stats.value.tokens.completion : 0));
@@ -97,6 +100,8 @@ async function cancel(run: RunSummary): Promise<void> {
         <RouterLink class="btn btn-primary" to="/workflows/new"><Plus /> {{ t('dashboard.newWorkflow') }}</RouterLink>
       </div>
     </header>
+
+    <YokaiRoster :agents="catalog.agents" :active-ids="busyAgentIds" />
 
     <div v-if="error" class="callout danger" style="margin-bottom: 16px" role="alert">
       <CircleAlert />
@@ -300,7 +305,7 @@ async function cancel(run: RunSummary): Promise<void> {
           <h2 style="margin-bottom: 12px">{{ t('dashboard.topAgents.title') }}</h2>
           <div v-if="stats.topAgents.length" class="col" style="gap: 10px">
             <div v-for="a in stats.topAgents" :key="a.agentId" class="rank">
-              <AgentAvatar :name="a.name" :color="agentColor(a.agentId)" :size="26" />
+              <AgentAvatar :name="a.name" :color="agentColor(a.agentId)" :size="26" :agent-id="a.agentId" />
               <div class="grow">
                 <div class="row between small">
                   <span class="truncate">{{ a.name }}</span><span class="num muted">{{ tn('dashboard.topAgents.steps', a.steps) }}</span>

@@ -153,7 +153,7 @@ async function remove(agent: Agent): Promise<void> {
       <div v-if="filtered.length" class="grid">
         <article v-for="agent in filtered" :key="agent.id" class="card agent" @click="router.push(`/agents/${agent.id}`)">
           <div class="row" style="align-items: flex-start; gap: 12px">
-            <AgentAvatar :name="agent.name" :color="agent.color" :size="40" activity="idle" />
+            <AgentAvatar :name="agent.name" :color="agent.color" :size="40" activity="idle" :agent-id="agent.id" />
             <div class="grow">
               <RouterLink :to="`/agents/${agent.id}`" class="title truncate" @click.stop>{{ agent.name }}</RouterLink>
               <div class="small muted truncate">{{ agent.role || t('agents.card.noRole') }}</div>

@@ -7,6 +7,7 @@ import { api, authRequired } from '@/lib/api';
 import AccessGate from '@/components/AccessGate.vue';
 import ApprovalsBanner from '@/components/ApprovalsBanner.vue';
 import InterruptedBanner from '@/components/InterruptedBanner.vue';
+import SkinToggle from '@/components/SkinToggle.vue';
 import UiHost from '@/components/UiHost.vue';
 import { useCatalog } from '@/stores/catalog';
 import { useRuns } from '@/stores/runs';
@@ -144,6 +145,7 @@ onBeforeUnmount(() => {
           <span class="dot" :class="[providerStatus.tone, { pulse: !providerStatus.tone && catalog.providers.length > 0 }]" />
           <span class="truncate">{{ providerStatus.text }}</span>
         </RouterLink>
+        <SkinToggle />
         <div class="themes" role="group" :aria-label="t('app.theme.label')">
           <button
             v-for="theme in THEMES"

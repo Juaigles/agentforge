@@ -1,11 +1,15 @@
 <script setup lang="ts">
 // Pantalla que pide la clave de acceso cuando el servidor la exige (AGENTFORGE_TOKEN). Sustituye a toda la
-// aplicación: sin sesión no hay nada que mostrar.
+// aplicación: sin sesión no hay nada que mostrar. Con el Modo Yōkai el formulario es una caja de diálogo delante de la
+// aldea, con la kitsune guardiana al lado; los campos y los textos son los mismos.
 import { KeyRound, LoaderCircle } from 'lucide-vue-next';
 import { nextTick, onMounted, ref } from 'vue';
 import Term from '@/components/Term.vue';
+import YokaiBackdrop from '@/components/YokaiBackdrop.vue';
+import YokaiSprite from '@/components/YokaiSprite.vue';
 import { t } from '@/i18n';
 import { api, errorText } from '@/lib/api';
+import { yokaiOn } from '@/lib/skin';
 
 const token = ref('');
 const error = ref<string | null>(null);
@@ -36,8 +40,12 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <main class="gate">
-    <form class="card gate-card" novalidate @submit.prevent="submit">
+  <main class="gate" :class="{ 'yokai-scene': yokaiOn }">
+    <YokaiBackdrop v-if="yokaiOn" :dim="0.3" />
+    <div v-if="yokaiOn" class="yokai-guide" aria-hidden="true">
+      <YokaiSprite species="kitsune" facing="right" :size="96" activity="idle" />
+    </div>
+    <form class="card gate-card" :class="{ 'yokai-dialog': yokaiOn }" novalidate @submit.prevent="submit">
       <div class="gate-icon" aria-hidden="true"><KeyRound /></div>
       <h1>AgentForge</h1>
       <i18n-t keypath="accessGate.intro" tag="p" class="muted" scope="global">
@@ -46,6 +54,7 @@ async function submit(): Promise<void> {
         >
         <template #variable><code>AGENTFORGE_TOKEN</code></template>
       </i18n-t>
+      <p v-if="yokaiOn" class="yokai-line">{{ t('yokaiViews.gate.line') }}</p>
       <div class="field">
         <label for="gate-token">{{ t('accessGate.label') }}</label>
         <input
@@ -102,5 +111,34 @@ h1 {
 }
 p {
   margin: 0;
+}
+
+/* ---------- Modo Yōkai ---------- */
+.yokai-scene {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 16px;
+}
+.yokai-scene > .yokai-backdrop {
+  z-index: -1;
+}
+.yokai-guide {
+  flex: none;
+  line-height: 0;
+}
+/* Caja de diálogo de RPG: fondo opaco del sistema, borde de 2 px, esquinas rectas y sombra dura. */
+.yokai-dialog {
+  border: 2px solid var(--text);
+  border-radius: 0;
+  box-shadow: 6px 6px 0 rgb(0 0 0 / 0.55);
+}
+.yokai-line {
+  color: var(--text);
+  font-style: italic;
 }
 </style>

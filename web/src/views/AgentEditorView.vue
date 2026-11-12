@@ -224,7 +224,7 @@ async function saveForRun(): Promise<boolean> {
     <header class="page-header">
       <div class="row" style="gap: 12px; align-items: center">
         <RouterLink class="btn btn-ghost btn-icon" to="/agents" :aria-label="t('agentEditor.backLabel')"><ArrowLeft /></RouterLink>
-        <AgentAvatar :name="form.name || t('agentEditor.avatarFallback')" :color="form.color" :size="40" />
+        <AgentAvatar :name="form.name || t('agentEditor.avatarFallback')" :color="form.color" :size="40" :agent-id="agentId ?? undefined" />
         <div>
           <h1>{{ form.name || (isNew ? t('agentEditor.newTitle') : t('agentEditor.title')) }}</h1>
           <p class="subtitle" style="margin-top: 0">{{ form.role || t('agentEditor.subtitleFallback') }}</p>

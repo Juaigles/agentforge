@@ -102,7 +102,7 @@ async function cancel(): Promise<void> {
   <section class="card playground">
     <div class="card-head">
       <h2 class="row" style="gap: 10px">
-        <AgentAvatar v-if="agent" :name="agent.name" :color="agent.color" :size="28" :activity="activity ?? 'idle'" />
+        <AgentAvatar v-if="agent" :name="agent.name" :color="agent.color" :size="28" :activity="activity ?? 'idle'" :agent-id="agent.id" />
         {{ t('playground.title') }}
       </h2>
       <StatusBadge v-if="live" :status="live.status" />

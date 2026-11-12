@@ -216,7 +216,7 @@ async function remove(wf: Workflow): Promise<void> {
               <CalendarClock /> {{ triggerSummary(wf)!.text }}
             </span>
             <span class="avatars">
-              <AgentAvatar v-for="a in agents.slice(0, 5)" :key="a.id" :name="a.name" :color="a.color" :size="22" :title="a.name" />
+              <AgentAvatar v-for="a in agents.slice(0, 5)" :key="a.id" :name="a.name" :color="a.color" :size="22" :title="a.name" :agent-id="a.id" />
             </span>
           </div>
           <footer class="row" @click.stop>

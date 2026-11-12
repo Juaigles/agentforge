@@ -1,0 +1,358 @@
+/* Modo Yōkai: piel de AgentForge como oficina de yōkai en pixel art (estilo JRPG).
+   Solo se carga con <html data-skin="yokai"> (import perezoso en main.ts) y todo cuelga de ese atributo, así que la
+   piel por defecto no cambia. Redefine los tokens de main.css (día = tema claro, noche = tema oscuro) con el mismo
+   esquema de temas que main.css, y retoca unos pocos componentes globales: esquinas rectas, bordes de 2 px, sombras
+   duras sin desenfoque, botones con relieve de bloque, tarjetas como marcos de pergamino y la barra lateral como
+   panel de madera. Los pares de colores se comprueban en yokai.test.ts (texto ≥ 4,5:1, controles ≥ 3:1). */
+
+/* ---------- Día: papel washi y tinta índigo ---------- */
+:root[data-skin='yokai'] {
+  color-scheme: light;
+  --bg: #ece2cc;
+  --surface: #faf4e6;
+  --surface-2: #f1e8d4;
+  --surface-3: #e6dac0;
+  --border: #c7b48c;
+  --border-strong: #8f7b55;
+  --text: #1a2142;
+  --text-2: #3b4364;
+  --text-3: #4f5674;
+  --control-border: #7a6a4b;
+  --accent: #a8301f;
+  --accent-hover: #8c2618;
+  --accent-soft: #f5d9cc;
+  --accent-text: #fff8ec;
+  --success: #2b6a2c;
+  --success-soft: #dcead0;
+  --danger: #9e1d1d;
+  --danger-soft: #f6d7d2;
+  --warning: #774e00;
+  --warning-soft: #f3e2b8;
+  --info: #26479a;
+  --info-soft: #dce3f3;
+  --neutral-soft: #e4d8bf;
+  --shadow-sm: 2px 2px 0 #c2ae86;
+  --shadow-md: 4px 4px 0 #b5a077;
+  --shadow-lg: 8px 8px 0 #1a2142;
+  --radius-sm: 0;
+  --radius: 2px;
+  --radius-lg: 2px;
+  /* Títulos y rótulos con la pila monoespaciada del sistema (aire de terminal de 8 bits); el cuerpo no cambia. */
+  --font-display: var(--font-mono);
+  /* Tokens propios de la piel. */
+  --yk-ink: #1a2142;
+  --yk-edge: #1a2142;
+  --yk-shadow: #b5a077;
+  --yk-focus: #2340a8;
+  --yk-gold: #e8b64c;
+  --yk-on-gold: #2a1a0c;
+  --yk-panel: #5a3920;
+  --yk-panel-2: #6b4628;
+  --yk-panel-text: #f7ecd4;
+  --yk-panel-text-2: #e6d4b0;
+  --yk-panel-border: #3d2614;
+  --yk-panel-control: #c9a978;
+  --yk-panel-active: #f7ecd4;
+  --yk-panel-active-text: #1a2142;
+  --yk-panel-mark: #a8301f;
+}
+
+/* ---------- Noche: índigo muy oscuro, bermellón y oro viejo ---------- */
+:root[data-skin='yokai'][data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0e1124;
+  --surface: #161a33;
+  --surface-2: #1e2342;
+  --surface-3: #282e52;
+  --border: #333a66;
+  --border-strong: #4b5389;
+  --text: #f2ead7;
+  --text-2: #cbc2aa;
+  --text-3: #aaa28c;
+  --control-border: #7c84b6;
+  --accent: #f0634d;
+  --accent-hover: #ff7d68;
+  --accent-soft: #3b1b20;
+  --accent-text: #1a0806;
+  --success: #72d184;
+  --success-soft: #13301f;
+  --danger: #ff8080;
+  --danger-soft: #3d1622;
+  --warning: #e8b850;
+  --warning-soft: #322810;
+  --info: #93b2ff;
+  --info-soft: #1a2552;
+  --neutral-soft: #252a4c;
+  --shadow-sm: 2px 2px 0 #05070f;
+  --shadow-md: 4px 4px 0 #05070f;
+  --shadow-lg: 8px 8px 0 #05070f;
+  --yk-ink: #05070f;
+  --yk-edge: #7c84b6;
+  --yk-shadow: #05070f;
+  --yk-focus: #e8b850;
+  --yk-gold: #e2b04a;
+  --yk-on-gold: #24170f;
+  --yk-panel: #24170f;
+  --yk-panel-2: #33221a;
+  --yk-panel-text: #f2e6cc;
+  --yk-panel-text-2: #d3bf98;
+  --yk-panel-border: #120b06;
+  --yk-panel-control: #a88c64;
+  --yk-panel-active: #c8372d;
+  --yk-panel-active-text: #fff4e2;
+  --yk-panel-mark: #e2b04a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-skin='yokai']:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #0e1124;
+    --surface: #161a33;
+    --surface-2: #1e2342;
+    --surface-3: #282e52;
+    --border: #333a66;
+    --border-strong: #4b5389;
+    --text: #f2ead7;
+    --text-2: #cbc2aa;
+    --text-3: #aaa28c;
+    --control-border: #7c84b6;
+    --accent: #f0634d;
+    --accent-hover: #ff7d68;
+    --accent-soft: #3b1b20;
+    --accent-text: #1a0806;
+    --success: #72d184;
+    --success-soft: #13301f;
+    --danger: #ff8080;
+    --danger-soft: #3d1622;
+    --warning: #e8b850;
+    --warning-soft: #322810;
+    --info: #93b2ff;
+    --info-soft: #1a2552;
+    --neutral-soft: #252a4c;
+    --shadow-sm: 2px 2px 0 #05070f;
+    --shadow-md: 4px 4px 0 #05070f;
+    --shadow-lg: 8px 8px 0 #05070f;
+    --yk-ink: #05070f;
+    --yk-edge: #7c84b6;
+    --yk-shadow: #05070f;
+    --yk-focus: #e8b850;
+    --yk-gold: #e2b04a;
+    --yk-on-gold: #24170f;
+    --yk-panel: #24170f;
+    --yk-panel-2: #33221a;
+    --yk-panel-text: #f2e6cc;
+    --yk-panel-text-2: #d3bf98;
+    --yk-panel-border: #120b06;
+    --yk-panel-control: #a88c64;
+    --yk-panel-active: #c8372d;
+    --yk-panel-active-text: #fff4e2;
+    --yk-panel-mark: #e2b04a;
+  }
+}
+
+/* ---------- Base ---------- */
+:root[data-skin='yokai'] :focus-visible {
+  outline: 2px solid var(--yk-focus);
+  outline-offset: 2px;
+}
+:root[data-skin='yokai'] ::selection {
+  background: var(--yk-gold);
+  color: var(--yk-on-gold);
+}
+:root[data-skin='yokai'] h1,
+:root[data-skin='yokai'] h2,
+:root[data-skin='yokai'] h3,
+:root[data-skin='yokai'] h4 {
+  letter-spacing: 0;
+}
+:root[data-skin='yokai'] .eyebrow,
+:root[data-skin='yokai'] .table th,
+:root[data-skin='yokai'] .badge,
+:root[data-skin='yokai'] .tab,
+:root[data-skin='yokai'] .field > label,
+:root[data-skin='yokai'] .label {
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+/* Pixel art nítido: toda imagen de los assets del modo (y lo que se marque con .yk-pixel) se escala sin suavizar. */
+:root[data-skin='yokai'] img[src*='/yokai/'],
+:root[data-skin='yokai'] .yk-pixel {
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+
+/* ---------- Tarjetas: marcos de pergamino ---------- */
+:root[data-skin='yokai'] .card {
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  /* Filete interior (como el doble marco de un rollo) y sombra dura desplazada, sin desenfoque. */
+  box-shadow:
+    inset 0 0 0 3px var(--surface),
+    inset 0 0 0 4px var(--border),
+    4px 4px 0 var(--yk-shadow);
+}
+:root[data-skin='yokai'] .card-head {
+  border-bottom: 2px solid var(--border);
+}
+
+/* ---------- Botones: relieve de bloque ---------- */
+:root[data-skin='yokai'] .btn {
+  border: 2px solid var(--yk-edge);
+  border-radius: 0;
+  box-shadow: 0 3px 0 var(--yk-ink);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+:root[data-skin='yokai'] .btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--yk-ink);
+}
+:root[data-skin='yokai'] .btn-ghost {
+  border-color: transparent;
+  box-shadow: none;
+}
+:root[data-skin='yokai'] .btn-ghost:active:not(:disabled) {
+  box-shadow: none;
+}
+:root[data-skin='yokai'] .btn:disabled {
+  box-shadow: none;
+}
+:root[data-skin='yokai'] .btn-primary,
+:root[data-skin='yokai'] .btn-primary:hover:not(:disabled) {
+  border-color: var(--yk-edge);
+}
+
+/* ---------- Formularios ---------- */
+:root[data-skin='yokai'] .input,
+:root[data-skin='yokai'] .select,
+:root[data-skin='yokai'] .textarea {
+  border-width: 2px;
+  border-radius: 0;
+}
+:root[data-skin='yokai'] .input:focus,
+:root[data-skin='yokai'] .select:focus,
+:root[data-skin='yokai'] .textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 3px 3px 0 var(--yk-focus);
+}
+:root[data-skin='yokai'] .switch {
+  border-radius: 0;
+  box-shadow: inset 0 0 0 2px var(--yk-ink);
+}
+:root[data-skin='yokai'] .switch::after {
+  top: 4px;
+  left: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--yk-ink);
+}
+
+/* ---------- Insignias, pestañas y bloques ---------- */
+:root[data-skin='yokai'] .badge {
+  border-radius: 0;
+  border: 1px solid currentColor;
+}
+:root[data-skin='yokai'] .tab.active {
+  border-bottom-width: 3px;
+}
+:root[data-skin='yokai'] .segmented,
+:root[data-skin='yokai'] .segmented button {
+  border-radius: 0;
+}
+:root[data-skin='yokai'] .segmented {
+  border-width: 2px;
+}
+:root[data-skin='yokai'] .callout {
+  border-width: 2px;
+  border-left: 5px solid currentColor;
+}
+:root[data-skin='yokai'] .codeblock,
+:root[data-skin='yokai'] .md pre {
+  border-width: 2px;
+}
+:root[data-skin='yokai'] .md blockquote {
+  border-left: 4px solid var(--accent);
+}
+
+/* ---------- Barra lateral: panel de madera con celosía de shoji ---------- */
+/* Dentro del panel los tokens apuntan a la madera: todo lo que vive en él (marca, estado, temas, idioma, el
+   interruptor de la piel) se adapta solo. */
+:root[data-skin='yokai'] .sidebar {
+  --surface: var(--yk-panel-2);
+  --surface-2: var(--yk-panel-2);
+  --border: var(--yk-panel-border);
+  --border-strong: var(--yk-panel-text-2);
+  --text: var(--yk-panel-text);
+  --text-2: var(--yk-panel-text-2);
+  --text-3: var(--yk-panel-text-2);
+  --control-border: var(--yk-panel-control);
+  --accent: var(--yk-gold);
+  --accent-text: var(--yk-on-gold);
+  --accent-soft: var(--yk-panel-2);
+  --yk-focus: var(--yk-gold);
+  --shadow-sm: 2px 2px 0 var(--yk-panel-border);
+  background-color: var(--yk-panel);
+  /* Vetas de tablón: líneas oscuras finas (más contraste con el texto claro, nunca menos). */
+  background-image: repeating-linear-gradient(180deg, transparent 0 46px, rgb(0 0 0 / 0.14) 46px 48px);
+  border-right: 4px solid var(--yk-panel-border);
+  box-shadow: inset -2px 0 0 var(--yk-panel-2);
+  color: var(--text);
+}
+:root[data-skin='yokai'] .sidebar .brand svg rect {
+  rx: 0;
+}
+:root[data-skin='yokai'] .sidebar .nav-item {
+  border-radius: 0;
+  border-left: 4px solid transparent;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+:root[data-skin='yokai'] .sidebar .nav-item:hover {
+  background: var(--yk-panel-2);
+  border-left-color: var(--yk-panel-control);
+}
+/* El elemento activo es una tablilla de papel clavada en la madera, con su marca de color a la izquierda. */
+:root[data-skin='yokai'] .sidebar .nav-item.router-link-active:not(.exact),
+:root[data-skin='yokai'] .sidebar .nav-item.router-link-exact-active {
+  background: var(--yk-panel-active);
+  color: var(--yk-panel-active-text);
+  border-left-color: var(--yk-panel-mark);
+  box-shadow: 3px 3px 0 var(--yk-panel-border);
+}
+:root[data-skin='yokai'] .sidebar .count {
+  border-radius: 0;
+  background: var(--yk-gold);
+  color: var(--yk-on-gold);
+}
+:root[data-skin='yokai'] .sidebar .status,
+:root[data-skin='yokai'] .sidebar .themes {
+  border-radius: 0;
+}
+:root[data-skin='yokai'] .sidebar .status {
+  border: 2px solid var(--yk-panel-border);
+  background: rgb(0 0 0 / 0.15);
+}
+:root[data-skin='yokai'] .sidebar .themes {
+  border: 2px solid var(--yk-panel-border);
+}
+:root[data-skin='yokai'] .sidebar .themes button {
+  border-radius: 0;
+  color: var(--yk-panel-text-2);
+}
+:root[data-skin='yokai'] .sidebar .themes button.active {
+  background: var(--yk-panel-active);
+  color: var(--yk-panel-active-text);
+}
+:root[data-skin='yokai'] .sidebar .skin-toggle {
+  border-radius: 0;
+}
+
+@media (max-width: 860px) {
+  :root[data-skin='yokai'] .sidebar {
+    border-right: 0;
+    border-bottom: 4px solid var(--yk-panel-border);
+    box-shadow: none;
+  }
+}

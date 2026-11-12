@@ -45,9 +45,15 @@ export interface Room {
   door: Point;
 }
 
-/** Un yōkai que trabaja en una ejecución: lo que necesita la planta para colocarlo y animarlo. */
+/**
+ * Un yōkai de una ejecución: lo que necesita la planta para colocarlo y animarlo.
+ * - `staff`: la plantilla, un yōkai por cada paso de agente; trabaja en su puesto cuando le toca.
+ * - `courier`: el mensajero (siempre uno): el fantasma de un ojo que lleva la hitodama (la llama azul = el dato) de sala
+ *   en sala hasta el paso que se está ejecutando.
+ */
 export interface Actor {
-  /** Estable durante la ejecución: el id del nodo. */
+  kind: 'staff' | 'courier';
+  /** Estable durante la ejecución: el id del nodo para `staff`, `'courier'` para el mensajero. */
   key: string;
   name: string;
   /** Color del agente (acento, p. ej. de la burbuja). */

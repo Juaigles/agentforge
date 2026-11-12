@@ -3,7 +3,10 @@
 import { mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addAgent, edges, node, runWorkflow, workflow } from '../../../server/test/helpers';
+import RunGraph from '@/components/RunGraph.vue';
+import YokaiFloor from '@/components/YokaiFloor.vue';
 import { setLocale } from '@/i18n';
+import { setSkin, skin, type Skin } from '@/lib/skin';
 import { useCatalog } from '@/stores/catalog';
 import { freshPinia, startApi, testRouter, until, type TestApi } from '@/test/harness';
 import RunDetailView from './RunDetailView.vue';
@@ -159,6 +162,63 @@ describe('RunDetailView: ejecuciones largas', () => {
     await wrapper!.findAll('nav.steps button.step')[1].trigger('click');
     expect(entries()).toBe(2);
     expect(tab('activity').get('.badge').text()).toBe('2');
+  });
+});
+
+describe('RunDetailView: Modo Yōkai', () => {
+  let previous: Skin;
+  beforeEach(() => {
+    previous = skin.value;
+    localStorage.removeItem('af-run-view');
+  });
+  afterEach(() => {
+    setSkin(previous);
+    localStorage.removeItem('af-run-view');
+  });
+
+  async function agentRun() {
+    const agent = addAgent(api.ctx, { name: 'Redactor' });
+    return runWorkflow(api.ctx, workflow([node('e', 'input'), node('a', 'agent', { agentId: agent.id, prompt: 'hola' })], edges('e>a')));
+  }
+  const switchButtons = () => wrapper!.findAll('.view-switch button');
+
+  it('con la piel normal no hay selector ni planta: solo el grafo de siempre', async () => {
+    setSkin('default');
+    const run = await agentRun();
+    await open(run.id);
+    await until(() => wrapper!.find('section.graph').exists());
+    const graph = wrapper!.get('section.graph');
+    expect(graph.classes()).toEqual(['card', 'graph']);
+    expect(wrapper!.find('.view-switch').exists()).toBe(false);
+    expect(wrapper!.findComponent(YokaiFloor).exists()).toBe(false);
+    expect(wrapper!.findComponent(RunGraph).exists()).toBe(true);
+    expect(graph.find('.snapshot-note').exists()).toBe(true);
+  });
+
+  it('con el Modo Yōkai muestra la planta por defecto, alterna al grafo y recuerda la elección', async () => {
+    setSkin('yokai');
+    const run = await agentRun();
+    await open(run.id);
+    await until(() => wrapper!.find('section.graph').exists());
+    expect(switchButtons().map((b) => b.text())).toEqual(['Planta', 'Grafo']);
+    expect(switchButtons().map((b) => b.attributes('aria-pressed'))).toEqual(['true', 'false']);
+    expect(wrapper!.get('section.graph').classes()).toContain('is-floor');
+    const floor = wrapper!.getComponent(YokaiFloor);
+    expect(floor.findAll('.staff button').map((b) => b.attributes('aria-label'))).toEqual(['Redactor — completado']);
+    expect(wrapper!.findComponent(RunGraph).exists()).toBe(false);
+    expect(wrapper!.find('.snapshot-note').exists()).toBe(true);
+
+    // Elegir un yōkai selecciona su paso, igual que en el grafo.
+    await floor.get('.staff button').trigger('click');
+    expect(wrapper!.findAll('nav.steps button.step')[2].attributes('aria-pressed')).toBe('true');
+    expect(floor.get('.staff button').attributes('aria-pressed')).toBe('true');
+
+    await switchButtons()[1].trigger('click');
+    expect(switchButtons().map((b) => b.attributes('aria-pressed'))).toEqual(['false', 'true']);
+    expect(wrapper!.findComponent(YokaiFloor).exists()).toBe(false);
+    expect(wrapper!.findComponent(RunGraph).exists()).toBe(true);
+    expect(wrapper!.get('section.graph').classes()).not.toContain('is-floor');
+    expect(localStorage.getItem('af-run-view')).toBe('graph');
   });
 });
 

@@ -89,7 +89,7 @@ const subtitle = computed(() => {
     <Handle v-if="data.kind !== 'input'" type="target" :position="Position.Left" />
 
     <div class="head">
-      <AgentAvatar v-if="usesAgent && data.status" :name="agentLabel" :color="tint" :size="22" :activity="data.activity" />
+      <AgentAvatar v-if="usesAgent && data.status" :name="agentLabel" :color="tint" :size="22" :activity="data.activity" :agent-id="data.config.agentId" />
       <span v-else class="ico"><component :is="ICONS[data.kind]" /></span>
       <span class="type">{{ NODE_LABEL[data.kind] }}</span>
       <StatusBadge v-if="data.status && data.status !== 'pending'" :status="data.status" icon-only />

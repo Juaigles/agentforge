@@ -9,11 +9,14 @@ import RunActivity from '@/components/RunActivity.vue';
 import RunGraph from '@/components/RunGraph.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import Term from '@/components/Term.vue';
+import YokaiFloor from '@/components/YokaiFloor.vue';
 import { t, tn } from '@/i18n';
 import { announce } from '@/lib/a11y';
 import { api, errorText } from '@/lib/api';
 import { serverText } from '@/lib/server-messages-en';
 import { elapsedMs, formatCompact, formatDateTime, formatDuration, formatNumber, NODE_LABEL, STATUS_LABEL } from '@/lib/format';
+import { yokaiOn } from '@/lib/skin';
+import { safeStorage } from '@/lib/storage';
 import { useRunStream } from '@/lib/useRunStream';
 import { useCatalog } from '@/stores/catalog';
 import { useRuns } from '@/stores/runs';
@@ -131,6 +134,16 @@ const labels = computed(() => Object.fromEntries(steps.value.map((s) => [s.nodeI
 const runningSteps = computed(() => steps.value.filter((s) => s.status === 'running'));
 const waitingSteps = computed(() => steps.value.filter((s) => s.status === 'waiting'));
 const isWorkflow = computed(() => run.value?.kind === 'workflow');
+// Modo Yōkai: el recorrido de un workflow se ve en la planta de la oficina o en el grafo de siempre (se recuerda la
+// elección). Con la piel normal solo existe el grafo.
+type RunView = 'floor' | 'graph';
+const RUN_VIEW_KEY = 'af-run-view';
+const runView = ref<RunView>(safeStorage.get(RUN_VIEW_KEY) === 'graph' ? 'graph' : 'floor');
+function setRunView(view: RunView): void {
+  runView.value = view;
+  safeStorage.set(RUN_VIEW_KEY, view);
+}
+const showFloor = computed(() => yokaiOn.value && runView.value === 'floor');
 const duration = computed(() => (live.value ? elapsedMs(live.value.startedAt, live.value.finishedAt, now.value) : null));
 /** Entradas de actividad cargadas (de la selección, si la hay) para la insignia de la pestaña; el registro ya lleva la cuenta. */
 const activityCount = computed(() => {
@@ -339,8 +352,17 @@ async function copy(text: string): Promise<void> {
         </div>
       </section>
 
-      <section v-if="isWorkflow" class="card graph">
-        <RunGraph :snapshot="run.snapshot" :live="live" :selected="selected" @select="selected = $event" />
+      <section v-if="isWorkflow" class="card graph" :class="{ 'is-floor': showFloor }">
+        <div v-if="yokaiOn" class="segmented view-switch" role="group" :aria-label="t('yokaiFloor.view.label')">
+          <button type="button" :class="{ active: runView === 'floor' }" :aria-pressed="runView === 'floor'" @click="setRunView('floor')">
+            {{ t('yokaiFloor.view.floor') }}
+          </button>
+          <button type="button" :class="{ active: runView === 'graph' }" :aria-pressed="runView === 'graph'" @click="setRunView('graph')">
+            {{ t('yokaiFloor.view.graph') }}
+          </button>
+        </div>
+        <YokaiFloor v-if="showFloor" :snapshot="run.snapshot" :live="live" :selected="selected" @select="selected = $event" />
+        <RunGraph v-else :snapshot="run.snapshot" :live="live" :selected="selected" @select="selected = $event" />
         <i18n-t keypath="runDetail.snapshotNote" tag="p" class="tiny faint snapshot-note" scope="global">
           <template #snapshot
             ><Term id="instantanea">{{ t('runDetail.snapshotNoteSnapshot') }}</Term></template
@@ -615,6 +637,40 @@ async function copy(text: string): Promise<void> {
   height: 340px;
   margin-bottom: 14px;
   overflow: hidden;
+}
+/* Modo Yōkai: selector Planta / Grafo. Sobre el grafo flota arriba a la derecha, como la nota de instantánea a la izquierda. */
+.view-switch {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 6;
+}
+/* Con la planta (cuadrada y fluida) el card crece con ella: la nota y el selector van en una cabecera y la planta debajo,
+   centrada y sin recortes. */
+.graph.is-floor {
+  height: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 12px 12px;
+}
+.graph.is-floor .snapshot-note,
+.graph.is-floor .view-switch {
+  position: static;
+}
+.graph.is-floor .snapshot-note {
+  order: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.graph.is-floor .view-switch {
+  order: 1;
+}
+.graph.is-floor .yokai-floor {
+  order: 2;
+  flex: 1 0 100%;
 }
 .detail {
   display: grid;

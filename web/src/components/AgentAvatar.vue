@@ -1,14 +1,58 @@
 <script setup lang="ts">
 // Orbe del agente: un círculo con sus iniciales cuya animación dice qué está haciendo (ver AgentActivity).
 // Sin `activity` se queda quieto, para listas densas donde el movimiento distraería.
+// Con el Modo Yōkai, en su lugar, un retrato pixelado de su yōkai (cara y torso) con la burbuja de lo que hace.
+import { computed } from 'vue';
 import type { AgentActivity } from '@/lib/agent-activity';
 import { initials } from '@/lib/format';
+import { yokaiOn } from '@/lib/skin';
+import { speciesFor } from '@/lib/yokai/species';
+import { activityGlyph, bubbleSize, portraitGeometry } from '@/lib/yokai/sprite';
+import YokaiSprite from './YokaiSprite.vue';
 
-withDefaults(defineProps<{ name: string; color?: string; size?: number; activity?: AgentActivity }>(), { color: '#6b7280', size: 32 });
+const props = withDefaults(defineProps<{ name: string; color?: string; size?: number; activity?: AgentActivity; agentId?: string }>(), {
+  color: '#6b7280',
+  size: 32,
+});
+
+/** Grosor del marco del retrato, en píxeles. */
+const FRAME_BORDER = 2;
+/** Por debajo de este tamaño la burbuja taparía la cara: se cambia por un puntito del color del estado. */
+const MIN_BUBBLE_SIZE = 28;
+
+const species = computed(() => speciesFor(props.agentId ?? props.name));
+const portrait = computed(() => portraitGeometry(species.value, Math.max(1, props.size - 2 * FRAME_BORDER)));
+// Mientras trabaja, el yōkai se mueve un poco (el ciclo de pasos); en el resto de estados se queda quieto.
+const walking = computed(() => props.activity === 'thinking' || props.activity === 'tool' || props.activity === 'writing');
+const showBubble = computed(() => !!props.activity && props.size >= MIN_BUBBLE_SIZE);
+const bubble = computed(() => bubbleSize(props.size, 0.42));
 </script>
 
 <template>
   <span
+    v-if="yokaiOn"
+    class="portrait"
+    :class="[`is-${species}`, activity ? `is-${activity}` : 'is-still']"
+    :style="{ width: `${size}px`, height: `${size}px`, '--frame': color }"
+    aria-hidden="true"
+  >
+    <span class="window">
+      <YokaiSprite
+        class="portrait-sprite"
+        :species="species"
+        facing="down"
+        :walking="walking"
+        :size="portrait.spriteSize"
+        :style="{ left: `${portrait.left}px`, top: `${portrait.top}px` }"
+      />
+    </span>
+    <span v-if="showBubble" class="bubble" :style="{ width: `${bubble}px`, height: `${bubble}px`, fontSize: `${Math.round(bubble * 0.62)}px` }">{{
+      activityGlyph(activity)
+    }}</span>
+    <span v-else-if="activity" class="dot" />
+  </span>
+  <span
+    v-else
     class="orb"
     :class="activity ? `is-${activity}` : 'is-still'"
     :style="{ width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.36)}px`, '--c': color }"
@@ -171,6 +215,74 @@ svg * {
     opacity: 0;
     transform: scale(1.45);
   }
+}
+
+/* Retrato del Modo Yōkai: marco cuadrado (pixel art, sin redondeo) del color del agente. Usa `--frame` y no `--c`
+   para que las reglas del orbe (p. ej. «esperando» en ámbar) no le cambien el color. */
+.portrait {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  box-sizing: border-box;
+  border: 2px solid var(--frame);
+  background: color-mix(in srgb, var(--frame) 14%, var(--surface));
+  pointer-events: none;
+}
+.window {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.portrait-sprite {
+  position: absolute;
+}
+.portrait .bubble {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(45%, -45%);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1;
+  /* Borde pixelado: sombras en los cuatro lados que dejan las esquinas «mordidas». */
+  box-shadow:
+    0 -2px 0 0 var(--frame),
+    0 2px 0 0 var(--frame),
+    -2px 0 0 0 var(--frame),
+    2px 0 0 0 var(--frame);
+}
+.portrait.is-error .bubble {
+  color: var(--danger);
+}
+/* Avatares pequeños: un puntito cuadrado del color del estado en la esquina. */
+.dot {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  z-index: 1;
+  width: 6px;
+  height: 6px;
+  background: var(--text-3);
+  box-shadow: 0 0 0 1px var(--surface);
+}
+.is-thinking .dot,
+.is-tool .dot,
+.is-writing .dot {
+  background: var(--info);
+}
+.is-waiting .dot {
+  background: var(--warning);
+}
+.is-done .dot {
+  background: var(--success);
+}
+.is-error .dot {
+  background: var(--danger);
 }
 
 /* Con «reducir movimiento» del sistema cada estado sigue distinguiéndose, pero en quieto. */
