@@ -1,6 +1,6 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-12 (hito 5, fases 1 a 9; ver «Hito 5» más abajo)._
+_Última actualización: 2026-11-12 (hito 5 completo, fases 1 a 10; informe final en `docs/informe-hito5.md`)._
 
 ## Estado real
 
@@ -11,10 +11,10 @@ _Última actualización: 2026-11-12 (hito 5, fases 1 a 9; ver «Hito 5» más ab
 | Adaptador Ollama nativo | Hecho | Tests de protocolo + Ollama real |
 | Adaptador OpenAI-compatible | Hecho | Tests de protocolo + endpoint `/v1` de Ollama real |
 | Herramientas (11 integradas + HTTP personalizadas) | Hecho | Tests + banco de pruebas en el navegador |
-| Motor (paralelismo, ramas, reintentos, límites, cancelación) | Hecho | 31 tests + ejecuciones reales |
+| Motor (paralelismo, ramas, reintentos, límites, cancelación) | Hecho | `engine.test.ts`, `foreach.test.ts`, `flow.test.ts` y `gaps.test.ts` + ejecuciones reales |
 | API REST + SSE | Hecho | Tests (incluye SSE con `Last-Event-ID`) |
 | Frontend (panel, agentes, constructor, monitor, herramientas, ajustes, glosario) | Hecho | Navegador, con modelo real |
-| Responsive y temas claro/oscuro | Hecho | 9 rutas a 375 px sin desbordamiento horizontal |
+| Responsive y temas claro/oscuro | Hecho | 14 rutas × 2 temas a 375 px sin desbordamiento horizontal (`e2e/layout.spec.ts`), en tres navegadores |
 | Dependencias | `npm audit`: 0 vulnerabilidades | Tras actualizar `@fastify/static` y Vitest |
 
 ## Problemas encontrados y resueltos
@@ -476,7 +476,7 @@ Defectos encontrados por los tests nuevos y por los otros motores, y corregidos:
 - **Métricas** (`GET /api/metrics`, formato de texto de Prometheus): ejecuciones por estado, en marcha y en cola;
   llamadas a modelos y a herramientas y tokens (acumulados); inventario; memoria del proceso, tamaño de la base de
   datos, estado del planificador y respuestas HTTP por clase. Exige la clave de acceso si la hay.
-- **Especificación OpenAPI 3.1** (`GET /api/openapi.json`, `server/src/openapi.ts`): las 89 operaciones de la
+- **Especificación OpenAPI 3.1** (`GET /api/openapi.json`, `server/src/openapi.ts`): las 89 operaciones de entonces (90 tras la fase 10) de la
   API, con los cuerpos de entrada derivados de los esquemas de validación reales. Un test compara la
   especificación con **las rutas realmente registradas** (ninguna sin documentar, ninguna documentada que no
   exista) y contrasta 24 respuestas reales con su esquema. La referencia legible es `docs/api.md`, generada con
@@ -496,7 +496,63 @@ Defectos encontrados por los tests nuevos y por los otros motores, y corregidos:
   métricas (de 55 a 57 llamadas al modelo, de 12 a 13 a herramientas, de 16 a 17 completadas); versión 0.5.0 en
   la sonda, en `agentforge_info` y en la especificación.
 
+### Fase 10 · Segunda auditoría e iteración — HECHA (2026-11-12)
+
+Cuatro auditorías de solo lectura sobre el código de la fase 9 (informes `auditoria2-*.md`, fuera del
+repositorio): **0 críticos, 5 altos y unos 31 medios**. Corregido, cada cosa con su test:
+
+- **Altos (los cinco)**: recuentos sobre todo el historial con cada evento en vivo (nueva ruta ligera
+  `GET /api/onboarding`, canal propio para las aprobaciones, recarga solo al cambiar un estado); un término del
+  glosario dentro de un diálogo sacaba de la página; «Guardar» del editor de agentes no llevaba el foco al error;
+  el `Dockerfile` no habría construido (`web/tsconfig.build.json` deja los tests fuera de la compilación); y el
+  servidor dependía de `db.isOpen`, que no existe en Node 22.13 y 22.14.
+- **Seguridad**: la credencial de una herramienta HTTP o de un servidor MCP ya no se conserva al cambiar su
+  dirección (400 `credential_required`; al importar con «sustituir», la cabecera queda sin valor y el plan enseña
+  el host de aquí y el del archivo); los avisos de importación cubren herramientas MCP, herramientas locales con
+  credenciales, `delegate_task` y los nodos de herramienta con argumentos fijos; las llamadas a proveedores no
+  siguen redirecciones.
+- **Motor y datos**: las subejecuciones no ocupan huecos de ejecución; restaurar una copia no se traga los
+  errores de escritura ni se cuelga; el comentario de una aprobación se conserva al reintentar y al reanudar; el
+  error al superar la profundidad de subworkflows dice lo que pasa.
+- **Interfaz**: Esc y «×» piden confirmación si se ha escrito algo; cerrar con el secreto de un webhook a la
+  vista, también; «Reintentar» en los errores de carga y recuperación sola al volver la conexión; botón «Ajustes
+  del workflow» y Esc para deseleccionar en el constructor; conexiones del lienzo con contraste suficiente;
+  nodos y ramas en el idioma activo; aprobaciones pendientes anunciadas y con aviso; pestañas del monitor con
+  panel y flechas; filtros del historial sincronizados con la dirección; `localStorage` protegido; ejecuciones
+  resincronizadas tras reiniciar el servidor; definición del glosario recorrible con el puntero.
+- **Operación**: `AGENTFORGE_TRUST_PROXY` (cliente y protocolo reales detrás de un proxy); mensajes de arranque
+  que dicen lo que pasa (carpeta de datos sin permisos, otra instancia); nombres admitidos con puerto rechazados
+  al arrancar; sonda de salud del contenedor con el puerto configurado; trabajo de CI que construye la imagen.
+- **Documentación**: secciones «Detrás de un proxy inverso» y «Actualizar a una versión nueva»; mensajes y
+  nombres de botones corregidos en las guías; cifras antiguas eliminadas.
+- **Pruebas**: `server/test/audit2.test.ts` (15) y `ops.test.ts` (11); tests de componente nuevos del
+  constructor, del monitor, del historial, del aviso de aprobaciones y de los diálogos apilados; la prueba e2e de
+  inglés detecta ahora texto de interfaz en español, y la de copiar y pegar comprueba la tarea y la conexión.
+
+Defectos encontrados al verificar la propia fase 10:
+
+34. La sonda de salud del contenedor terminaba con un fallo de aserción de Node en Windows al llamar a
+    `process.exit` dentro de `fetch`: ahora fija el código de salida.
+35. Dos pruebas e2e recién endurecidas fallaban por sí mismas (un nombre de agente en español creado por otra
+    prueba; la tecla de selección múltiple que WebKit espera como Cmd) y un test de componente comprobaba el DOM
+    antes de que el diálogo recibiera la respuesta.
+
 ## Pendiente y limitaciones
+
+- **Lo que deja abierto la segunda auditoría (fase 10)** — medios sin resolver o resueltos en parte:
+  - El monitor no pagina los eventos y reconstruye la actividad entera con cada evento: lento con ejecuciones de
+    cientos de pasos.
+  - El primer guardado de un workflow o agente nuevo vuelve a montar la pantalla (se pierden deshacer, selección
+    y foco).
+  - Archivos que han crecido mucho (constructor, almacén, rutas, motor) y lógica duplicada en el motor.
+  - `GET /api/runs` sigue calculando el total exacto y no hay índice por tipo de ejecución.
+  - Las confirmaciones destructivas leen su mensaje (`aria-describedby`) pero no usan `role="alertdialog"`.
+  - Cambiar solo los argumentos de un servidor MCP local conserva sus variables de entorno secretas.
+  - El aviso «lleva credenciales que no viajan» sale también al sustituir una herramienta en el mismo origen.
+  - Sin test: la rama de excepción no capturada del arranque y deshacer con cambios simultáneos.
+  - Casi todos los hallazgos bajos (unos 49) de los cuatro informes.
+- **Intermitencia bajo carga**: en dos baterías completas se canceló una descarga en la suite e2e mientras otras
+  tareas cargaban el equipo; repetida, pasó, y la última batería completa pasó entera. Sin causa conocida.
 
 - **Operación y documentación (fase 9)**:
   - **Sin licencia.** Elegirla es decisión del autor; mientras tanto, nadie más tiene permiso para usar o
@@ -512,8 +568,8 @@ Defectos encontrados por los tests nuevos y por los otros motores, y corregidos:
   - La documentación está solo en español.
 
 - **Pruebas (fase 8)**:
-  - *Sin test de componente*: el constructor de workflows, el monitor de una ejecución, el Panel, Ajustes y
-    Herramientas (las vistas grandes). Están cubiertas por la suite e2e, no por Vitest.
+  - *Con poco test de componente*: el Panel, Ajustes y Herramientas no tienen; el constructor, el monitor y el
+    historial tienen desde la fase 10 tests de lo corregido entonces, no de todo. Lo demás lo cubre la suite e2e.
   - *La integración continua no se ha ejecutado nunca.* El archivo refleja los comandos que sí se ejecutan en
     local; puede necesitar ajustes al estrenarlo (por ejemplo, las dependencias de sistema de WebKit en Linux).
   - *WebKit se ha probado con la compilación de Playwright para Windows*, no con Safari en macOS ni en iOS.
@@ -638,5 +694,12 @@ Defectos encontrados por los tests nuevos y por los otros motores, y corregidos:
 
 ## Próximos pasos sugeridos
 
-1. Subworkflows y cuerpo de varios nodos en «para cada».
-4. Ejecutar la suite e2e en CI y en Firefox/WebKit.
+Por orden de valor, a juicio de la segunda auditoría y de lo anotado arriba:
+
+1. Decidir la licencia y, si se publica, estrenar la integración continua y construir la imagen de Docker.
+2. Una pasada con un lector de pantalla real (NVDA) por los flujos principales.
+3. Traducir lo que escribe el servidor (errores de validación, motivos de fallo, herramientas integradas).
+4. Dividir los archivos que más han crecido (constructor, almacén, rutas, motor) y unificar en el motor la
+   invocación de herramientas y los reintentos, hoy duplicados.
+5. Paginar los eventos de una ejecución y construir la actividad del monitor de forma incremental.
+6. Comparar ejecuciones y filtrar el historial por workflow, agente y fecha.

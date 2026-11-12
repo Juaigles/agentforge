@@ -3,6 +3,7 @@ import type { RunSummary } from '@shared/types';
 import { defineStore } from 'pinia';
 import { computed, ref, shallowRef } from 'vue';
 import { t } from '@/i18n';
+import { api } from '@/lib/api';
 import { isActiveStatus } from '@/lib/format';
 import { useUi } from './ui';
 
@@ -11,6 +12,11 @@ export const useRuns = defineStore('runs', () => {
   const known = shallowRef(new Map<string, RunSummary>());
   /** Se incrementa con cada cambio; las vistas lo observan para refrescar sus datos. */
   const version = ref(0);
+  /**
+   * Como `version`, pero solo sube cuando cambia el ESTADO de una ejecución (alta, paso de «en cola» a «en curso»,
+   * fin…), no con cada paso terminado: las vistas que muestran listas o cifras recargan con este contador.
+   */
+  const statusVersion = ref(0);
   const lastChanged = shallowRef<RunSummary | null>(null);
   const connected = ref(false);
   /** Ejecución que el usuario está mirando ahora mismo (no se le avisa de su final con un toast). */
@@ -28,6 +34,7 @@ export const useRuns = defineStore('runs', () => {
     known.value = next;
     lastChanged.value = run;
     version.value++;
+    if (previous?.status !== run.status) statusVersion.value++;
     if (!notify || !previous || !isActiveStatus(previous.status) || isActiveStatus(run.status)) return;
     if (watching.value === run.id) return;
     const ui = useUi();
@@ -48,15 +55,45 @@ export const useRuns = defineStore('runs', () => {
     next.delete(id);
     known.value = next;
     version.value++;
+    statusVersion.value++;
+  }
+
+  /**
+   * Vuelve a sembrar las activas desde el servidor, SUSTITUYENDO las conocidas: tras un reinicio del servidor las
+   * que figuraban «en curso» quedaron interrumpidas sin que el canal lo dijera. Avisa a las vistas.
+   */
+  async function resync(): Promise<void> {
+    try {
+      const [running, queued, waiting] = await Promise.all([
+        api.runs.list({ status: 'running' }),
+        api.runs.list({ status: 'queued' }),
+        api.runs.list({ status: 'waiting' }),
+      ]);
+      known.value = new Map();
+      seed([...running.items, ...queued.items, ...waiting.items]);
+      version.value++;
+      statusVersion.value++;
+    } catch {
+      /* sin conexión: se reintentará en la próxima reconexión */
+    }
   }
 
   function connect(): void {
     if (source) return;
     source = new EventSource('/api/stream/runs');
-    source.onopen = () => (connected.value = true);
-    source.onerror = () => (connected.value = false); // EventSource reconecta solo
+    let dropped = false;
+    source.onopen = () => {
+      connected.value = true;
+      // Solo tras una caída: lo ocurrido mientras no había canal no se vuelve a enviar.
+      if (dropped) void resync();
+      dropped = false;
+    };
+    source.onerror = () => {
+      connected.value = false; // EventSource reconecta solo
+      dropped = true;
+    };
     source.addEventListener('run', (ev) => apply(JSON.parse((ev as MessageEvent).data) as RunSummary));
   }
 
-  return { known, version, lastChanged, connected, watching, active, apply, seed, forget, connect };
+  return { known, version, statusVersion, lastChanged, connected, watching, active, apply, seed, forget, resync, connect };
 });

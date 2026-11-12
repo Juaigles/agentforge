@@ -122,7 +122,7 @@ Los disparadores con horario solo funcionan con el servidor en marcha.
 - **Servidores MCP**: conecta programas o servicios que ofrecen herramientas con el protocolo MCP. Un servidor
   local es un programa que se ejecuta en tu equipo con los mismos permisos que AgentForge: añade solo los que
   conozcas.
-- **Espacio de trabajo**: los archivos que escriben las herramientas, con vista previa y borrado.
+- **Archivos** (el espacio de trabajo): lo que escriben las herramientas, con vista previa y borrado.
 
 ## 7. Llevarse el trabajo: exportar, importar y copias
 
@@ -142,7 +142,7 @@ Los disparadores con horario solo funcionan con el servidor en marcha.
 | Reanudar automáticamente tras un apagado | Si está activado, las ejecuciones interrumpidas continúan solas al arrancar |
 | Permitir redes privadas | Deja que las herramientas de red llamen a tu red local. Desactivado por defecto por seguridad |
 | Permitir ejecución de código | Activa la herramienta `run_javascript`. Lee el aviso antes de activarla |
-| Retención del historial | Cuántos días y cuántas ejecuciones se conservan (0 = sin límite) |
+| «Conservar el historial (días)» y «Máximo de ejecuciones guardadas» (sección Datos) | Cuánto historial se conserva (0 = sin límite) |
 
 ## 9. Si algo no va
 

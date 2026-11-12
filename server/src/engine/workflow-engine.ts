@@ -162,7 +162,7 @@ export class WorkflowExecution {
     private readonly deps: EngineDeps,
     private readonly run: Run,
     private readonly external: AbortSignal,
-    /** Salidas reutilizadas de una ejecución anterior (reintento desde el fallo). */
+    /** Salidas reutilizadas de una ejecución anterior (reintento desde el fallo), y `<nodo>.comment` de sus aprobaciones. */
     seeded: Map<string, string> = new Map(),
   ) {
     const wf = run.snapshot.workflow;
@@ -175,6 +175,8 @@ export class WorkflowExecution {
     }
     for (const e of wf.edges) this.incoming.get(e.target)?.push(e);
     for (const [nodeId, output] of seeded) {
+      // `<nodo>.comment`: el comentario de una aprobación ya decidida viaja con su paso reutilizado.
+      if (nodeId.endsWith('.comment') && this.nodeById.get(nodeId.slice(0, -'.comment'.length))?.type === 'approval') this.outputs.set(nodeId, output);
       if (!this.nodeById.has(nodeId)) continue;
       this.status.set(nodeId, 'completed');
       this.outputs.set(nodeId, output);

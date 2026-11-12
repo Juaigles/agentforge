@@ -3,7 +3,7 @@
   --vf-node-bg: var(--surface);
   --vf-node-text: var(--text);
   --vf-connection-path: var(--accent);
-  --vf-handle: var(--border-strong);
+  --vf-handle: var(--control-border);
   background: var(--bg);
 }
 .vue-flow__node-af {
@@ -30,8 +30,9 @@
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* Conexiones, puntas de flecha y puntos de conexión: contraste de 3:1 como mínimo (1.4.11), de ahí --control-border. */
 .vue-flow__edge-path {
-  stroke: var(--border-strong);
+  stroke: var(--control-border);
   stroke-width: 1.6;
 }
 .vue-flow__edge.selected .vue-flow__edge-path,
@@ -54,8 +55,8 @@
   opacity: 0.55;
 }
 .vue-flow__arrowhead polyline {
-  fill: var(--border-strong);
-  stroke: var(--border-strong);
+  fill: var(--control-border);
+  stroke: var(--control-border);
 }
 .vue-flow__edge-textbg {
   fill: var(--bg);
@@ -69,7 +70,7 @@
   width: 11px;
   height: 11px;
   border: 2px solid var(--surface);
-  background: var(--border-strong);
+  background: var(--control-border);
   transition:
     background 0.12s,
     transform 0.12s;

@@ -41,6 +41,7 @@ export default {
     attempt: 'intento {n}',
   },
   tabs: {
+    label: 'Vistas de la ejecución',
     result: 'Resultado',
     activity: 'Actividad',
     input: 'Entrada',

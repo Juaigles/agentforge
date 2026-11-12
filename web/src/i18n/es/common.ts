@@ -41,4 +41,9 @@ export default {
     refresh: 'Actualizar',
     loading: 'Cargando…',
   },
+  discard: {
+    title: 'Descartar cambios',
+    message: 'Has escrito datos que no se han guardado. Si cierras ahora, se perderán.',
+    confirm: 'Descartar',
+  },
 };

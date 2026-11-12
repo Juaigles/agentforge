@@ -18,6 +18,41 @@ async function expectNoRawKeys(page: Page): Promise<void> {
   expect(`${text}\n${attributes}`.match(RAW_KEY)?.[0] ?? null, `Clave sin traducir en ${page.url()}`).toBeNull();
 }
 
+/**
+ * Texto de interfaz en español dentro de una pantalla en inglés. Criterio (pensado para no ser frágil): el español
+ * se delata por las letras que el inglés no usa (vocales con tilde, «ñ», «¿», «¡»). Se mira el texto PROPIO de cada
+ * elemento (menú, cabeceras, botones, etiquetas, avisos…) y los atributos `aria-label`, `title` y `placeholder`,
+ * salvo lo que no es interfaz fija: el selector de idioma («Español»), las filas de datos (`tbody`), el código y los
+ * campos y opciones que llevan datos del usuario o del servidor. Antes de comprobar, se quita del texto lo que el
+ * servidor entrega ya escrito en español (títulos, descripciones y categorías de las herramientas integradas y las
+ * descripciones de sus parámetros), que no se traduce todavía y no es un olvido de la interfaz.
+ */
+const SPANISH_LETTERS = /[áéíóúüñÁÉÍÓÚÜÑ¿¡]/;
+
+async function expectNoSpanishUi(page: Page, serverTexts: string[]): Promise<void> {
+  const texts = await page.evaluate(() => {
+    const NOT_UI = '.langs, tbody, pre, code, textarea, input, select, option, script, style, [data-testid="announcer"]';
+    const found: string[] = [];
+    for (const el of document.querySelectorAll('body *')) {
+      if (el.closest(NOT_UI)) continue;
+      for (const attribute of ['aria-label', 'title', 'placeholder']) {
+        const value = el.getAttribute(attribute);
+        if (value) found.push(value);
+      }
+      for (const child of el.childNodes) if (child.nodeType === Node.TEXT_NODE && child.textContent?.trim()) found.push(child.textContent.trim());
+    }
+    return found;
+  });
+  const spanish = texts.map((text) => serverTexts.reduce((rest, data) => rest.split(data).join(' '), text)).filter((text) => SPANISH_LETTERS.test(text));
+  expect(spanish, `Texto de interfaz en español en ${page.url()}`).toEqual([]);
+}
+
+/** Todo lo que revisa la prueba de inglés en cada pantalla. */
+async function expectEnglishScreen(page: Page, serverTexts: string[]): Promise<void> {
+  await expectNoRawKeys(page);
+  await expectNoSpanishUi(page, serverTexts);
+}
+
 const switchTo = (page: Page, label: 'English' | 'Español') => page.locator('.langs').getByRole('button', { name: label }).click();
 
 test.describe('Idiomas', () => {
@@ -51,9 +86,33 @@ test.describe('Idiomas', () => {
     await expect(page).toHaveTitle('Agentes · AgentForge');
   });
 
-  test('todas las pantallas están en inglés y ninguna enseña una clave sin traducir', async ({ page, app }) => {
+  test('todas las pantallas están en inglés: sin claves sin traducir ni texto de interfaz en español, y un workflow nuevo nace con «Input» y «Output»', async ({
+    page,
+    app,
+  }) => {
     const agent = await app.createAgent({ name: unique('English'), systemPrompt: '[[decir:done]]' });
     const run = await app.runToEnd('agents', agent.id, 'hello');
+    // Lo que el servidor entrega ya en español (herramientas integradas) no cuenta como un olvido de la interfaz.
+    const tools = await app.api<
+      Array<{ title: string; description: string; category: string; parameters?: { properties?: Record<string, { description?: string }> } }>
+    >('GET', '/api/tools');
+    // Tampoco los datos del usuario: nombres, roles y descripciones de agentes y workflows (los de ejemplo y los
+    // que han creado otros tests en este mismo servidor están en español).
+    const named = [
+      ...(await app.api<Array<{ name: string; role?: string; description?: string }>>('GET', '/api/agents')),
+      ...(await app.api<Array<{ name: string; description?: string }>>('GET', '/api/workflows')),
+    ];
+    const serverTexts: string[] = [
+      ...tools.flatMap((tool) => [
+        tool.title,
+        tool.description,
+        tool.category,
+        ...Object.values(tool.parameters?.properties ?? {}).map((p) => p.description ?? ''),
+      ]),
+      ...named.flatMap((item): string[] => [item.name, (item as { role?: string }).role ?? '', item.description ?? '']),
+    ]
+      .filter((text) => text.length > 2)
+      .sort((x, y) => y.length - x.length);
     await page.goto('/');
     await switchTo(page, 'English');
 
@@ -69,23 +128,28 @@ test.describe('Idiomas', () => {
     for (const [path, heading] of screens) {
       await page.goto(path);
       await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible();
-      await expectNoRawKeys(page);
+      await expectEnglishScreen(page, serverTexts);
     }
 
     // Ficha de un agente, monitor de una ejecución y constructor.
     await page.goto(`/agents/${agent.id}`);
     await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
-    await expectNoRawKeys(page);
+    await expectEnglishScreen(page, serverTexts);
 
     await page.goto(`/runs/${run.id}`);
     await expect(page.locator('.badge').filter({ hasText: 'Completed' }).first()).toBeVisible();
-    await expectNoRawKeys(page);
+    await expectEnglishScreen(page, serverTexts);
 
     await page.goto('/workflows/new');
     await expect(page.locator('.vue-flow__node')).toHaveCount(2);
+    // Los nodos con los que nace un workflow nuevo se rotulan en el idioma activo (los ids siguen siendo los mismos).
+    await expect(page.locator('.vue-flow__node[data-id="entrada"]')).toContainText('Input');
+    await expect(page.locator('.vue-flow__node[data-id="salida"]')).toContainText('Output');
+    await expect(page.locator('.vue-flow__node[data-id="entrada"]')).not.toContainText('Entrada');
+    await expect(page.locator('.vue-flow__node[data-id="salida"]')).not.toContainText('Salida');
     await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeVisible();
-    await expectNoRawKeys(page);
+    await expectEnglishScreen(page, serverTexts);
     // La validación del workflow (que calcula el código compartido con el servidor) también sale en inglés.
     await page.locator('.check-badge').click();
     await expect(page.getByLabel('Properties').locator('.validation').first()).toContainText('needs an incoming connection');
@@ -93,7 +157,7 @@ test.describe('Idiomas', () => {
     // El glosario: definiciones en inglés en la página y en el tooltip.
     await page.goto('/glosario');
     await expect(page.locator('main')).toContainText('A language model with a role');
-    await expectNoRawKeys(page);
+    await expectEnglishScreen(page, serverTexts);
   });
 
   test('en español tampoco queda ninguna clave sin traducir', async ({ page, app }) => {

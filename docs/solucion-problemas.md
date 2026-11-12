@@ -13,7 +13,7 @@ servidor (la terminal donde se arrancó) suele decir la causa: es una línea JSO
 | El servidor no arranca con `HOST=0.0.0.0` | Fuera de este equipo es obligatoria una clave de acceso | Define `AGENTFORGE_TOKEN` (16 caracteres o más) |
 | «Ya hay otro servidor de AgentForge (proceso N) usando la carpeta de datos» | Otra instancia usa la misma carpeta de datos | Usa esa instancia, o ciérrala. Si murió de golpe, el bloqueo antiguo se descarta solo al arrancar |
 | La página dice «La interfaz no está compilada» | No se ha compilado la interfaz | `npm run build` y vuelve a arrancar |
-| `node:sqlite` no existe / error de sintaxis al arrancar | Versión de Node antigua | Hace falta Node 22.13 o posterior (`node --version`) |
+| `node:sqlite` no existe / error de sintaxis al arrancar | Versión de Node antigua | Hace falta Node 22.13 o posterior (`node --version`). Todo se ha probado con Node 24; Node 22 no se ha probado |
 | «La base de datos … tiene el esquema vN, más reciente que el que entiende esta versión» | Se abrió con una versión más nueva y ahora se arranca una anterior | Vuelve a la versión nueva, o restaura una copia de seguridad. Antes de cada cambio de esquema se guarda `agentforge.db.v<N>.bak` |
 | El primer arranque tras actualizar tarda mucho | Se migra el esquema, se crean índices y se compacta (decenas de segundos con historiales grandes) | Esperar: solo ocurre una vez |
 
@@ -24,7 +24,7 @@ servidor (la terminal donde se arrancó) suele decir la causa: es una línea JSO
 | «Proveedor no disponible» al pie del menú, o la tarjeta «Primeros pasos» dice que Ollama no responde | Ollama no está en marcha o está en otra dirección | Abre Ollama (`ollama serve`). Comprueba la dirección en Ajustes → Proveedores → «Probar conexión» |
 | La lista de modelos sale vacía | Ollama no tiene ningún modelo descargado | `ollama pull qwen3:8b` (o el que quieras) y recarga la lista |
 | Aviso «… no declara soporte de herramientas» en el editor | Es probable que ese modelo ignore las herramientas | Elige uno que sí (en Ollama, los que muestran la capacidad `tools`) o quita las herramientas del agente |
-| El agente responde vacío o corta la respuesta | Se alcanzó el máximo de tokens, o el modelo gastó el límite razonando | Sube «Máx. tokens», o desactiva el razonamiento del agente |
+| El agente responde vacío o corta la respuesta | Se alcanzó el máximo de tokens, o el modelo gastó el límite razonando | Sube «Tokens de salida máximos», o desactiva el razonamiento del agente |
 | El agente usa muchas herramientas y acaba con una respuesta pobre | Agotó su máximo de iteraciones: la última llamada se hace sin herramientas para forzar una respuesta | Sube el límite de iteraciones del agente o simplifica la tarea |
 | Tras cambiar la dirección de un proveedor falla con error de autenticación | La API key está ligada a la dirección para la que se guardó y no se envía a otra | Vuelve a escribir la clave en el proveedor |
 | «No se pudo descifrar la API key de …» | Se ha perdido o cambiado `data/secret.key` | Vuelve a escribir las API keys, o restaura la copia que contiene la clave original |
@@ -36,7 +36,7 @@ servidor (la terminal donde se arrancó) suele decir la causa: es una línea JSO
 |---|---|---|
 | Una ejecución se queda «En cola» | Se alcanzó el número de ejecuciones simultáneas | Espera, cancela alguna o sube el límite en Ajustes |
 | Una ejecución se queda «En espera» | Hay un nodo de aprobación pendiente | Decide desde el aviso de aprobaciones (aparece en todas las pantallas) |
-| «Ejecución interrumpida por un reinicio del servidor» | El servidor se apagó con la ejecución a medias | Usa «Reanudar» en el aviso: reutiliza los pasos ya terminados. Se puede automatizar en Ajustes |
+| «Ejecución interrumpida por el apagado del servidor» (tras Ctrl+C o `docker stop`) o «…por un reinicio del servidor» (si el proceso murió de golpe) | El servidor se paró con la ejecución a medias | Usa «Reanudar» en el aviso: reutiliza los pasos ya terminados. Se puede automatizar en Ajustes |
 | Falla con «Se alcanzó el límite de N llamadas al modelo» o «Se superó la duración máxima de la ejecución» | Límites del workflow | Súbelos en los ajustes del workflow (sin ningún nodo seleccionado) |
 | Un paso falla y los siguientes aparecen «Omitido» | Con la política «detener», un fallo corta las ramas que dependen de él | Corrige la causa y usa «Reintentar desde el fallo», o cambia la política a «continuar» |
 | «Ejecutar» no hace nada y la insignia muestra errores | El workflow no es válido | Pulsa la insignia: cada problema lleva al nodo que lo causa |
@@ -50,8 +50,8 @@ servidor (la terminal donde se arrancó) suele decir la causa: es una línea JSO
 | «Acceso bloqueado a red privada o local» al llamar a `localhost` o a una IP de tu red | Las herramientas de red bloquean las redes privadas por defecto (protección frente a páginas maliciosas) | Ajustes → «Permitir redes privadas», solo si lo necesitas |
 | `run_javascript` no aparece o está desactivada | Viene apagada por seguridad | Ajustes → «Permitir ejecución de código» y lee el aviso |
 | El modo «Contenedor» da error | No hay Docker ni Podman en marcha, o falta la imagen | Arranca el motor y `docker pull node:24-alpine`; AgentForge no la descarga solo |
-| «El archivo superaría el límite de 5 MB por archivo» (o el del total) | Límite de 5 MB por archivo y 100 MB en total | Borra archivos en Herramientas → Espacio de trabajo |
-| Un servidor MCP queda «Error» | El programa no existe, terminó con error o tardó en responder | El motivo se muestra junto al servidor; pruébalo a mano en una terminal con el mismo comando |
+| «El archivo superaría el límite de 5 MB por archivo» (o el del total) | Límite de 5 MB por archivo y 100 MB en total | Borra archivos en Herramientas → Archivos |
+| Un servidor MCP queda «Sin conexión» | El programa no existe, terminó con error o tardó en responder | El motivo se muestra junto al servidor; pruébalo a mano en una terminal con el mismo comando |
 | Tras renombrar un servidor MCP los agentes pierden sus herramientas | El nombre del servidor forma parte del nombre de cada herramienta | Vuelve a asignarlas en los agentes |
 
 ## Disparadores y webhooks
@@ -70,7 +70,9 @@ servidor (la terminal donde se arrancó) suele decir la causa: es una línea JSO
 | Franja roja «Sin conexión con el servidor» | El proceso del servidor no responde | Comprueba la terminal donde se arrancó. La interfaz se reconecta sola al volver |
 | «Demasiadas peticiones» (429) | Límite de 1 200 peticiones por minuto por cliente | Espera unos segundos. Para automatizaciones, sube `AGENTFORGE_RATE_LIMIT` |
 | Te pide una clave al entrar | El servidor tiene `AGENTFORGE_TOKEN` | Escribe esa clave |
-| «Petición rechazada: procede de otro sitio web» o «Host no permitido» | Se accede por un nombre que el servidor no reconoce (por ejemplo, detrás de un proxy) | Declara ese nombre en `AGENTFORGE_ALLOWED_HOSTS` |
+| «Host no permitido» (403) | Se accede por un nombre o una IP que el servidor no reconoce (otro equipo, un proxy, un contenedor) | Declara ese nombre, sin puerto, en `AGENTFORGE_ALLOWED_HOSTS` |
+| «Petición rechazada: procede de otro sitio web» (403) | El origen de la página no coincide con el `Host` que recibe el servidor: suele ser un proxy que reescribe la cabecera `Host` | Haz que el proxy conserve el `Host` original (en nginx, `proxy_set_header Host $host;`) |
+| Detrás de un proxy, un solo cliente bloquea el acceso de todos o la cookie no lleva `Secure` | Sin avisar al servidor, todas las peticiones parecen venir del proxy y por `http` | Arranca con `AGENTFORGE_TRUST_PROXY=1` y haz que el proxy envíe `X-Forwarded-For` y `X-Forwarded-Proto` |
 | Los cambios no se guardan al cerrar un diálogo | Si has escrito algo, pulsar fuera no lo cierra; Esc sí | Usa «Guardar» antes de cerrar |
 | La interfaz sale en inglés (o en español) sin haberlo elegido | Se usa el idioma del navegador hasta que eliges uno | Selector ES / EN al pie del menú lateral |
 | Con la interfaz en inglés, algunos mensajes salen en español | Los escribe el servidor (detalle de errores, descripciones de herramientas) | Es una limitación conocida |
@@ -83,6 +85,8 @@ servidor (la terminal donde se arrancó) suele decir la causa: es una línea JSO
 | Mover la instalación a otro equipo | Ajustes → Copias de seguridad → crear y descargar; en el otro equipo, añadir la copia y restaurar (pide reiniciar) |
 | Que el historial no crezca sin límite | Ajustes → Datos → retención por días y por número de ejecuciones |
 | Copiar `data/` a mano | Solo con el servidor parado: con él en marcha parte de los datos está en `agentforge.db-wal` |
+| Volver a la versión anterior tras actualizar | Con el servidor parado: copia `agentforge.db.v<N>.bak` sobre `agentforge.db` y **borra `agentforge.db-wal` y `agentforge.db-shm`**; después arranca la versión anterior. Lo hecho desde la actualización se pierde |
+| Que no se pueda escribir en la carpeta de datos (también en un contenedor con una carpeta montada) | «No se puede escribir en la carpeta de datos»: dale permisos al usuario que ejecuta el servidor (en Docker, `--user "$(id -u):$(id -g)"`) |
 
 ## Para informar de un fallo
 

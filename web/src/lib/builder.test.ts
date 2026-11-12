@@ -1,6 +1,7 @@
 import type { WorkflowEdge, WorkflowNode } from '@shared/types';
-import { describe, expect, it } from 'vitest';
-import { autoLayout, cloneNodes, connectionOptions, LAYOUT, useHistory } from './builder';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLocale } from '@/i18n';
+import { autoLayout, cloneNodes, connectionOptions, LAYOUT, newWorkflowNodes, useHistory } from './builder';
 
 const node = (id: string, type: WorkflowNode['type'] = 'agent', x = 0, y = 0, config: Record<string, unknown> = {}): WorkflowNode => ({
   id,
@@ -134,5 +135,21 @@ describe('copiar nodos', () => {
     const first = cloneNodes([original], [], ['paso']);
     const second = cloneNodes([original], [], ['paso', ...first.nodes.map((n) => n.id)]);
     expect([first.nodes[0].id, second.nodes[0].id]).toEqual(['paso_2', 'paso_3']);
+  });
+});
+
+describe('nodos de un workflow nuevo', () => {
+  afterEach(() => setLocale('es', false));
+
+  it('nacen con las etiquetas del idioma activo y los mismos ids en cualquier idioma', () => {
+    expect(newWorkflowNodes().map((n) => [n.id, n.type, n.label])).toEqual([
+      ['entrada', 'input', 'Entrada'],
+      ['salida', 'output', 'Salida'],
+    ]);
+    setLocale('en', false);
+    expect(newWorkflowNodes().map((n) => [n.id, n.type, n.label])).toEqual([
+      ['entrada', 'input', 'Input'],
+      ['salida', 'output', 'Output'],
+    ]);
   });
 });

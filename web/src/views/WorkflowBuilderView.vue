@@ -43,8 +43,18 @@ import Term from '@/components/Term.vue';
 import { locale, t, tn } from '@/i18n';
 import { announce, localizeFlow } from '@/lib/a11y';
 import { api, errorText } from '@/lib/api';
-import { autoLayout, cloneNodes, connectionOptions, useHistory } from '@/lib/builder';
-import { fromFlow, NODE_HINT, OPERATOR_KEYS, OPERATOR_LABEL, toFlowEdge, toFlowNode, type FlowNode as FlowNodeT, type FlowNodeData } from '@/lib/flow';
+import { autoLayout, cloneNodes, connectionOptions, newWorkflowNodes, useHistory } from '@/lib/builder';
+import {
+  edgeTexts,
+  fromFlow,
+  NODE_HINT,
+  OPERATOR_KEYS,
+  OPERATOR_LABEL,
+  toFlowEdge,
+  toFlowNode,
+  type FlowNode as FlowNodeT,
+  type FlowNodeData,
+} from '@/lib/flow';
 import { NODE_LABEL } from '@/lib/format';
 import { downloadJson, exportFileName, summarizeTriggers } from '@/lib/transfer';
 import { issueText } from '@/lib/validation-en';
@@ -57,7 +67,8 @@ const catalog = useCatalog();
 const ui = useUi();
 
 const flowId = `builder-${Math.random().toString(36).slice(2)}`;
-const { screenToFlowCoordinate, viewport, fitView, removeNodes, onNodesInitialized, getSelectedNodes, getSelectedEdges } = useVueFlow(flowId);
+const { screenToFlowCoordinate, viewport, fitView, removeNodes, removeSelectedElements, onNodesInitialized, getSelectedNodes, getSelectedEdges } =
+  useVueFlow(flowId);
 // Encuadre inicial: solo la primera vez que Vue Flow termina de medir los nodos.
 let framed = false;
 onNodesInitialized(() => {
@@ -180,7 +191,9 @@ function setForeachBody(body: 'agent' | 'tool' | 'subworkflow'): void {
 }
 
 // ---------- Carga ----------
-onMounted(async () => {
+async function load(): Promise<void> {
+  loadError.value = null;
+  loading.value = true;
   try {
     await catalog.ensure();
     if (workflowId.value) {
@@ -192,10 +205,7 @@ onMounted(async () => {
       edges.value = wf.edges.map(toFlowEdge);
     } else {
       meta.name = t('builder.defaults.workflowName');
-      nodes.value = [
-        toFlowNode({ id: 'entrada', type: 'input', label: 'Entrada', position: { x: 40, y: 160 }, config: { description: '', defaultValue: '' } }),
-        toFlowNode({ id: 'salida', type: 'output', label: 'Salida', position: { x: 640, y: 160 }, config: { template: '' } }),
-      ];
+      nodes.value = newWorkflowNodes().map((n) => toFlowNode(n));
     }
     loading.value = false;
     await nextTick();
@@ -205,7 +215,15 @@ onMounted(async () => {
     loadError.value = errorText(err);
     loading.value = false;
   }
-});
+}
+onMounted(load);
+// Un error de carga no es definitivo: «Reintentar», o solo cuando vuelve la conexión con el servidor.
+watch(
+  () => catalog.online,
+  (online) => {
+    if (online && loadError.value && !loading.value) void load();
+  },
+);
 
 // ---------- Deshacer y rehacer ----------
 // Cada estado es la definición completa serializada. Los cambios seguidos (escribir en un campo, arrastrar un
@@ -263,13 +281,10 @@ watchEffect(() => {
 });
 watchEffect(() => {
   for (const e of edges.value) {
-    const from = nodeName(e.source);
-    const to = nodeName(e.target);
-    const label =
-      e.sourceHandle === 'true' || e.sourceHandle === 'false'
-        ? t('flow.edge.labelBranch', { from, to, branch: t(e.sourceHandle === 'true' ? 'flow.branch.yes' : 'flow.branch.no') })
-        : t('flow.edge.label', { from, to });
-    if (e.ariaLabel !== label) e.ariaLabel = label;
+    // Etiqueta visible («Sí»/«No») y nombre accesible: se rehacen al cambiar el idioma o el nombre de un nodo.
+    const { label, ariaLabel } = edgeTexts(e as { source: string; target: string; sourceHandle: string | null }, nodeName(e.source), nodeName(e.target));
+    if (e.ariaLabel !== ariaLabel) e.ariaLabel = ariaLabel;
+    if (e.label !== label) e.label = label;
   }
 });
 let unlocalize: (() => void) | null = null;
@@ -292,8 +307,25 @@ function focusNodeOnCanvas(): void {
 function onNodesChange(changes: NodeChange[]): void {
   for (const change of changes) if (change.type === 'select' && change.selected) selectedId.value = change.id;
 }
+/** Deja de seleccionar nodos: el inspector vuelve a los ajustes del workflow y a la lista «Nodos». */
+function deselect(): void {
+  selectedId.value = null;
+  removeSelectedElements();
+}
+/** Alternativa visible (y de teclado) a la insignia de validación para volver a los ajustes del workflow. */
+function showSettings(): void {
+  deselect();
+  void nextTick(() => document.getElementById('wf-desc')?.focus());
+}
 function onCanvasKey(ev: KeyboardEvent): void {
   const target = ev.target as HTMLElement;
+  if (ev.key === 'Escape' && selectedId.value) {
+    // Escape en el lienzo suelta la selección (en las propiedades, devuelve el foco al nodo: ver onShortcut).
+    // Se corta aquí: Vue Flow trata Escape sobre un nodo como un clic y volvería a seleccionarlo.
+    ev.stopPropagation();
+    deselect();
+    return;
+  }
   if ((ev.key === 'Enter' || ev.key === ' ') && target.classList.contains('vue-flow__node') && target.dataset.id) {
     ev.preventDefault();
     editNode(target.dataset.id);
@@ -337,7 +369,8 @@ function copySelection(): boolean {
   const ids = new Set(selectionIds());
   if (!ids.size) return false;
   const def = definition.value;
-  clipboard = { nodes: def.nodes.filter((n) => ids.has(n.id)), edges: def.edges };
+  // Copia por valor: `fromFlow` comparte la configuración viva de los nodos, y editar el original cambiaría lo copiado.
+  clipboard = JSON.parse(JSON.stringify({ nodes: def.nodes.filter((n) => ids.has(n.id)), edges: def.edges }));
   pasteCount = 0;
   ui.info(tn('builder.toast.copied', ids.size));
   return true;
@@ -807,6 +840,7 @@ onBeforeRouteLeave(async (to) => {
 
     <div v-if="loadError" class="page">
       <div class="callout danger" role="alert"><CircleAlert /> {{ loadError }}</div>
+      <button class="btn" type="button" style="margin-top: 12px" @click="load">{{ t('common.actions.retry') }}</button>
     </div>
 
     <div v-else class="body">
@@ -946,6 +980,7 @@ onBeforeRouteLeave(async (to) => {
               </button>
             </div>
           </div>
+          <button class="btn btn-sm" type="button" @click="showSettings"><Settings2 /> {{ t('builder.settings.title') }}</button>
           <p class="small muted">{{ NODE_HINT[selectedData.kind] }}.</p>
 
           <div v-for="(issue, i) in selectedIssues" :key="i" class="callout" :class="issue.level === 'error' ? 'danger' : 'warning'">

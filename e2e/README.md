@@ -26,7 +26,7 @@ Diferencias entre motores que la suite tiene en cuenta:
 
 | Pieza | Qué hace |
 |---|---|
-| `support/fixtures.ts` | Por cada worker arranca **el servidor de producción** (`node --import tsx server/src/index.ts`) en un puerto libre (`PORT`), con un directorio de datos temporal (`AGENTFORGE_DATA_DIR`) y `OLLAMA_URL` apuntando al modelo simulado. Sirve la interfaz compilada (`web/dist`), igual que `npm start`. Expone `app.restart()`, que **mata el proceso** (sin apagado ordenado) y lo relanza sobre los mismos datos, y `app.shutdown()`, que pide un apagado **ordenado** por el canal IPC (lo mismo que Ctrl+C) y espera a que el proceso termine solo. |
+| `support/fixtures.ts` | Por cada worker arranca **el servidor de producción** (`node --import tsx src/index.ts` desde `server/`) en un puerto libre (`PORT`), con un directorio de datos temporal (`AGENTFORGE_DATA_DIR`) y `OLLAMA_URL` apuntando al modelo simulado. Sirve la interfaz compilada (`web/dist`), igual que `npm start`. Expone `app.restart()`, que **mata el proceso** (sin apagado ordenado) y lo relanza sobre los mismos datos, y `app.shutdown()`, que pide un apagado **ordenado** por el canal IPC (lo mismo que Ctrl+C) y espera a que el proceso termine solo. |
 | `support/fake-ollama.ts` | Servidor HTTP local que habla el protocolo de cable de Ollama (`/api/tags`, `/api/chat` en NDJSON con streaming y tool-calls) y el de OpenAI (`/v1/models`, `/v1/chat/completions` en SSE). AgentForge se conecta a él con sus adaptadores de producción. Es el **único** doble de prueba. |
 | `*.spec.ts` | Los tests. Cada uno crea sus propios datos con nombres únicos, así que no dependen del orden. |
 

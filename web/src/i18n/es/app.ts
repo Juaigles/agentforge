@@ -73,6 +73,7 @@ export default {
     invalid_token: 'La clave de acceso no es correcta.',
     forbidden_host: 'El servidor no admite peticiones por este nombre. Declara el nombre en AGENTFORGE_ALLOWED_HOSTS.',
     cross_site: 'Petición rechazada: procede de otro sitio web.',
+    credential_required: 'Has cambiado la dirección: vuelve a escribir las credenciales guardadas para la dirección anterior.',
     api_key_required: 'Has cambiado la dirección del proveedor: vuelve a escribir la API key.',
     validation: 'Hay datos que no son válidos. Revisa los campos marcados.',
     payload_too_large: 'Lo que se ha enviado es demasiado grande.',

@@ -41,6 +41,9 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     logController: new LogController({ disableRequestLogging: config.logLevel !== 'debug' }),
     bodyLimit: 2 * 1024 * 1024,
     forceCloseConnections: true,
+    // Detrás de un proxy inverso (AGENTFORGE_TRUST_PROXY=1) el cliente y el protocolo reales llegan en las
+    // cabeceras X-Forwarded-*: sin esto, el límite de tasa sería común a todos y la cookie no llevaría `Secure`.
+    trustProxy: config.trustProxy === true,
   });
   ctx.log = app.log;
 

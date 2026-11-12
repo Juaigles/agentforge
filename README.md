@@ -16,11 +16,13 @@ compatible con OpenAI.
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Entorno, baterías, reglas de las pruebas y convenciones |
 | [SECURITY.md](SECURITY.md) | Qué protege y qué no, y cómo informar de una vulnerabilidad |
 | [CHANGELOG.md](CHANGELOG.md) | Cambios por versión |
+| [docs/informe-hito5.md](docs/informe-hito5.md) | Informe final del hito 5: qué se hizo, qué sigue débil y qué no se ha verificado |
 | [PLAN.md](PLAN.md), [PROGRESS.md](PROGRESS.md), [TEST_RESULTS.md](TEST_RESULTS.md) | Decisiones, estado y limitaciones, y evidencias de las pruebas |
 
 ## Requisitos
 
-- **Node.js ≥ 22.13** (probado con v24.19; usa el módulo integrado `node:sqlite`).
+- **Node.js ≥ 22.13** (usa el módulo integrado `node:sqlite`). Todo se ha desarrollado y probado con **v24.19**;
+  Node 22 no se ha probado.
 - **Ollama** en marcha con al menos un modelo de chat (recomendado uno con soporte de herramientas, p. ej.
   `ollama pull qwen3:8b`). Sin Ollama la aplicación arranca igual, pero no podrá ejecutar agentes hasta que
   configures un proveedor en *Ajustes*.
@@ -62,12 +64,13 @@ así que no toca `data/` ni necesita Ollama. Detalles en [e2e/README.md](e2e/REA
 |---|---|---|
 | `PORT` | `4310` | Puerto del servidor |
 | `HOST` | `127.0.0.1` | Interfaz de red (solo local por defecto) |
-| `AGENTFORGE_DATA_DIR` | `./data` | Base de datos, clave de cifrado y espacio de trabajo |
+| `AGENTFORGE_DATA_DIR` | `data/` en la raíz del proyecto | Base de datos, clave de cifrado y espacio de trabajo. Una ruta relativa se resuelve desde donde arranca el proceso (con `npm start`, la carpeta `server/`): mejor una ruta absoluta |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama usado para los datos de ejemplo |
-| `AGENTFORGE_DEFAULT_MODEL` | (autodetectado) | Modelo de los agentes de ejemplo |
+| `AGENTFORGE_DEFAULT_MODEL` | (autodetectado) | Modelo de los agentes de ejemplo. Si Ollama no responde al sembrarlos, se usa `llama3.2` y se cambia después en cada agente |
 | `AGENTFORGE_SEED` | `1` | `0` para no crear datos de ejemplo |
 | `AGENTFORGE_TOKEN` | (sin clave) | Clave de acceso a la API (16 caracteres o más). **Obligatoria si `HOST` no es local** |
-| `AGENTFORGE_ALLOWED_HOSTS` | (ninguno) | Nombres adicionales por los que se llega al servidor, separados por comas (p. ej. detrás de un proxy) |
+| `AGENTFORGE_ALLOWED_HOSTS` | (ninguno) | Nombres o IP adicionales por los que se llega al servidor, separados por comas y **sin puerto** (p. ej. detrás de un proxy o desde otro equipo) |
+| `AGENTFORGE_TRUST_PROXY` | `0` | `1` si hay un proxy inverso delante: la dirección del cliente y el protocolo se leen de `X-Forwarded-For` y `X-Forwarded-Proto` (límite de tasa por cliente real y cookie `Secure`). Sin proxy debe quedar en `0` |
 | `AGENTFORGE_LOG_LEVEL` | `info` | `silent`, `error`, `warn`, `info` o `debug` (este añade una línea por petición) |
 | `AGENTFORGE_RATE_LIMIT` | `1200` | Peticiones por minuto y cliente a la API (0 = sin límite) |
 | `AGENTFORGE_SHUTDOWN_GRACE_MS` | `10000` | Tiempo máximo que el apagado espera a las ejecuciones en curso |
@@ -109,25 +112,54 @@ datos está en el diario `agentforge.db-wal`).
 
 ### En un contenedor
 
-Hay un `Dockerfile` para uso local. **No se ha construido ni ejecutado** (el motor de Docker estaba apagado al
-escribirlo): pruébalo antes de fiarte.
+Hay un `Dockerfile` para uso local. **La imagen no se ha construido ni ejecutado con Docker** (el motor estaba
+apagado al escribirla); sus etapas se han reproducido a mano fuera de Docker (ver `TEST_RESULTS.md`). Pruébala antes
+de fiarte:
 
 ```bash
 docker build -t agentforge .
-docker run --rm -p 4310:4310 -v agentforge-data:/data \
+docker run --rm -p 127.0.0.1:4310:4310 -v agentforge-data:/data --stop-timeout 20 \
   -e AGENTFORGE_TOKEN=una-clave-de-16-caracteres-o-mas \
   -e OLLAMA_URL=http://host.docker.internal:11434 agentforge
 ```
 
-La clave de acceso es obligatoria porque dentro del contenedor el servidor escucha en `0.0.0.0`. Los datos viven en
-el volumen `/data`. `docker stop` hace un apagado ordenado.
+- La clave de acceso es obligatoria: dentro del contenedor el servidor escucha en `0.0.0.0`.
+- Los datos viven en el volumen `/data`. Si montas una carpeta del equipo en su lugar, debe poder escribirla el
+  usuario del contenedor (`--user "$(id -u):$(id -g)"`).
+- Para entrar desde otro equipo, publica el puerto sin `127.0.0.1` y declara la IP o el nombre por el que se llega
+  con `-e AGENTFORGE_ALLOWED_HOSTS=…` (si no, el servidor responde 403).
+- `docker stop` hace un apagado ordenado; `--stop-timeout 20` le da tiempo a cerrar la base de datos.
+- En Linux, `--add-host=host.docker.internal:host-gateway` para llegar al Ollama del equipo.
+
+### Detrás de un proxy inverso
+
+El servidor no cifra el tráfico. Para usarlo desde otros equipos con TLS, pon delante un proxy y:
+
+- arranca con `AGENTFORGE_TOKEN`, `AGENTFORGE_ALLOWED_HOSTS=<nombre público>` y `AGENTFORGE_TRUST_PROXY=1`;
+- haz que el proxy conserve la cabecera `Host` y envíe `X-Forwarded-For` y `X-Forwarded-Proto` (en nginx:
+  `proxy_set_header Host $host; proxy_set_header X-Forwarded-For $remote_addr; proxy_set_header X-Forwarded-Proto $scheme;`);
+- desactiva el búfer de respuestas para los flujos en vivo (`/api/stream/…` y `/api/runs/…/stream`; en nginx,
+  `proxy_buffering off;`).
+
+No se ha probado con un proxy real: lo comprobado son las cabeceras, con peticiones inyectadas en los tests.
+
+### Actualizar a una versión nueva
+
+1. Para el servidor (Ctrl+C) y, por si acaso, crea una copia de seguridad desde Ajustes antes de pararlo.
+2. Sustituye el código **sin tocar la carpeta `data/`** (ahí están la base de datos y `secret.key`, la clave con
+   la que se descifran las API keys: si se pierde, hay que volver a escribirlas).
+3. `npm install`, `npm run build` y `npm start`.
+
+El esquema de la base de datos se actualiza solo al arrancar. Antes de hacerlo se guarda una copia
+`agentforge.db.v<N>.bak` junto a la base (no se borran solas: elimina las antiguas cuando todo vaya bien). Con
+historiales grandes el primer arranque puede tardar decenas de segundos. No hay marcha atrás automática: para
+volver a la versión anterior, mira «Datos» en [docs/solucion-problemas.md](docs/solucion-problemas.md).
 
 ### Parar el servidor
 
 Ctrl+C (o `SIGTERM`) hace un apagado ordenado: las ejecuciones en curso quedan **interrumpidas**, no canceladas,
 y al volver a arrancar la interfaz ofrece reanudarlas reutilizando los pasos ya terminados. Lo mismo ocurre si el
-proceso muere de golpe. Un segundo Ctrl+C fuerza la salida. Sondas para un orquestador: `GET /api/health/live`
-(el proceso atiende) y `GET /api/health/ready` (base de datos, carpeta de datos y planificador; 503 si falla algo).
+proceso muere de golpe. Un segundo Ctrl+C fuerza la salida.
 
 ## Qué incluye
 
@@ -252,7 +284,7 @@ los dos temas. Lo que falta está en `PROGRESS.md` («Pendiente y limitaciones»
 | Constructor | Ctrl+C, Ctrl+V, Ctrl+D | Copiar, pegar y duplicar los nodos seleccionados |
 | Constructor | Supr | Borrar el nodo o la conexión seleccionados |
 | Constructor | Ctrl+S | Guardar (también mientras se escribe en un campo) |
-| Constructor, sobre un nodo | Intro o Espacio | Abrir sus propiedades; Esc vuelve al nodo |
+| Constructor, sobre un nodo | Intro o Espacio | Abrir sus propiedades; Esc, desde un campo de las propiedades, vuelve al nodo |
 | Constructor, sobre un nodo | Flechas | Moverlo |
 | Cuadros de tarea | Ctrl+Intro | Ejecutar |
 

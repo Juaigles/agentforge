@@ -231,7 +231,13 @@ async function save(): Promise<void> {
       </li>
     </ul>
 
-    <AppModal v-if="editing" :title="current ? t('mcp.form.titleEdit', { name: current.name }) : t('mcp.form.titleNew')" :width="600" @close="editing = null">
+    <AppModal
+      v-if="editing"
+      :title="current ? t('mcp.form.titleEdit', { name: current.name }) : t('mcp.form.titleNew')"
+      :width="600"
+      confirm-close
+      @close="editing = null"
+    >
       <form id="mcp-form" class="col" style="gap: 16px" novalidate @submit.prevent="save">
         <div class="field">
           <label for="mcp-name">{{ t('mcp.form.name') }}</label>

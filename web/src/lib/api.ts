@@ -82,6 +82,7 @@ const GENERIC_CODES = new Set([
   'forbidden_host',
   'cross_site',
   'api_key_required',
+  'credential_required',
   'validation',
   'payload_too_large',
 ]);
@@ -139,6 +140,8 @@ export interface ToolInvokeResult {
 export const api = {
   health: () => get<{ ok: boolean; version: string; uptimeSec: number }>('/api/health'),
   stats: () => get<DashboardStats>('/api/stats'),
+  /** Hitos de la guía de primeros pasos (el servidor los resuelve con una consulta barata, sin contar el historial). */
+  onboarding: () => get<{ agentRun: boolean; workflowCompleted: boolean }>('/api/onboarding'),
   auth: {
     status: () => get<AuthStatus>('/api/auth/status'),
     login: (token: string) => post<void>('/api/auth/login', { token }),

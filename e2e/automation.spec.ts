@@ -421,7 +421,12 @@ test.describe('Disparadores', () => {
     await app.waitForRun(((await again.json()) as { runId: string }).runId);
 
     // En el historial, las ejecuciones lanzadas por el webhook van marcadas.
+    // El secreto nuevo sigue a la vista y no se volverá a enseñar: cerrar pide confirmación.
     await modal.getByRole('button', { name: 'Hecho' }).click();
+    const leave = page.getByRole('dialog', { name: 'Aún no has guardado el secreto' });
+    await expect(leave).toBeVisible();
+    await leave.getByRole('button', { name: 'Cerrar sin guardarlo' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.goto('/runs');
     await page.getByLabel('Buscar ejecuciones').fill(name);
     await expect(page.locator('tbody tr')).toHaveCount(2);

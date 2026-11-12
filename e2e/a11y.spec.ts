@@ -216,19 +216,48 @@ test.describe('Constructor sin ratón y con vuelta atrás', () => {
     expect(saved.edges.some((e) => e.target === 'salida')).toBe(true);
   });
 
-  test('copiar, pegar y ordenar los nodos', async ({ page, app }) => {
+  test('copiar, pegar y ordenar los nodos: lo pegado conserva la configuración y la conexión entre los nodos copiados', async ({ page, app }) => {
     const agent = await app.createAgent({ name: unique('Copiar') });
     await page.goto('/workflows/new');
     const nodes = page.locator('.vue-flow__node');
+    const edges = page.locator('.vue-flow__edge');
+    const inspector = page.getByLabel('Propiedades');
     await page.getByLabel('Paleta de nodos').getByRole('button', { name: agent.name }).click();
     await expect(nodes).toHaveCount(3);
+
+    // El agente lleva una tarea propia y se conecta con la salida.
+    const prompt = 'Resume {{input}} en una sola frase.';
+    await nodes.filter({ hasText: agent.name }).first().click();
+    await page.locator('#in-prompt').fill(prompt);
+    await inspector.getByLabel('Conectar la salida de este nodo con').selectOption({ label: 'Salida' });
+    await inspector.getByRole('button', { name: 'Conectar', exact: true }).click();
+    await expect(edges).toHaveCount(1);
+
+    // Se copian los dos nodos conectados (selección múltiple con Ctrl/Cmd) y se pegan.
+    await nodes.filter({ hasText: agent.name }).first().click();
+    // La tecla de selección múltiple del lienzo depende del sistema que declara el navegador (Cmd en macOS, que
+    // es lo que anuncia WebKit; Ctrl en el resto), no del sistema donde corre la prueba.
+    const multi = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control';
+    await node(page, 'salida').click({ modifiers: [multi] });
+    await page.keyboard.press('Control+c');
+    await expect(toast(page, /2 nodos copiados/)).toBeVisible();
+    await page.keyboard.press('Control+v');
+    await expect(nodes).toHaveCount(5);
+    // Las copias están unidas entre sí, además de la conexión original.
+    await expect(edges).toHaveCount(2);
+
+    // El agente pegado conserva su tarea; el original, también.
+    for (const index of [0, 1]) {
+      await nodes.filter({ hasText: agent.name }).nth(index).click();
+      await expect(page.locator('#in-prompt')).toHaveValue(prompt);
+    }
+
+    // Copiar y duplicar un solo nodo sigue funcionando.
     await nodes.filter({ hasText: agent.name }).first().focus();
     await page.keyboard.press('Control+c');
     await expect(toast(page, 'Nodo copiado')).toBeVisible();
-    await page.keyboard.press('Control+v');
-    await expect(nodes).toHaveCount(4);
     await page.keyboard.press('Control+d');
-    await expect(nodes).toHaveCount(5);
+    await expect(nodes).toHaveCount(6);
 
     await page.getByRole('button', { name: 'Ordenar los nodos' }).click();
     await expect(announcer(page)).toHaveText('Nodos ordenados de izquierda a derecha.');

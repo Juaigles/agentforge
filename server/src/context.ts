@@ -85,6 +85,11 @@ function acquireInstanceLock(dataDir: string): () => void {
   };
 }
 
+/** ¿Sigue abierta la base? Usa `isOpen` donde el motor lo ofrece (Node 22.15+) y, si no, la cuenta propia. */
+export function databaseIsOpen(db: { isOpen?: unknown }, closedByUs: boolean): boolean {
+  return typeof db.isOpen === 'boolean' ? db.isOpen : !closedByUs;
+}
+
 export function createContext(config: AppConfig, overrides: ContextOverrides = {}): AppContext {
   const releaseLock = overrides.inMemory ? () => undefined : acquireInstanceLock(config.dataDir);
   // Una restauración preparada desde la interfaz se aplica aquí, antes de abrir la base de datos.
@@ -104,13 +109,17 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
   // no congele el servidor. Al acabar, el espacio liberado se devuelve al sistema de archivos poco a poco.
   const RETENTION_BATCH = 100;
   let closed = false;
+  // `db.isOpen` existe desde Node 22.15: en versiones anteriores se lleva la cuenta aquí (sin ella, la base no se
+  // cerraría al apagar y la retención y la compactación se quedarían en su primera tanda, sin ningún aviso).
+  let dbClosed = false;
+  const dbIsOpen = (): boolean => databaseIsOpen(db, dbClosed);
   let pruning = false;
   let compacting = false;
   const compactLater = (): void => {
     if (compacting || closed) return;
     compacting = true;
     const step = (): void => {
-      if (closed || !db.isOpen) return void (compacting = false);
+      if (closed || !dbIsOpen()) return void (compacting = false);
       try {
         if (store.compact(2000) > 0) return void setTimeout(step, 10).unref();
       } catch (err) {
@@ -131,7 +140,7 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
       pruning = true;
       let total = deleted;
       const next = (): void => {
-        if (closed || !db.isOpen) return void (pruning = false);
+        if (closed || !dbIsOpen()) return void (pruning = false);
         try {
           const more = pruneBatch();
           total += more;
@@ -196,7 +205,10 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
     async close() {
       await ctx.stopRuns();
       await mcp.close();
-      if (db.isOpen) db.close();
+      if (dbIsOpen()) {
+        dbClosed = true;
+        db.close();
+      }
       releaseLock();
     },
   };

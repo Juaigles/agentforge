@@ -7,24 +7,26 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 
 Comandos: `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run test:coverage` (Vitest 5 con
 cobertura v8), `npm run test:e2e:all` (Playwright 1.65 en Chromium, Firefox y WebKit) y `npm audit`.
-Resultados del 2026-11-12 (hito 5, tras la fase 9):
+Resultados del 2026-11-12 (hito 5, tras la fase 10; es el estado del último commit):
 
 ```
 lint         sin errores (ESLint 10)
 formato      todo el código con el estilo de Prettier
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
-servidor     Test Files  20 passed (20)   Tests  563 passed | 1 skipped (564)
-             cobertura: sentencias 94,2 % · ramas 86,7 % · funciones 95,2 % · líneas 96,8 %
-frontend     Test Files  23 passed (23)   Tests  288 passed (288)
-             cobertura: sentencias 39,8 % · ramas 42,2 % · funciones 41,5 % · líneas 41,9 %
-end-to-end   213 passed (14.4m): chromium 71, firefox 71, webkit 71
+servidor     Test Files  22 passed (22)   Tests  589 passed | 1 skipped (590)
+             cobertura: sentencias 94,3 % · ramas 87,0 % · funciones 95,1 % · líneas 96,9 %
+frontend     Test Files  31 passed (31)   Tests  330 passed (330)
+             cobertura: sentencias 55,5 % · ramas 53,3 % · funciones 52,6 % · líneas 57,9 %
+end-to-end   213 passed (12.4m): chromium 71, firefox 71, webkit 71
 npm audit    found 0 vulnerabilities
 ```
 
-En la batería completa de la fase 9 la suite e2e dio 212 de 213: `backup.spec.ts` falló en Chromium con
-«download.path: canceled» mientras cuatro auditorías de solo lectura cargaban el equipo. Repetida tres veces a
-continuación en los tres navegadores, pasó las nueve (3 passed × 3). Las cifras de arriba son las de esa batería
-con ese test repetido; se anota como intermitencia bajo carga, no como resuelta.
+Cómo se llegó a estas cifras en la fase 10, sin maquillar: la primera batería completa dio 209 de 213 en la suite
+e2e (dos pruebas recién endurecidas fallaban por sí mismas en los tres navegadores, una de ellas solo en WebKit) y
+la segunda dio 213 de 213 pero con un test de componente fallido por una carrera del propio test. Corregidos los
+tres tests, la suite e2e completa (213) es la de la segunda batería, y lint, formato y los tests con cobertura se
+repitieron después sobre el árbol final. La suite e2e no se volvió a lanzar tras corregir ese test de componente,
+que no interviene en ella. En la fase 9, una descarga se canceló una vez bajo carga y pasó al repetirla.
 
 El test omitido es el que ejecuta código dentro de un contenedor: se salta solo cuando no hay Docker ni Podman
 en marcha, y en esta máquina Docker Desktop estaba apagado.
@@ -54,6 +56,9 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `server/test/gaps.test.ts` | Huecos de la auditoría de pruebas: **migraciones reales** (base nueva e idempotencia; v1, v2 y v3 fabricadas con el SQL de entonces y datos en todas las tablas, comparando fila a fila; dos migraciones que fallan a medias dejan el esquema intacto), **cifrado** (Unicode, IV aleatorio, un byte manipulado, formato, longitud de clave; `secret.key` perdido → 409 legible en las cuatro rutas de prueba de proveedor), **archivos** (`DELETE` y `GET` frente a `../`, `%2F`, `..\\`, rutas absolutas y byte NUL; los datos siguen intactos), **`web_fetch`** contra un servidor local, **SSE** por HTTP real (estados, `llm.snapshot`, retirada de la suscripción), **ramas de error del motor** y de la delegación, el **`code` de cada tipo de error**, un caso por cada uno de los **50 códigos de validación** y ramas del almacén | Solo el proveedor LLM; servidores HTTP locales reales |
 | `server/test/openapi.test.ts` | **Especificación OpenAPI**: toda ruta registrada bajo `/api/` está documentada y ninguna documentada falta (se leen las rutas reales de Fastify); toda `$ref` resuelve; cada operación tiene resumen, etiqueta, `operationId` único y respuesta de éxito; 24 respuestas reales contrastadas con su esquema; `GET /api/openapi.json`; y `docs/api.md` al día | Solo el proveedor LLM |
 | `server/test/metrics.test.ts` | **Métricas**: formato de texto de Prometheus línea a línea (HELP, TYPE, etiquetas escapadas), valores tras una ejecución real (llamadas, tokens, respuestas HTTP por clase), exigencia de la clave de acceso; **versión única** (raíz, paquetes, sondas, Panel y especificación); códigos `invalid_token`, `forbidden_host` y `cross_site` | Solo el proveedor LLM |
+| `server/test/audit2.test.ts` | Correcciones de la segunda auditoría: credenciales que no se mudan de dirección (herramienta HTTP, servidor MCP, importación con «sustituir»), avisos de importación con un servidor MCP real, redirecciones de un proveedor, `GET /api/onboarding`, subejecuciones y huecos de ejecución, restauración de copias dañadas (colisión, cuelgue, entradas `../`, truncada), comentario de una aprobación al reintentar y profundidad máxima de subworkflows | Solo el proveedor LLM; servidores locales reales |
+| `server/test/ops.test.ts` | Operación: proxy inverso (cookie `Secure` y límite de acceso por cliente real con `AGENTFORGE_TRUST_PROXY`, y que sin la opción las cabeceras no se creen), cierre de la base sin `db.isOpen`, nombres admitidos con puerto, y **mensajes del arranque** lanzando el servidor de verdad (puerto ocupado, carpeta de datos imposible, otra instancia) | Solo el proveedor LLM; procesos reales |
+| `web/src/views/WorkflowBuilderView.test.ts`, `RunDetailView.test.ts`, `RunsView.test.ts`, `components/ApprovalsBanner.test.ts`, `AppModal.test.ts`, `lib/storage.test.ts`, `lib/flow.test.ts`, `styles/flow.test.ts` | Lo corregido en la fase 10: etiquetas por idioma, reintento de carga, copiar por valor, pestañas y paso seleccionado del monitor, filtros y respuestas fuera de orden del historial, canal de aprobaciones, confirmación al cerrar con datos, almacenamiento bloqueado y contraste de las conexiones | El proveedor LLM; en `RunDetailView.test.ts`, además, el grafo se sustituye por un componente vacío (el entorno no puede pintar Vue Flow) |
 | `web/src/components/TriggersModal.test.ts` | Disparadores: lista, alta de cada tipo con su validación en el campo, vista previa del cron, secreto del webhook mostrado una vez y llamada HTTP real con él, editar, pausar, ejecutar ahora (ejecución real), regenerar el secreto, eliminar y tope del servidor | Solo el proveedor LLM: **API real** en memoria |
 | `web/src/components/ImportModal.test.ts` | Revisión de una importación con archivos exportados de verdad: todo nuevo, todo existente, distinto (usar el de aquí, sustituir, copiar), proveedor ausente, avisos, archivo no válido, cancelar y fallo a medias (todo o nada) | Solo el proveedor LLM: **API real** en memoria |
 | `web/src/components/ProviderModal.test.ts` | Proveedor: plantillas, alta con y sin clave (cifrada en la base, nunca devuelta), probar antes de guardar, proveedor caído, validación campo a campo, edición sin reenviar la clave, quitar y deshacer, cambio de dirección | Solo el proveedor LLM: **API real** en memoria |
@@ -359,7 +364,7 @@ de una ejecución anterior al reinicio.
 | Reintentar desde el fallo | Nueva ejecución con `retryOf`; reutilizó `tema`, `investigar`, `analizar` (eventos `step.reused`) y solo llamó al modelo para `redactar` y `revisar` (2 llamadas) → Completado |
 | Banco de pruebas de herramientas | `calculator` con `round(2450.80 * 1.21, 2)` → `2965.47` en 1 ms |
 | Constructor: inspector | Etiqueta, agente, plantilla, referencias insertables, reintentos y timeout por nodo |
-| Móvil (375 × 812) y tema claro | 9 rutas sin desbordamiento horizontal (medido con `scrollWidth`) |
+| Móvil (375 × 812) y tema claro | En su momento, 9 rutas a mano; hoy lo comprueba `e2e/layout.spec.ts` con 14 rutas × 2 temas |
 | Modo desarrollo | Vite en :5173 con proxy a la API: `/api/health` y `/api/agents` responden a través del proxy |
 | Producción | `index.html` con `no-cache`; assets con `immutable`; rutas de la SPA devuelven la aplicación |
 | Consola del navegador | Sin errores tras las correcciones |
@@ -407,8 +412,20 @@ de una ejecución anterior al reinicio.
   todas las claves, que conserva huecos y plurales y que las pantallas la muestran.
 - **Inglés con datos reales en todas las pantallas**: en el navegador se han visto el Panel, Ajustes, el
   constructor y la ficha de un agente; el resto de pantallas en inglés se ha recorrido en la suite e2e.
-- **Contenedor de AgentForge**: el `Dockerfile` no se ha construido ni ejecutado (el motor de Docker estaba
-  apagado). Tampoco la sonda de salud ni el apagado ordenado dentro de un contenedor.
+- **Contenedor de AgentForge**: la imagen no se ha construido ni ejecutado con Docker (el motor estaba apagado).
+  Lo comprobado (2026-11-12) es una reproducción de sus etapas fuera de Docker, en Windows y no en Alpine: con los
+  mismos archivos que copia la etapa de compilación (sin el código del servidor), `npm ci --ignore-scripts` y
+  `npm run build` terminan bien; con `npm ci --omit=dev --workspace server` (83 paquetes, sin Vue, Vite ni
+  herramientas de pruebas) y las variables de la imagen (`HOST=0.0.0.0`, clave de acceso, carpeta de datos
+  aparte), el servidor arranca, responde 401 sin clave y 200 con ella, sirve la interfaz, `/api/health/ready` da
+  todo correcto y la orden de la sonda devuelve 0 con el servidor arriba y 1 caído. No se han probado la imagen
+  base, los permisos del volumen ni el apagado con `docker stop`.
+- **Linux, macOS y Node 22**: todo se ha ejecutado en Windows 11 con Node 24.19. La integración continua, que
+  usaría Ubuntu, no se ha ejecutado nunca.
+- **Un proxy inverso real**: `AGENTFORGE_TRUST_PROXY` se ha probado con cabeceras `X-Forwarded-*` inyectadas.
+- **Cuánto bloquea el servidor una copia de seguridad con una base grande** (la copia se hace de una vez).
+- **Las correcciones de la fase 10 con Ollama real**: se comprobaron en el navegador los diálogos y un workflow
+  con herramientas; subejecuciones, aprobaciones y restauración están probadas con el modelo simulado.
 - **Métricas con un Prometheus real**: el formato se valida línea a línea en los tests y se ha leído en el
   navegador; no se ha recogido con un servidor de Prometheus.
 - **Especificación OpenAPI con herramientas de terceros**: se comprueba su estructura y su correspondencia con las

@@ -41,6 +41,7 @@ export default {
     attempt: 'attempt {n}',
   },
   tabs: {
+    label: 'Run views',
     result: 'Result',
     activity: 'Activity',
     input: 'Input',

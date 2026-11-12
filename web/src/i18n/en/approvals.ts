@@ -13,5 +13,7 @@ export default {
   toast: {
     approved: 'Approved: "{name}" continues.',
     rejected: 'Rejected: "{name}" follows the other branch.',
+    waiting: '"{name}" is waiting for your decision.',
+    decide: 'Decide',
   },
 };

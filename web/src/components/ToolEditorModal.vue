@@ -240,7 +240,7 @@ async function save(): Promise<void> {
 </script>
 
 <template>
-  <AppModal :title="customId ? t('toolEditor.titleEdit') : t('toolEditor.titleNew')" :width="720" @close="emit('close')">
+  <AppModal :title="customId ? t('toolEditor.titleEdit') : t('toolEditor.titleNew')" :width="720" confirm-close @close="emit('close')">
     <div v-if="loading" class="col">
       <div class="skeleton" style="height: 34px" />
       <div class="skeleton" style="height: 84px" />
@@ -250,7 +250,7 @@ async function save(): Promise<void> {
       <CircleAlert /><span>{{ loadError }}</span>
     </div>
 
-    <form v-else class="col" style="gap: 18px" novalidate @submit.prevent="save">
+    <form v-else id="tool-form" class="col" style="gap: 18px" novalidate @submit.prevent="save">
       <i18n-t keypath="toolEditor.intro" tag="p" class="muted small" scope="global">
         <template #http><Term id="http">HTTP</Term></template>
         <template #template
@@ -495,7 +495,7 @@ async function save(): Promise<void> {
 
     <template #footer>
       <button class="btn" type="button" @click="emit('close')">{{ t('common.actions.cancel') }}</button>
-      <button class="btn btn-primary" type="button" :disabled="saving || loading || !!loadError" @click="save">
+      <button class="btn btn-primary" type="submit" form="tool-form" :disabled="saving || loading || !!loadError">
         <LoaderCircle v-if="saving" class="spin" />
         {{ customId ? t('toolEditor.footer.saveEdit') : t('toolEditor.footer.create') }}
       </button>

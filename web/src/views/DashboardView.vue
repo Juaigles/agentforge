@@ -46,9 +46,9 @@ onBeforeUnmount(() => {
   if (poll) clearInterval(poll);
   if (debounce) clearTimeout(debounce);
 });
-// Cada cambio en una ejecución (canal SSE global) refresca las cifras.
+// Un cambio de estado de una ejecución (canal SSE global) refresca las cifras; no hace falta con cada paso terminado.
 watch(
-  () => runs.version,
+  () => runs.statusVersion,
   () => {
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(load, 400);

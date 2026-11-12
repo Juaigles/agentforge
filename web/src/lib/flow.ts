@@ -30,6 +30,21 @@ export function toFlowNode(node: WorkflowNode, extra: Partial<FlowNodeData> = {}
   };
 }
 
+/**
+ * Textos de una conexión que dependen del idioma: la etiqueta visible de las ramas («Sí»/«No») y el nombre que
+ * oye un lector de pantalla. `from` y `to` son los nombres a mostrar de los nodos (por defecto, sus ids).
+ */
+export function edgeTexts(
+  edge: Pick<WorkflowEdge, 'source' | 'target' | 'sourceHandle'>,
+  from = edge.source,
+  to = edge.target,
+): { label?: string; ariaLabel: string } {
+  const branch = edge.sourceHandle === 'true' || edge.sourceHandle === 'false' ? edge.sourceHandle : null;
+  if (!branch) return { ariaLabel: t('flow.edge.label', { from, to }) };
+  const name = t(branch === 'true' ? 'flow.branch.yes' : 'flow.branch.no');
+  return { label: name, ariaLabel: t('flow.edge.labelBranch', { from, to, branch: name }) };
+}
+
 export function toFlowEdge(edge: WorkflowEdge): Edge {
   const branch = edge.sourceHandle === 'true' || edge.sourceHandle === 'false' ? edge.sourceHandle : null;
   return {
@@ -39,11 +54,8 @@ export function toFlowEdge(edge: WorkflowEdge): Edge {
     sourceHandle: branch,
     type: 'smoothstep',
     markerEnd: MarkerType.ArrowClosed,
-    label: branch === 'true' ? t('flow.branch.yes') : branch === 'false' ? t('flow.branch.no') : undefined,
-    // Para lectores de pantalla: de dónde a dónde va la conexión.
-    ariaLabel: branch
-      ? t('flow.edge.labelBranch', { from: edge.source, to: edge.target, branch: t(branch === 'true' ? 'flow.branch.yes' : 'flow.branch.no') })
-      : t('flow.edge.label', { from: edge.source, to: edge.target }),
+    // Etiqueta visible y nombre accesible; el constructor las vuelve a calcular al cambiar de idioma.
+    ...edgeTexts({ source: edge.source, target: edge.target, sourceHandle: branch }),
     class: branch ? `branch-${branch}` : undefined,
   };
 }

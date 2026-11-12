@@ -3,6 +3,8 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Router } from 'vue-router';
+import { installFormA11y } from '@/lib/a11y';
+import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 import { freshPinia, setTouchDevice, startApi, testRouter, until, type TestApi } from '@/test/harness';
 import AgentEditorView from './AgentEditorView.vue';
@@ -163,5 +165,72 @@ describe('AgentEditorView (formulario)', () => {
     wrapper = mount({ template: '<RouterView />' }, { global: { plugins: [pinia, router] } });
     await until(() => wrapper.find('[role="alert"]').exists());
     expect(wrapper.get('[role="alert"]').text()).toContain('Agente');
+  });
+
+  it('«Guardar» con el nombre vacío lleva el foco al campo del nombre (el botón está fuera del formulario pero lo envía)', async () => {
+    const uninstall = installFormA11y();
+    try {
+      await open('/agents/new');
+      await until(() => wrapper.find('select#ag-model').exists());
+      expect(saveButton().attributes('type')).toBe('submit');
+      expect(saveButton().attributes('form')).toBe(wrapper.get('form').attributes('id'));
+      saveButton().element.focus();
+      await saveButton().trigger('click');
+      await until(() => document.activeElement === wrapper.get('#ag-name').element);
+      expect(api.ctx.store.listAgents()).toHaveLength(0);
+    } finally {
+      uninstall();
+    }
+  });
+
+  describe('con el servidor caído al abrir', () => {
+    const agentInput = () => ({
+      name: 'Tardío',
+      role: '',
+      description: '',
+      color: '#6366f1',
+      providerId: api.ctx.store.listProviders()[0].id,
+      model: 'test-model',
+      systemPrompt: '',
+      temperature: 0.3,
+      maxTokens: null,
+      maxIterations: 4,
+      tools: [],
+      thinking: false,
+    });
+    const mountOffline = async () => {
+      const agent = api.ctx.store.createAgent(agentInput());
+      const real = globalThis.fetch;
+      globalThis.fetch = () => Promise.reject(new TypeError('fetch failed'));
+      const pinia = freshPinia();
+      router = testRouter([{ path: '/agents/:id', component: AgentEditorView }]);
+      await router.push(`/agents/${agent.id}`);
+      wrapper = mount({ template: '<RouterView />' }, { global: { plugins: [pinia, router] }, attachTo: document.body });
+      await until(() => wrapper.find('[role="alert"]').exists());
+      return { restore: () => (globalThis.fetch = real), catalog: useCatalog() };
+    };
+
+    it('ofrece «Reintentar», que vuelve a cargar el agente', async () => {
+      const { restore } = await mountOffline();
+      expect(wrapper.find('#ag-name').exists()).toBe(false);
+      restore();
+      await wrapper
+        .findAll('button')
+        .find((b) => b.text() === 'Reintentar')!
+        .trigger('click');
+      await until(() => wrapper.find('#ag-name').exists());
+      expect((wrapper.get('#ag-name').element as HTMLInputElement).value).toBe('Tardío');
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    });
+
+    it('se recupera solo cuando vuelve la conexión', async () => {
+      const { restore, catalog } = await mountOffline();
+      catalog.online = false;
+      await flushPromises();
+      restore();
+      catalog.online = true;
+      await until(() => wrapper.find('#ag-name').exists());
+      expect((wrapper.get('#ag-name').element as HTMLInputElement).value).toBe('Tardío');
+    });
   });
 });

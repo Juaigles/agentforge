@@ -31,7 +31,7 @@ export default defineConfig({
       exclude: ['src/test/**', 'src/main.ts', 'src/env.d.ts', 'src/**/*.test.ts', 'src/i18n/es/**', 'src/i18n/en/**'],
       reporter: ['text-summary', 'html', 'lcov'],
       reportsDirectory: './coverage',
-      thresholds: { statements: 37, branches: 40, functions: 39, lines: 39 },
+      thresholds: { statements: 53, branches: 51, functions: 50, lines: 55 },
     },
   },
 });

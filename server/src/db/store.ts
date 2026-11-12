@@ -158,6 +158,35 @@ export interface StoredMcpServer {
   updatedAt: string;
 }
 
+/** Origen (esquema, host y puerto) de una URL que puede llevar huecos `{{…}}`; null si no se puede determinar. */
+export function templateOrigin(urlTemplate: string): string | null {
+  try {
+    const { origin } = new URL(urlTemplate.trim().replace(/\{\{[^}]*\}\}/g, 'x'));
+    return origin === 'null' ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
+/** ¿Apuntan dos URL al mismo origen? Si alguno no se puede determinar (el host es un hueco), solo si son idénticas. */
+export function sameTemplateOrigin(a: string, b: string): boolean {
+  const [originA, originB] = [templateOrigin(a), templateOrigin(b)];
+  return originA && originB ? originA === originB : a.trim() === b.trim();
+}
+
+/**
+ * Cabeceras secretas guardadas que una edición dejaría sin valor: llegan vacías (lo que normalmente significa
+ * «conserva la guardada») pero la URL apunta a otro origen, y la credencial no se envía a otra dirección.
+ */
+export function orphanedSecretHeaders(
+  saved: Pick<CustomTool, 'urlTemplate' | 'secretHeaders'>,
+  input: Pick<CustomToolInput, 'urlTemplate' | 'headers'>,
+): string[] {
+  if (sameTemplateOrigin(saved.urlTemplate, input.urlTemplate)) return [];
+  const headers = input.headers ?? {};
+  return saved.secretHeaders.filter((name) => Object.hasOwn(headers, name) && !headers[name]);
+}
+
 export class Store {
   private readonly eventSeq = new Map<string, number>();
   /** Sentencias ya preparadas, por su texto: el almacén repite siempre las mismas pocas consultas. */
@@ -409,15 +438,20 @@ export class Store {
     };
   }
 
-  /** Separa las cabeceras en claras y secretas (cifradas). Una secreta vacía conserva la que ya había guardada. */
+  /**
+   * Separa las cabeceras en claras y secretas (cifradas). Una secreta vacía conserva la que ya había guardada,
+   * salvo que la URL apunte ahora a otro origen: una credencial no se «muda» a una dirección distinta de aquella
+   * para la que se guardó (la cabecera queda sin valor hasta que se vuelva a escribir).
+   */
   private toolConfig(input: CustomToolInput, previous?: StoredToolConfig): StoredToolConfig {
     const headers: Record<string, string> = {};
     const secretHeaders: Record<string, string> = {};
+    const keep = previous !== undefined && sameTemplateOrigin(previous.urlTemplate, input.urlTemplate);
     for (const [name, value] of Object.entries(input.headers ?? {})) {
       if (!isSecretHeaderName(name)) headers[name] = value;
       else if (value) secretHeaders[name] = this.secrets.encrypt(value);
-      else if (previous?.secretHeaders?.[name]) secretHeaders[name] = previous.secretHeaders[name];
-      else if (previous?.headers?.[name]) secretHeaders[name] = this.secrets.encrypt(previous.headers[name]);
+      else if (keep && previous?.secretHeaders?.[name]) secretHeaders[name] = previous.secretHeaders[name];
+      else if (keep && previous?.headers?.[name]) secretHeaders[name] = this.secrets.encrypt(previous.headers[name]);
       else headers[name] = '';
     }
     return { method: input.method, urlTemplate: input.urlTemplate, headers, secretHeaders, bodyTemplate: input.bodyTemplate };
@@ -720,19 +754,24 @@ export class Store {
     return this.getMcpServer(id)!;
   }
 
-  /** `env` y `headers` omitidos conservan los valores guardados. */
+  /**
+   * `env` y `headers` omitidos conservan los valores guardados, salvo que cambie aquello para lo que se guardaron:
+   * las cabeceras no siguen al servidor a otro origen ni las variables de entorno a otro programa.
+   */
   updateMcpServer(id: string, input: McpServerInput): StoredMcpServer | null {
     const existing = this.getMcpServer(id);
     if (!existing) return null;
+    const keptEnv = existing.command === input.command ? existing.env : {};
+    const keptHeaders = sameTemplateOrigin(existing.url, input.url) ? existing.headers : {};
     this.exec(
       'UPDATE mcp_servers SET name=?, transport=?, command=?, args=?, env_enc=?, url=?, headers_enc=?, enabled=?, updated_at=? WHERE id=?',
       input.name,
       input.transport,
       input.command,
       input.args,
-      this.secrets.encrypt(JSON.stringify(input.env ?? existing.env)),
+      this.secrets.encrypt(JSON.stringify(input.env ?? keptEnv)),
       input.url,
-      this.secrets.encrypt(JSON.stringify(input.headers ?? existing.headers)),
+      this.secrets.encrypt(JSON.stringify(input.headers ?? keptHeaders)),
       input.enabled,
       nowIso(),
       id,
@@ -929,6 +968,17 @@ export class Store {
       offset,
     ).map((r) => this.mapRunSummary(r));
     return capped ? { items, total, capped } : { items, total };
+  }
+
+  /**
+   * Lo que la guía de primeros pasos necesita saber del historial: si existe alguna ejecución de agente y alguna
+   * de workflow completada. Se para en la primera fila que encuentra en lugar de contar el historial entero.
+   */
+  onboardingState(): { agentRun: boolean; workflowCompleted: boolean } {
+    return {
+      agentRun: Boolean(this.get("SELECT 1 AS found FROM runs WHERE kind = 'agent' LIMIT 1")),
+      workflowCompleted: Boolean(this.get("SELECT 1 AS found FROM runs WHERE status = 'completed' AND kind = 'workflow' LIMIT 1")),
+    };
   }
 
   /** Subejecuciones lanzadas por una ejecución (sus subworkflows). */

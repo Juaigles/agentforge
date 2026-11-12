@@ -149,3 +149,24 @@ describe('tema', () => {
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
   });
 });
+
+describe('con el almacenamiento del navegador bloqueado', () => {
+  it('el store se crea y el tema sigue funcionando (solo durante la sesión)', () => {
+    for (const method of ['getItem', 'setItem', 'removeItem'] as const) {
+      vi.spyOn(Storage.prototype, method).mockImplementation(() => {
+        throw new DOMException('The operation is insecure.', 'SecurityError');
+      });
+    }
+    try {
+      const ui = useUi();
+      expect(ui.theme).toBe('system');
+      ui.setTheme('dark');
+      expect(ui.theme).toBe('dark');
+      expect(document.documentElement.dataset.theme).toBe('dark');
+      ui.setTheme('system');
+      expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+});

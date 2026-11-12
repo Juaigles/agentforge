@@ -41,4 +41,9 @@ export default {
     refresh: 'Refresh',
     loading: 'Loading…',
   },
+  discard: {
+    title: 'Discard changes',
+    message: 'You have entered data that has not been saved. If you close now, it will be lost.',
+    confirm: 'Discard',
+  },
 };

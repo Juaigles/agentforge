@@ -13,5 +13,7 @@ export default {
   toast: {
     approved: 'Aprobado: «{name}» continúa.',
     rejected: 'Rechazado: «{name}» sigue por la otra rama.',
+    waiting: '«{name}» espera tu decisión.',
+    decide: 'Decidir',
   },
 };

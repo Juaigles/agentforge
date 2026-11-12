@@ -22,12 +22,21 @@ export async function* readLines(body: ReadableStream<Uint8Array>): AsyncGenerat
 export async function llmFetch(url: string, init: RequestInit, label: string): Promise<Response> {
   let res: Response;
   try {
-    res = await fetch(url, init);
+    // Una API de modelos no tiene por qué redirigir, y seguir la redirección repetiría la petición (con su cuerpo y
+    // su clave) contra otro destino, también contra la red local o la propia API: no se sigue.
+    res = await fetch(url, { ...init, redirect: 'manual' });
   } catch (err) {
     if (init.signal?.aborted) throw init.signal.reason ?? err;
     throw new LlmError(`No se pudo conectar con ${label} (${new URL(url).origin}). ¿Está en marcha?`, {
       retryable: true,
       cause: err,
+    });
+  }
+  if (res.status >= 300 && res.status < 400) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new LlmError(`${label} respondió con una redirección (${res.status}), que no se sigue. Revisa la dirección del proveedor.`, {
+      retryable: false,
+      status: res.status,
     });
   }
   if (!res.ok) {

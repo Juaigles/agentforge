@@ -147,7 +147,10 @@ test.describe('Ajustes · proveedores', () => {
     await modal.getByLabel('URL base').fill('http://127.0.0.1:9');
     await modal.getByRole('button', { name: 'Probar' }).click();
     await expect(modal.getByRole('alert')).toContainText('No se pudo conectar');
+    // Se ha escrito en el formulario: Esc no lo cierra sin preguntar.
     await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Descartar cambios' })).toBeVisible();
+    await page.getByRole('dialog', { name: 'Descartar cambios' }).getByRole('button', { name: 'Descartar', exact: true }).click();
     await expect(modal).toHaveCount(0);
   });
 

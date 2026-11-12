@@ -73,6 +73,7 @@ Estado del servidor, sondas de salud, estadísticas y la propia especificación.
 | `GET` | `/api/health/live` | Sonda de vida: el proceso atiende peticiones |
 | `GET` | `/api/health/ready` | Sonda de disponibilidad: base de datos, carpeta de datos y planificador |
 | `GET` | `/api/stats` | Estadísticas del panel: totales, consumo, actividad diaria y sistema |
+| `GET` | `/api/onboarding` | Qué pasos de la guía de primeros pasos están ya hechos |
 | `GET` | `/api/metrics` | Métricas en el formato de texto de Prometheus |
 | `GET` | `/api/openapi.json` | Esta especificación OpenAPI 3.1 en JSON |
 
@@ -271,6 +272,8 @@ Cuerpo JSON (`CustomToolInput`): Herramienta HTTP personalizada.
 
 ### `PUT /api/tools/custom/{id}`
 
+Una cabecera secreta enviada vacía conserva el valor guardado, salvo que `urlTemplate` apunte a otro origen: entonces hay que escribirla de nuevo o quitarla (400 `credential_required`).
+
 Cuerpo JSON (`CustomToolInput`): Herramienta HTTP personalizada.
 
 | Campo | Tipo | Obligatorio | Descripción y límites |
@@ -342,9 +345,9 @@ Cuerpo JSON (`McpServerInput`): Servidor MCP. `stdio` exige `command`; `http`, u
 | `transport` | `stdio` / `http` | sí |  |
 | `command` | `string` | no | 0-500 caracteres; por defecto `""` |
 | `args` | lista de `string` | no | 0-50 elementos; por defecto `[]` |
-| `env` | mapa de `string` | no | Variables de entorno (stdio). Omitido al editar = conservar las guardadas. |
+| `env` | mapa de `string` | no | Variables de entorno (stdio). Omitido al editar = conservar las guardadas; si cambia `command` hay que enviarlas de nuevo (400 `credential_required`). |
 | `url` | `string` | no | 0-2000 caracteres; por defecto `""` |
-| `headers` | mapa de `string` | no | Cabeceras (http). Omitido al editar = conservar las guardadas. |
+| `headers` | mapa de `string` | no | Cabeceras (http). Omitido al editar = conservar las guardadas; si cambia el origen de `url` hay que enviarlas de nuevo (400 `credential_required`). |
 | `enabled` | `boolean` | no | por defecto `true` |
 
 ### `PUT /api/mcp/servers/{id}`
@@ -357,9 +360,9 @@ Cuerpo JSON (`McpServerInput`): Servidor MCP. `stdio` exige `command`; `http`, u
 | `transport` | `stdio` / `http` | sí |  |
 | `command` | `string` | no | 0-500 caracteres; por defecto `""` |
 | `args` | lista de `string` | no | 0-50 elementos; por defecto `[]` |
-| `env` | mapa de `string` | no | Variables de entorno (stdio). Omitido al editar = conservar las guardadas. |
+| `env` | mapa de `string` | no | Variables de entorno (stdio). Omitido al editar = conservar las guardadas; si cambia `command` hay que enviarlas de nuevo (400 `credential_required`). |
 | `url` | `string` | no | 0-2000 caracteres; por defecto `""` |
-| `headers` | mapa de `string` | no | Cabeceras (http). Omitido al editar = conservar las guardadas. |
+| `headers` | mapa de `string` | no | Cabeceras (http). Omitido al editar = conservar las guardadas; si cambia el origen de `url` hay que enviarlas de nuevo (400 `credential_required`). |
 | `enabled` | `boolean` | no | por defecto `true` |
 
 ## Workflows

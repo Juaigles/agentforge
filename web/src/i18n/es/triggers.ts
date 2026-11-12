@@ -43,6 +43,9 @@ export default {
     renewTitle: 'Generar un secreto nuevo',
     renewMessage: 'El secreto actual dejará de valer en el acto: tendrás que cambiarlo en los programas que llaman a este webhook.',
     renewConfirm: 'Generar secreto',
+    secretTitle: 'Aún no has guardado el secreto',
+    secretMessage: 'El secreto del webhook solo se muestra una vez. Si cierras ahora no podrás volver a verlo; tendrás que generar uno nuevo.',
+    secretLeave: 'Cerrar sin guardarlo',
   },
   toast: {
     copied: '{what} en el portapapeles.',

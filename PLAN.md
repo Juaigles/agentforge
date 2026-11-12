@@ -194,8 +194,13 @@ reales y un commit local.
   *Hecho el 2026-11-12 (detalle en `PROGRESS.md`, «Hito 5 · Fase 9»). **Sin hacer**: la licencia (elegirla es
   decisión del autor: el repositorio sigue sin ella). **Sin verificar**: el `Dockerfile` no se ha construido (el
   motor de Docker seguía apagado).*
-- [ ] **F10 · Segunda auditoría e iteración** hasta que no quede nada crítico, alto ni medio, o lo que quede sea
+- [x] **F10 · Segunda auditoría e iteración** hasta que no quede nada crítico, alto ni medio, o lo que quede sea
   imposible con las reglas del encargo.
+  *Hecho el 2026-11-12 (detalle en `PROGRESS.md`, «Hito 5 · Fase 10», e informe en `docs/informe-hito5.md`).
+  Cuatro auditorías nuevas: 0 críticos, 5 altos y unos 31 medios. Los 5 altos y la mayoría de los medios están
+  corregidos con su test. **El objetivo no se ha alcanzado del todo**: quedan medios sin resolver (el monitor con
+  ejecuciones muy largas, el remontaje al primer guardado, la deuda de estructura, lo que escribe el servidor en
+  español) y casi todos los bajos. No eran imposibles con las reglas: no se han hecho.*
 
 Condicionantes del entorno comprobados: Node 24.19 no tiene `--allow-net`, así que el permiso de red no corta
 la red de `run_javascript` en esta máquina; Docker 29.7 está instalado pero su demonio estaba apagado al empezar.

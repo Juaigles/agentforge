@@ -6,6 +6,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Term from '@/components/Term.vue';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
+import { safeStorage } from '@/lib/storage';
 import { useCatalog } from '@/stores/catalog';
 import { useRuns } from '@/stores/runs';
 import { useUi } from '@/stores/ui';
@@ -16,7 +17,7 @@ const catalog = useCatalog();
 const runs = useRuns();
 const ui = useUi();
 
-const hidden = ref(localStorage.getItem(HIDDEN_KEY) === '1');
+const hidden = ref(safeStorage.get(HIDDEN_KEY) === '1');
 /** null mientras no se sabe (no se pinta la guía a medias para luego quitarla). */
 const agentTried = ref<boolean | null>(null);
 const workflowDone = ref<boolean | null>(null);
@@ -24,22 +25,20 @@ const testing = ref(false);
 let timer: ReturnType<typeof setTimeout> | null = null;
 
 async function refresh(): Promise<void> {
-  // Oculta por el usuario: no hace falta preguntar nada al servidor.
-  if (hidden.value) return;
+  // Oculta por el usuario, o con los dos hitos de ejecución ya cumplidos: no hace falta preguntar nada al servidor.
+  if (hidden.value || (agentTried.value && workflowDone.value)) return;
   try {
-    const [agentRuns, workflowRuns] = await Promise.all([
-      api.runs.list({ kind: 'agent', limit: 1 }),
-      api.runs.list({ kind: 'workflow', status: 'completed', limit: 1 }),
-    ]);
-    agentTried.value = agentRuns.total > 0;
-    workflowDone.value = workflowRuns.total > 0;
+    const milestones = await api.onboarding();
+    agentTried.value = milestones.agentRun;
+    workflowDone.value = milestones.workflowCompleted;
   } catch {
     /* sin conexión: el aviso general ya lo dice */
   }
 }
 onMounted(refresh);
+// Solo cuando cambia el estado de una ejecución (no con cada paso terminado).
 watch(
-  () => runs.version,
+  () => runs.statusVersion,
   () => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(refresh, 500);
@@ -87,7 +86,7 @@ async function copyCommand(): Promise<void> {
 
 function hide(): void {
   hidden.value = true;
-  localStorage.setItem(HIDDEN_KEY, '1');
+  safeStorage.set(HIDDEN_KEY, '1');
 }
 </script>
 

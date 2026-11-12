@@ -552,17 +552,102 @@ describe('TriggersModal: secreto de un webhook y eliminar', () => {
     expect(useUi().confirmState?.message).toBe('Los programas que llamen a esta dirección dejarán de lanzar el workflow.');
     await answerConfirm('Eliminar disparador', 'Eliminar disparador');
     await until(() => triggers().length === 0);
-    expect(body().querySelector('[data-testid="webhook-secret"]')).toBeNull();
+    // El servidor ya lo ha borrado; el diálogo retira el secreto en cuanto recibe la respuesta.
+    await until(() => !body().querySelector('[data-testid="webhook-secret"]'));
     // La dirección ya no existe.
     const res = await fetch(`/api/hooks/${hook.id}`, { method: 'POST', body: 'x' });
     expect(res.status).toBe(401);
   });
 });
 
+const esc = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+const confirmDialog = (title: string) => body().querySelector<HTMLElement>(`[role="dialog"][aria-label="${title}"]`);
+
 describe('TriggersModal: cierre', () => {
   it('«Hecho» cierra el diálogo', async () => {
     await open();
     await click('Hecho');
     expect(wrapper.emitted('close')).toHaveLength(1);
+  });
+
+  it('mientras el secreto de un webhook está a la vista, cerrar pide confirmación y conservarlo deja el diálogo abierto', async () => {
+    await open();
+    await click('Añadir disparador');
+    await click('Webhook');
+    await click('Crear disparador');
+    await until(() => Boolean(body().querySelector('[data-testid="webhook-secret"]')));
+
+    // Esc, «Hecho» y «×» preguntan antes de cerrar; «Cancelar» conserva el diálogo y el secreto.
+    esc();
+    await until(() => Boolean(confirmDialog('Aún no has guardado el secreto')));
+    await answerConfirm('Aún no has guardado el secreto', null);
+    expect(wrapper.emitted('close')).toBeUndefined();
+    expect(body().querySelector('[data-testid="webhook-secret"]')).not.toBeNull();
+
+    await click('Hecho');
+    await answerConfirm('Aún no has guardado el secreto', null);
+    expect(wrapper.emitted('close')).toBeUndefined();
+
+    await click('Hecho');
+    await answerConfirm('Aún no has guardado el secreto', 'Cerrar sin guardarlo');
+    expect(wrapper.emitted('close')).toHaveLength(1);
+  });
+
+  it('una vez dado por guardado el secreto, cerrar no pregunta', async () => {
+    await open();
+    await click('Añadir disparador');
+    await click('Webhook');
+    await click('Crear disparador');
+    await until(() => Boolean(body().querySelector('[data-testid="webhook-secret"]')));
+    await click('Ya lo he guardado');
+    await click('Hecho');
+    expect(wrapper.emitted('close')).toHaveLength(1);
+  });
+
+  it('con un formulario a medias, Esc y «×» piden «Descartar cambios»; sin tocar nada cierran sin preguntar', async () => {
+    await open();
+    await click('Añadir disparador');
+    esc();
+    await flushPromises();
+    expect(wrapper.emitted('close')).toHaveLength(1); // formulario sin cambios: cierra directamente
+
+    await el('#trg-name').setValue('A medias');
+    esc();
+    await until(() => Boolean(confirmDialog('Descartar cambios')));
+    await answerConfirm('Descartar cambios', null);
+    expect(wrapper.emitted('close')).toHaveLength(1);
+    expect((el('#trg-name').element as HTMLInputElement).value).toBe('A medias');
+
+    await click('Cerrar');
+    await answerConfirm('Descartar cambios', 'Descartar');
+    expect(wrapper.emitted('close')).toHaveLength(2);
+  });
+});
+
+describe('Diálogos apilados (eliminar un disparador desde el diálogo de disparadores)', () => {
+  it('Esc cierra solo el de arriba, el de abajo queda inerte mientras tanto y el foco vuelve al control que abrió el segundo', async () => {
+    addTrigger({ intervalMinutes: 45, name: 'Se va' });
+    await open();
+    const remove = button('Eliminar el disparador Se va')!;
+    remove.focus();
+    await new DOMWrapper(remove).trigger('click');
+    await until(() => Boolean(confirmDialog('Eliminar disparador')));
+
+    const lower = [...body().querySelectorAll<HTMLElement>('[role="dialog"]')].find((d) => d.getAttribute('aria-label') !== 'Eliminar disparador')!;
+    const upper = confirmDialog('Eliminar disparador')!;
+    // La inercia se aplica a la capa (`.backdrop`) de cada diálogo.
+    const layer = (d: HTMLElement) => d.closest<HTMLElement>('.backdrop')!;
+    expect(layer(lower).inert).toBe(true);
+    expect(layer(upper).inert).toBe(false);
+    // El confirmar describe su consecuencia (se lee al abrirlo).
+    expect(upper.getAttribute('aria-describedby')).toBeTruthy();
+    expect(document.getElementById(upper.getAttribute('aria-describedby')!)?.textContent).toContain('dejará de ejecutarse');
+
+    esc();
+    await until(() => !confirmDialog('Eliminar disparador'));
+    expect(wrapper.emitted('close')).toBeUndefined(); // el de abajo sigue abierto
+    expect(triggers()).toHaveLength(1);
+    expect(layer(lower).inert).toBe(false);
+    expect(document.activeElement).toBe(remove);
   });
 });

@@ -36,20 +36,55 @@ import { X } from 'lucide-vue-next';
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { t } from '@/i18n';
 import { focusableIn } from '@/lib/a11y';
+import { useUi } from '@/stores/ui';
 
-withDefaults(defineProps<{ title: string; width?: number }>(), { width: 560 });
+const props = withDefaults(
+  defineProps<{
+    title: string;
+    width?: number;
+    /** Id del elemento que describe el diálogo (un lector de pantalla lo lee al abrirlo). */
+    describedby?: string;
+    /**
+     * Esc y «×» piden confirmación («Descartar cambios») si hay algo sin guardar. Es opcional: en los diálogos de
+     * consulta o de simple ejecución, perder lo escrito no cuesta nada.
+     */
+    confirmClose?: boolean;
+    /** Sustituye a la detección automática de «algo escrito» (`input`/`change` dentro del diálogo). */
+    dirty?: boolean;
+  }>(),
+  { width: 560, describedby: undefined, dirty: undefined },
+);
 const emit = defineEmits<{ close: [] }>();
 const backdrop = ref<HTMLElement | null>(null);
 const panel = ref<HTMLElement | null>(null);
 const previous = focusOrigin();
 /** El usuario ha escrito o cambiado algo dentro: pulsar fuera ya no cierra (se perdería lo escrito). */
 const touched = ref(false);
+const hasUnsaved = (): boolean => props.dirty ?? touched.value;
+let asking = false;
+
+/** Cierra el diálogo; con `confirmClose` y algo sin guardar, antes pregunta si se descarta. */
+async function requestClose(): Promise<void> {
+  if (props.confirmClose && hasUnsaved()) {
+    if (asking) return;
+    asking = true;
+    const discard = await useUi().confirm({
+      title: t('common.discard.title'),
+      message: t('common.discard.message'),
+      confirmLabel: t('common.discard.confirm'),
+      danger: true,
+    });
+    asking = false;
+    if (!discard) return;
+  }
+  emit('close');
+}
 
 function onKey(ev: KeyboardEvent): void {
   if (stack[stack.length - 1] !== backdrop.value) return;
   if (ev.key === 'Escape') {
     ev.stopPropagation();
-    emit('close');
+    void requestClose();
     return;
   }
   if (ev.key !== 'Tab' || !panel.value) return;
@@ -73,7 +108,7 @@ function onKey(ev: KeyboardEvent): void {
 }
 
 function onBackdrop(): void {
-  if (!touched.value) emit('close');
+  if (!(props.confirmClose ? hasUnsaved() : touched.value)) emit('close');
 }
 
 onMounted(async () => {
@@ -104,6 +139,7 @@ onBeforeUnmount(() => {
         role="dialog"
         aria-modal="true"
         :aria-label="title"
+        :aria-describedby="describedby"
         tabindex="-1"
         :style="{ maxWidth: `${width}px` }"
         @input="touched = true"
@@ -111,7 +147,7 @@ onBeforeUnmount(() => {
       >
         <header>
           <h2>{{ title }}</h2>
-          <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('common.actions.close')" @click="emit('close')"><X /></button>
+          <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('common.actions.close')" @click="requestClose"><X /></button>
         </header>
         <div class="body"><slot /></div>
         <footer v-if="$slots.footer"><slot name="footer" /></footer>

@@ -5,6 +5,7 @@
 // La lista de herramientas de cada servidor se guarda en la base de datos: así los agentes y workflows que las
 // usan siguen siendo válidos mientras el servidor arranca o si está caído un momento. Al usarlas sin conexión se
 // intenta reconectar una vez.
+import { APP_VERSION } from '../version';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { JsonSchema, McpServer, McpStatus } from '../../../shared/types';
@@ -171,7 +172,7 @@ export class McpManager {
     const timeoutMs = this.opts.connectTimeoutMs ?? 20_000;
     connection.stderr = '';
     const client = new Client(
-      { name: 'agentforge', version: '0.1.0' },
+      { name: 'agentforge', version: APP_VERSION },
       {
         listChanged: {
           tools: {

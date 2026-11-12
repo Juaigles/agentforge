@@ -3,6 +3,7 @@
 import { isBranchingNode, slugifyNodeId, topologicalOrder } from '@shared/graph';
 import type { WorkflowEdge, WorkflowNode } from '@shared/types';
 import { computed, ref, type ComputedRef } from 'vue';
+import { NODE_LABEL } from '@/lib/format';
 
 export interface History<T> {
   canUndo: ComputedRef<boolean>;
@@ -142,4 +143,15 @@ export function cloneNodes(
       sourceHandle: e.sourceHandle ?? null,
     }));
   return { nodes: copies, edges: inner };
+}
+
+/**
+ * Nodos con los que nace un workflow nuevo. Los ids se quedan en español (`entrada`/`salida`: hay workflows y
+ * pruebas que los citan); las etiquetas salen del idioma activo.
+ */
+export function newWorkflowNodes(): WorkflowNode[] {
+  return [
+    { id: 'entrada', type: 'input', label: NODE_LABEL.input, position: { x: 40, y: 160 }, config: { description: '', defaultValue: '' } },
+    { id: 'salida', type: 'output', label: NODE_LABEL.output, position: { x: 640, y: 160 }, config: { template: '' } },
+  ];
 }

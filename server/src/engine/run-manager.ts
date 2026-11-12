@@ -53,7 +53,10 @@ interface ActiveRun {
 
 export class RunManager {
   private readonly emitter = new EventEmitter();
+  /** Ejecuciones de primer nivel en marcha: cada una ocupa un hueco de ejecución. */
   private readonly active = new Map<string, ActiveRun>();
+  /** Subejecuciones en marcha: forman parte de la ejecución que las lanzó y no ocupan un hueco propio. */
+  private readonly subruns = new Map<string, ActiveRun>();
   private readonly queue: Array<{ runId: string; seeded: Map<string, string> }> = [];
   private readonly waiters = new Map<string, Array<() => void>>();
   /** Aprobaciones a la espera de una decisión: quien la toma resuelve la promesa en la que el nodo está parado. */
@@ -84,10 +87,16 @@ export class RunManager {
   }
 
   partials(runId: string): Array<{ nodeId: string; text: string }> {
-    const entry = this.active.get(runId);
+    const entry = this.entryOf(runId);
     return entry ? [...entry.partials].filter(([, text]) => text).map(([nodeId, text]) => ({ nodeId, text })) : [];
   }
 
+  /** Ejecución en marcha (de primer nivel o subejecución). */
+  private entryOf(runId: string): ActiveRun | undefined {
+    return this.active.get(runId) ?? this.subruns.get(runId);
+  }
+
+  /** Ejecuciones de primer nivel en marcha (las subejecuciones no cuentan aparte). */
   get activeCount(): number {
     return this.active.size;
   }
@@ -99,7 +108,7 @@ export class RunManager {
   private readonly deltas = new Map<string, { timer: NodeJS.Timeout; pending: Map<string, PendingDelta> }>();
 
   private emit(runId: string, type: RunEventType, nodeId: string | null, data: Record<string, any>, transient = false): void {
-    const partials = this.active.get(runId)?.partials;
+    const partials = this.entryOf(runId)?.partials;
     if (partials && nodeId) {
       if (type === 'llm.delta' && !data.depth) partials.set(nodeId, (partials.get(nodeId) ?? '') + data.text);
       else if (type === 'llm.start' || type === 'llm.message' || type === 'step.finished') {
@@ -249,10 +258,30 @@ export class RunManager {
           finishedAt: step.finishedAt,
         });
         this.deps.store.appendEvent(run.id, 'step.reused', step.nodeId, { from: original.id, output: step.output });
+        // Una aprobación ya decidida conserva su comentario: los nodos siguientes pueden usar `{{nodo.comment}}`.
+        if (step.nodeType === 'approval') seeded.set(`${step.nodeId}.comment`, this.approvalComment(original, step.nodeId));
       }
     }
     this.enqueue(run.id, seeded);
     return this.deps.store.getRun(run.id)!;
+  }
+
+  /**
+   * Comentario con el que se decidió una aprobación. Si el paso ya venía reutilizado de otra ejecución (reintento
+   * de un reintento), la decisión está en aquella: se sigue la cadena hacia atrás.
+   */
+  private approvalComment(run: Pick<RunSummary, 'id' | 'retryOf'>, nodeId: string): string {
+    const seen = new Set<string>();
+    for (let current: Pick<RunSummary, 'id' | 'retryOf'> | null = run; current && !seen.has(current.id);) {
+      seen.add(current.id);
+      const decided = this.deps.store
+        .listApprovals({ runId: current.id })
+        .filter((a) => a.nodeId === nodeId && (a.status === 'approved' || a.status === 'rejected'))
+        .at(-1);
+      if (decided) return decided.comment;
+      current = current.retryOf ? this.deps.store.getRunSummary(current.retryOf) : null;
+    }
+    return '';
   }
 
   private stepsFor(def: WorkflowDefinition) {
@@ -375,9 +404,10 @@ export class RunManager {
     depth: number,
     opts: { nodeId: string; workflowId: string; input: string; signal: AbortSignal },
   ): Promise<ExecutionResult & { runId: string }> {
+    // Primero la profundidad: la instantánea no recoge lo que queda por debajo del límite, y el motivo real es este.
+    if (depth >= MAX_SUBWORKFLOW_DEPTH) throw new ConfigError(`Se han anidado más de ${MAX_SUBWORKFLOW_DEPTH} niveles de workflows.`);
     const sub = parent.snapshot.subworkflows?.[opts.workflowId];
     if (!sub) throw new ConfigError('El subworkflow ya no existe (no estaba disponible al lanzar la ejecución).');
-    if (depth >= MAX_SUBWORKFLOW_DEPTH) throw new ConfigError(`Se han anidado más de ${MAX_SUBWORKFLOW_DEPTH} niveles de workflows.`);
     const { store } = this.deps;
     const child = store.createRun({
       kind: 'workflow',
@@ -396,7 +426,7 @@ export class RunManager {
     const onAbort = () => controller.abort(opts.signal.reason);
     if (opts.signal.aborted) onAbort();
     else opts.signal.addEventListener('abort', onAbort, { once: true });
-    this.active.set(child.id, { controller, partials: new Map(), done: Promise.resolve() });
+    this.subruns.set(child.id, { controller, partials: new Map(), done: Promise.resolve() });
     this.rootOf.set(child.id, this.rootOf.get(parent.id) ?? parent.id);
     this.publishRun(child.id);
     try {
@@ -409,7 +439,7 @@ export class RunManager {
       return { ...result, runId: child.id };
     } finally {
       opts.signal.removeEventListener('abort', onAbort);
-      this.active.delete(child.id);
+      this.subruns.delete(child.id);
       this.rootOf.delete(child.id);
       this.deps.store.releaseRun(child.id);
       for (const resolve of this.waiters.get(child.id) ?? []) resolve();
@@ -530,14 +560,14 @@ export class RunManager {
       this.waiters.delete(runId);
       return true;
     }
-    const entry = this.active.get(runId);
+    const entry = this.entryOf(runId);
     if (!entry) return false;
     entry.controller.abort(new Error('Ejecución cancelada por el usuario.'));
     return true;
   }
 
   isActive(runId: string): boolean {
-    return this.active.has(runId) || this.queue.some((q) => q.runId === runId);
+    return this.active.has(runId) || this.subruns.has(runId) || this.queue.some((q) => q.runId === runId);
   }
 
   /** Resuelve cuando la ejecución ha terminado (o inmediatamente si no está activa). */

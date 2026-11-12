@@ -1,0 +1,6 @@
+{
+  // Control de tipos de `npm run build`: solo el código de la aplicación. Los tests importan el servidor
+  // (arrancan la API real), que no está disponible al compilar la interfaz dentro de un contenedor.
+  "extends": "./tsconfig.json",
+  "exclude": ["src/**/*.test.ts", "src/test/**"]
+}

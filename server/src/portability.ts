@@ -32,7 +32,7 @@ import {
   type WorkflowInput,
   type WorkflowNode,
 } from '../../shared/types';
-import type { Store } from './db/store';
+import { orphanedSecretHeaders, type Store } from './db/store';
 import { nextOccurrence } from './engine/scheduler';
 import { HttpError } from './errors';
 import type { ToolRegistry } from './tools/registry';
@@ -51,6 +51,18 @@ const stable = (value: unknown): string =>
   JSON.stringify(value, (_key, v) =>
     v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v,
   );
+
+/** Tope de nodos de herramienta que se detallan en los avisos de un plan. */
+const MAX_TOOL_NODE_WARNINGS = 10;
+
+/** Host al que apunta una URL con huecos `{{…}}` (o la plantilla tal cual, si no se puede interpretar). */
+function hostOf(urlTemplate: string): string {
+  try {
+    return new URL(urlTemplate.replace(/\{\{[^}]*\}\}/g, 'x')).host;
+  } catch {
+    return urlTemplate;
+  }
+}
 
 function toolNodeName(node: WorkflowNode): string | null {
   const config = (node.config ?? {}) as Record<string, unknown>;
@@ -253,7 +265,17 @@ export function planImport({ store, tools }: ImportDeps, bundle: ExportBundle): 
       differs = stable(comparableTool(match)) !== stable(comparableTool(tool));
       actions = differs ? ['reuse', 'replace'] : ['reuse'];
       recommended = 'reuse';
-      if (differs) notes.push('Ya existe una herramienta con ese nombre y es distinta. Se usará la de aquí salvo que elijas sustituirla.');
+      if (differs) {
+        notes.push('Ya existe una herramienta con ese nombre y es distinta. Se usará la de aquí salvo que elijas sustituirla.');
+        // Sustituirla puede cambiar adónde se envían las peticiones: se enseñan los dos destinos.
+        notes.push(`Aquí hace peticiones a ${hostOf(match.urlTemplate)}; la del archivo, a ${hostOf(tool.urlTemplate)}.`);
+        const orphaned = orphanedSecretHeaders(match, tool);
+        if (orphaned.length) {
+          notes.push(
+            `Si la sustituyes, la credencial guardada aquí (${orphaned.join(', ')}) no se enviará a la nueva dirección: quedará sin valor hasta que la escribas de nuevo.`,
+          );
+        }
+      }
     } else if (registered.has(tool.name)) {
       actions = ['skip'];
       recommended = 'skip';
@@ -261,13 +283,7 @@ export function planImport({ store, tools }: ImportDeps, bundle: ExportBundle): 
     } else {
       actions = ['create', 'skip'];
       recommended = 'create';
-      let host = tool.urlTemplate;
-      try {
-        host = new URL(tool.urlTemplate.replace(/\{\{[^}]*\}\}/g, 'x')).host;
-      } catch {
-        /* URL con plantilla que no se puede interpretar: se enseña tal cual */
-      }
-      notes.push(`Hace peticiones ${tool.method} a ${host}.`);
+      notes.push(`Hace peticiones ${tool.method} a ${hostOf(tool.urlTemplate)}.`);
     }
     if (tool.secretHeaders.length && recommended !== 'reuse' && recommended !== 'skip') {
       notes.push(`Lleva credenciales que no viajan en el archivo: habrá que escribir ${tool.secretHeaders.join(', ')} al editarla.`);
@@ -323,14 +339,54 @@ export function planImport({ store, tools }: ImportDeps, bundle: ExportBundle): 
 
   // Avisos: qué reparte el archivo que puede actuar fuera de la conversación.
   const used = new Set<string>(parts.agents.flatMap((a) => a.tools));
+  const toolNodes: Array<{ workflow: string; node: WorkflowNode; tool: string }> = [];
   for (const wf of [...(parts.workflow ? [parts.workflow] : []), ...parts.subworkflows.map((s) => s.workflow)]) {
-    for (const node of wf.nodes) if (toolNodeName(node)) used.add(toolNodeName(node)!);
+    for (const node of wf.nodes) {
+      const tool = toolNodeName(node);
+      if (!tool) continue;
+      used.add(tool);
+      toolNodes.push({ workflow: wf.name, node, tool });
+    }
   }
   const sensitive = SENSITIVE_TOOLS.filter((name) => used.has(name));
   if (sensitive.length) {
     warnings.push(
       `Este archivo usa herramientas que actúan fuera de la conversación (${sensitive.join(', ')}). Revisa los agentes antes de ejecutarlo si no conoces su origen.`,
     );
+  }
+  // Lo que el archivo enlaza por nombre con lo que ya hay AQUÍ: no lo trae, pero lo pone en manos de sus agentes y nodos.
+  const local = new Map(tools.list().map((t) => [t.name, t]));
+  const usedMcp = [...used].filter((name) => local.get(name)?.source === 'mcp');
+  if (usedMcp.length) {
+    warnings.push(
+      `Este archivo usa herramientas de tus servidores MCP (${usedMcp.join(', ')}): son programas y servicios tuyos, que actúan con tus permisos. Revisa qué les pide antes de ejecutarlo.`,
+    );
+  }
+  const usedWithCredentials = [...used].filter((name) => localTools.get(name)?.secretHeaders.length);
+  if (usedWithCredentials.length) {
+    warnings.push(
+      `Este archivo usa herramientas tuyas que llevan credenciales guardadas (${usedWithCredentials.join(', ')}): sus peticiones se harán con tus credenciales.`,
+    );
+  }
+  if (used.has('delegate_task')) {
+    warnings.push('Sus agentes pueden delegar tareas (delegate_task) en cualquier agente de esta instalación, con las herramientas que ese agente tenga.');
+  }
+  // Un nodo de herramienta se ejecuta sin que un modelo decida nada: se enseña qué llama y con qué argumentos.
+  const acting = toolNodes.filter(
+    ({ tool }) =>
+      SENSITIVE_TOOLS.includes(tool) ||
+      tool === 'delegate_task' ||
+      parts.tools.some((t) => t.name === tool) ||
+      (local.has(tool) && local.get(tool)!.source !== 'builtin'),
+  );
+  for (const { workflow, node, tool } of acting.slice(0, MAX_TOOL_NODE_WARNINGS)) {
+    const args = JSON.stringify((node.config as Record<string, unknown> | undefined)?.args ?? {});
+    warnings.push(
+      `El nodo «${node.label || node.id}» de «${workflow}» llama a ${tool} con estos argumentos: ${args.length > 300 ? `${args.slice(0, 300)}…` : args}`,
+    );
+  }
+  if (acting.length > MAX_TOOL_NODE_WARNINGS) {
+    warnings.push(`Otros ${acting.length - MAX_TOOL_NODE_WARNINGS} nodos llaman también a herramientas con argumentos fijos: revísalos en el constructor.`);
   }
   if (parts.triggers.length)
     warnings.push(`Trae ${parts.triggers.length === 1 ? 'un disparador, que se creará' : `${parts.triggers.length} disparadores, que se crearán`} en pausa.`);
@@ -408,9 +464,17 @@ export function applyImport(deps: ImportDeps, bundle: ExportBundle, decisions: R
           store.createCustomTool(input);
           result.createdTools.push(tool.name);
         } else if (action === 'replace' && item.match) {
-          // Las cabeceras secretas llegan vacías: se conservan las que hubiera guardadas con el mismo nombre.
+          // Las cabeceras secretas llegan vacías: se conservan las que hubiera guardadas con el mismo nombre, salvo
+          // que la herramienta pase a apuntar a otro origen (la credencial de aquí no se envía a la dirección del archivo).
+          const saved = store.getCustomTool(item.match.id);
+          const orphaned = saved ? orphanedSecretHeaders(saved, input) : [];
           store.updateCustomTool(item.match.id, input);
           result.replacedTools.push(tool.name);
+          if (orphaned.length) {
+            result.warnings.push(
+              `La herramienta «${tool.name}» apunta ahora a ${hostOf(tool.urlTemplate)}: la credencial que tenías guardada (${orphaned.join(', ')}) no se ha conservado.`,
+            );
+          }
         } else continue;
         if (secretHeaders.length)
           result.warnings.push(

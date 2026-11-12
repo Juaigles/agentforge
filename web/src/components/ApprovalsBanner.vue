@@ -3,16 +3,15 @@
 // pantalla (también en el monitor de la propia ejecución) y permite decidir sin salir de ella.
 import type { Approval } from '@shared/types';
 import { Check, LoaderCircle, UserCheck, X } from 'lucide-vue-next';
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { t, tn } from '@/i18n';
+import { announce } from '@/lib/a11y';
 import { api, errorText } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
-import { useRuns } from '@/stores/runs';
 import { useUi } from '@/stores/ui';
 import MarkdownView from './MarkdownView.vue';
 import Term from './Term.vue';
 
-const runsStore = useRuns();
 const ui = useUi();
 
 const pending = ref<Approval[]>([]);
@@ -20,26 +19,39 @@ const comments = reactive<Record<string, string>>({});
 const busy = ref<string | null>(null);
 /** Aprobaciones cuyo texto completo está desplegado. */
 const expanded = reactive(new Set<string>());
-let timer: ReturnType<typeof setTimeout> | null = null;
+/** Ids ya vistos: null hasta la primera lista, para no avisar de lo que ya esperaba al abrir la página. */
+let seen: Set<string> | null = null;
+let source: EventSource | null = null;
+
+/** Sustituye la lista y avisa (lector de pantalla y aviso con enlace) de las aprobaciones que acaban de aparecer. */
+function receive(list: Approval[]): void {
+  const fresh = seen ? list.filter((a) => !seen!.has(a.id)) : [];
+  seen = new Set(list.map((a) => a.id));
+  pending.value = list;
+  for (const approval of fresh) {
+    const message = t('approvals.toast.waiting', { name: approval.runName });
+    announce(message);
+    ui.info(message, { label: t('approvals.toast.decide'), to: `/runs/${approval.runId}` });
+  }
+}
 
 async function load(): Promise<void> {
   try {
-    pending.value = await api.approvals.pending();
+    receive(await api.approvals.pending());
   } catch {
-    /* sin conexión: se volverá a pedir con el siguiente cambio */
+    /* sin conexión: el canal en vivo lo volverá a enviar al reconectar */
   }
 }
-onMounted(load);
-// Una ejecución que pasa a «en espera» (o que deja de estarlo) llega por el canal en vivo: se vuelve a preguntar.
-watch(
-  () => [runsStore.version, runsStore.connected],
-  () => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(load, 150);
-  },
-);
+// El servidor avisa por su propio canal cada vez que cambia el conjunto de aprobaciones pendientes (y envía la
+// lista al conectar y al reconectar): no hace falta volver a pedirla con cada evento de ejecución.
+onMounted(() => {
+  if (typeof EventSource === 'undefined') return void load();
+  source = new EventSource('/api/stream/approvals');
+  source.addEventListener('approvals', (ev) => receive(JSON.parse((ev as MessageEvent).data) as Approval[]));
+});
 onBeforeUnmount(() => {
-  if (timer) clearTimeout(timer);
+  source?.close();
+  source = null;
 });
 
 async function decide(approval: Approval, approved: boolean): Promise<void> {
@@ -114,6 +126,12 @@ const isLong = (text: string) => text.length > 280 || text.split('\n').length > 
 
 <style scoped>
 .approvals {
+  /* El contenedor que desplaza la página es `main`: pegado arriba, el aviso se ve estés donde estés. */
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  max-height: 50vh;
+  overflow-y: auto;
   margin: 16px 24px 0;
   padding: 14px 16px;
   border: 1px solid var(--warning);

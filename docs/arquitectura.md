@@ -83,6 +83,7 @@ Los eventos se guardan en la base de datos y, a la vez, se publican a quien est�
   reconectar sin repetir.
 - `GET /api/stream/runs` avisa de cualquier cambio de estado de cualquier ejecución (lo usan el contador del menú,
   el panel y el historial).
+- `GET /api/stream/approvals` avisa cuando aparece o se decide una aprobación (lo usa el aviso de aprobaciones).
 - Los fragmentos de texto del modelo se agrupan (hasta 33 ms) para no saturar el canal.
 
 ### Modelos (`llm/`)
@@ -102,9 +103,19 @@ protocolo real en la suite e2e.
   rebinding), limita tamaño y tiempo y retira credenciales en redirecciones a otro sitio.
 - `sandbox.ts` ejecuta `run_javascript` en un proceso hijo sin red ni permisos, o en un contenedor.
 
+### Otros módulos del servidor
+
+- `security.ts` — comprobación de `Host` y de origen, clave de acceso y cookie de sesión, límite de tasa y
+  política de contenido (CSP). `app.ts` los aplica en ese orden a cada petición.
+- `portability.ts` — exportar e importar workflows y agentes: el plan de una importación y su aplicación atómica.
+- `backup.ts` — copias de seguridad (un archivo tar con la base de datos, la clave y el espacio de trabajo) y
+  restauración al reiniciar.
+- `metrics.ts`, `openapi.ts`, `version.ts` — métricas de Prometheus, especificación de la API y versión única.
+- `seed.ts` — datos de ejemplo del primer arranque.
+
 ### Rutas (`routes/api.ts`, `routes/schemas.ts`)
 
-Unas ochenta rutas REST bajo `/api`. Los cuerpos se validan con esquemas Zod (`schemas.ts`). La referencia está en
+Las 90 operaciones REST bajo `/api`. Los cuerpos se validan con esquemas Zod (`schemas.ts`). La referencia está en
 [api.md](api.md) y, en formato OpenAPI, en `GET /api/openapi.json`.
 
 ## Frontend
@@ -147,6 +158,9 @@ El frontend no guarda estado propio del dominio: lo que muestra viene de la API 
 | Un texto de la interfaz | `web/src/i18n/es/<ámbito>.ts` y `en/<ámbito>.ts` (un test exige las mismas claves) |
 | Un término del glosario | `web/src/lib/glossary.ts` (español e inglés) y usarlo con `<Term id="…">` en alguna pantalla |
 | Un mensaje de validación de workflows | `shared/validation-messages.ts` y `web/src/lib/validation-en.ts` |
+| Una variable de entorno | `server/src/config.ts` (lectura y validación) y la tabla del README |
+| Lo que viaja al exportar o importar | `server/src/portability.ts` y `web/src/components/ImportModal.vue` |
+| Las copias de seguridad | `server/src/backup.ts` |
 
 ## Pruebas
 

@@ -84,20 +84,22 @@ const toggle = (trigger: Trigger) =>
     await load();
   });
 
-const remove = (trigger: Trigger) =>
-  act(`remove:${trigger.id}`, async () => {
-    const ok = await ui.confirm({
-      title: t('triggers.confirm.deleteTitle'),
-      message: trigger.kind === 'webhook' ? t('triggers.confirm.deleteWebhook') : t('triggers.confirm.deleteSchedule', { when: describeTrigger(trigger) }),
-      confirmLabel: t('triggers.confirm.deleteTitle'),
-      danger: true,
-    });
-    if (!ok) return;
+// Se confirma antes de `act`: mientras `busy` está puesto los botones están desactivados y el foco no podría volver al que abrió la confirmación.
+async function remove(trigger: Trigger): Promise<void> {
+  const ok = await ui.confirm({
+    title: t('triggers.confirm.deleteTitle'),
+    message: trigger.kind === 'webhook' ? t('triggers.confirm.deleteWebhook') : t('triggers.confirm.deleteSchedule', { when: describeTrigger(trigger) }),
+    confirmLabel: t('triggers.confirm.deleteTitle'),
+    danger: true,
+  });
+  if (!ok) return;
+  await act(`remove:${trigger.id}`, async () => {
     await api.triggers.remove(trigger.id);
     if (revealed.value?.id === trigger.id) revealed.value = null;
     await load();
     ui.success(t('triggers.toast.deleted'));
   });
+}
 
 const runNow = (trigger: Trigger) =>
   act(`run:${trigger.id}`, async () => {
@@ -106,19 +108,20 @@ const runNow = (trigger: Trigger) =>
     await router.push(`/runs/${run.id}`);
   });
 
-const renewSecret = (trigger: Trigger) =>
-  act(`secret:${trigger.id}`, async () => {
-    const ok = await ui.confirm({
-      title: t('triggers.confirm.renewTitle'),
-      message: t('triggers.confirm.renewMessage'),
-      confirmLabel: t('triggers.confirm.renewConfirm'),
-      danger: true,
-    });
-    if (!ok) return;
+async function renewSecret(trigger: Trigger): Promise<void> {
+  const ok = await ui.confirm({
+    title: t('triggers.confirm.renewTitle'),
+    message: t('triggers.confirm.renewMessage'),
+    confirmLabel: t('triggers.confirm.renewConfirm'),
+    danger: true,
+  });
+  if (!ok) return;
+  await act(`secret:${trigger.id}`, async () => {
     const renewed = await api.triggers.renewSecret(trigger.id);
     if (renewed.secret) revealed.value = { id: trigger.id, secret: renewed.secret };
     await load();
   });
+}
 
 // ---------- Formulario ----------
 const KINDS: Array<{ kind: TriggerKind; labelKey: string }> = [
@@ -184,9 +187,13 @@ function openForm(trigger: Trigger | null): void {
     if (trigger.time) form.time = trigger.time;
     if (trigger.cron) form.cron = trigger.cron;
   }
+  baseline.value = JSON.stringify(form);
   editing.value = trigger?.id ?? 'new';
 }
 
+/** Estado del formulario al abrirlo: lo que se ha cambiado desde entonces se perdería al cerrar. */
+const baseline = ref('');
+const formDirty = computed(() => editing.value !== null && JSON.stringify(form) !== baseline.value);
 const isNew = computed(() => editing.value === 'new');
 const minutes = computed(() => toMinutes(Number(form.every), form.unit));
 const intervalError = computed(() => {
@@ -264,6 +271,20 @@ watch(
 );
 onBeforeUnmount(() => clearTimeout(previewTimer));
 
+/** Cerrar el diálogo: el secreto de un webhook solo se ve una vez, así que antes se pregunta si sigue a la vista. */
+async function close(): Promise<void> {
+  if (revealed.value) {
+    const leave = await ui.confirm({
+      title: t('triggers.confirm.secretTitle'),
+      message: t('triggers.confirm.secretMessage'),
+      confirmLabel: t('triggers.confirm.secretLeave'),
+      danger: true,
+    });
+    if (!leave) return;
+  }
+  emit('close');
+}
+
 async function save(): Promise<void> {
   if (invalid.value || saving.value || !editing.value) return;
   saving.value = true;
@@ -297,7 +318,9 @@ async function save(): Promise<void> {
   <AppModal
     :title="editing ? (isNew ? t('triggers.title.new', { name: workflowName }) : t('triggers.title.edit')) : t('triggers.title.list', { name: workflowName })"
     :width="640"
-    @close="emit('close')"
+    confirm-close
+    :dirty="formDirty"
+    @close="close"
   >
     <div v-if="loading" class="col">
       <div class="skeleton" style="height: 34px" />
@@ -579,7 +602,7 @@ async function save(): Promise<void> {
         <button class="btn" type="button" style="margin-right: auto" :disabled="loading || !!loadError" @click="openForm(null)">
           <Plus /> {{ t('triggers.add') }}
         </button>
-        <button class="btn btn-primary" type="button" @click="emit('close')">{{ t('triggers.done') }}</button>
+        <button class="btn btn-primary" type="button" @click="close">{{ t('triggers.done') }}</button>
       </template>
       <template v-else>
         <button class="btn" type="button" @click="editing = null">{{ t('common.actions.back') }}</button>

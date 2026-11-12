@@ -233,3 +233,67 @@ describe('apply, seed y forget', () => {
     expect(runs.version).toBe(before + 2);
   });
 });
+
+describe('statusVersion', () => {
+  it('solo sube cuando cambia el estado de la ejecución, no con cada actualización que lo deja igual', async () => {
+    const runs = useRuns();
+    const run = start('lento uno');
+    const running = { ...summary(run.id), status: 'running' as const };
+
+    runs.apply(running);
+    const afterStart = runs.statusVersion;
+    expect(afterStart).toBeGreaterThan(0);
+
+    // Un paso terminado republica la ejecución con el mismo estado: las vistas no tienen que recargar.
+    const version = runs.version;
+    runs.apply({ ...running, usage: { ...running.usage, llmCalls: running.usage.llmCalls + 1 } });
+    expect(runs.version).toBe(version + 1);
+    expect(runs.statusVersion).toBe(afterStart);
+
+    release();
+    await api.ctx.runs.waitFor(run.id);
+    runs.apply(summary(run.id));
+    expect(runs.statusVersion).toBe(afterStart + 1);
+
+    runs.forget('no-existe');
+    expect(runs.statusVersion).toBe(afterStart + 2);
+  });
+});
+
+describe('reconexión del canal', () => {
+  it('al volver la conexión sustituye las activas por las que el servidor da por activas y avisa a las vistas', async () => {
+    // Reenviador TCP real entre la interfaz y la API para poder cortar la conexión sin parar el servidor.
+    const sockets = new Set<net.Socket>();
+    const proxy = net.createServer((client) => {
+      const target = net.connect(Number(new URL(api.url).port), '127.0.0.1');
+      sockets.add(client).add(target);
+      client.pipe(target).pipe(client);
+      for (const s of [client, target]) s.on('error', () => s.destroy());
+    });
+    await new Promise<void>((res) => proxy.listen(0, '127.0.0.1', res));
+    base = `http://127.0.0.1:${(proxy.address() as net.AddressInfo).port}`;
+    try {
+      const runs = useRuns();
+      runs.connect();
+      await until(() => runs.connected);
+      const slow = start('lento uno');
+      await until(() => runs.known.has(slow.id));
+      // Una ejecución que la interfaz cree «en curso» pero que el servidor ya cerró (p. ej. tras un reinicio).
+      const stale = start('ya hecha');
+      await api.ctx.runs.waitFor(stale.id);
+      runs.apply({ ...summary(stale.id), status: 'running' });
+      expect(runs.active.map((r) => r.id).sort()).toEqual([slow.id, stale.id].sort());
+      const before = { version: runs.version, status: runs.statusVersion };
+
+      for (const s of sockets) s.destroy();
+      await until(() => !runs.connected);
+      await until(() => runs.connected && !runs.known.has(stale.id), 8000);
+      expect(runs.active.map((r) => r.id)).toEqual([slow.id]);
+      expect(runs.version).toBeGreaterThan(before.version);
+      expect(runs.statusVersion).toBeGreaterThan(before.status);
+    } finally {
+      for (const s of sockets) s.destroy();
+      proxy.close();
+    }
+  }, 15_000);
+});

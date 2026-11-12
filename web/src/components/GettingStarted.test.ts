@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 // Guía de primeros pasos contra la API real (ver src/test/harness.ts). El único doble es el proveedor LLM.
 import { mount, type VueWrapper } from '@vue/test-utils';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { addAgent, edges, node, runWorkflow, workflow } from '../../../server/test/helpers';
 import { useCatalog } from '@/stores/catalog';
+import { useRuns } from '@/stores/runs';
 import { useUi } from '@/stores/ui';
 import { freshPinia, setTouchDevice, startApi, testRouter, until, type TestApi } from '@/test/harness';
 import GettingStarted from './GettingStarted.vue';
@@ -101,5 +103,67 @@ describe('GettingStarted', () => {
     await open();
     await new Promise((r) => setTimeout(r, 100));
     expect(guide().exists()).toBe(false);
+  });
+});
+
+describe('GettingStarted: peticiones al servidor', () => {
+  /** Cuenta las peticiones a `/api/onboarding` que hace la interfaz. */
+  function countOnboarding(): () => number {
+    const inner = globalThis.fetch;
+    let count = 0;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith('/api/onboarding')) count++;
+      return inner(input, init);
+    }) as typeof fetch;
+    return () => count;
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 800));
+
+  it('oculta por el usuario no pregunta nada, ni cuando cambia el estado de una ejecución', async () => {
+    localStorage.setItem('agentforge.guide.hidden', '1');
+    const asked = countOnboarding();
+    await open();
+    useRuns().statusVersion++;
+    await settle();
+    expect(asked()).toBe(0);
+    expect(guide().exists()).toBe(false);
+  });
+
+  it('mientras falta algún hito vuelve a preguntar cuando cambia el estado de una ejecución', async () => {
+    const asked = countOnboarding();
+    await open();
+    await until(() => guide().exists());
+    expect(asked()).toBe(1);
+    useRuns().statusVersion++;
+    await until(() => asked() === 2);
+  });
+
+  it('con los dos hitos de ejecución cumplidos deja de preguntar', async () => {
+    await api.ctx.runs.waitFor(api.ctx.runs.startAgentRun(addAgent(api.ctx), 'hola').id);
+    await runWorkflow(api.ctx, workflow([node('in', 'input'), node('out', 'output')], edges('in>out')));
+    const asked = countOnboarding();
+    await open();
+    // Con el modelo disponible (el agente trae su proveedor) la guía está completa y ni se pinta.
+    await until(() => asked() === 1);
+    expect(guide().exists()).toBe(false);
+    useRuns().statusVersion++;
+    await settle();
+    expect(asked()).toBe(1);
+  });
+
+  it('con el almacenamiento del navegador bloqueado la guía se monta y se puede ocultar', async () => {
+    for (const method of ['getItem', 'setItem', 'removeItem'] as const) {
+      vi.spyOn(Storage.prototype, method).mockImplementation(() => {
+        throw new DOMException('The operation is insecure.', 'SecurityError');
+      });
+    }
+    try {
+      await open();
+      await until(() => guide().exists());
+      await button('Ocultar guía')!.trigger('click');
+      expect(guide().exists()).toBe(false);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });

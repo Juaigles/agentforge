@@ -75,13 +75,22 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  const code = (err as NodeJS.ErrnoException).code;
+  const { code, syscall } = err as NodeJS.ErrnoException;
   if (err instanceof ConfigurationError) console.error(`[agentforge] ${err.message}`);
-  else if (code === 'EADDRINUSE')
+  // Solo es un problema del puerto si el error viene de abrirlo; un EACCES al crear la carpeta de datos es otra cosa.
+  else if (syscall === 'listen' && code === 'EADDRINUSE')
     console.error(
       `[agentforge] El puerto ya está ocupado por otro programa. Ciérralo o arranca con otro puerto (variable PORT). Detalle: ${errorMessage(err)}`,
     );
-  else if (code === 'EACCES') console.error(`[agentforge] No hay permiso para escuchar en esa dirección o puerto. Detalle: ${errorMessage(err)}`);
+  else if (syscall === 'listen' && code === 'EACCES')
+    console.error(`[agentforge] No hay permiso para escuchar en esa dirección o puerto. Detalle: ${errorMessage(err)}`);
+  else if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS')
+    console.error(
+      `[agentforge] No se puede escribir en la carpeta de datos (AGENTFORGE_DATA_DIR). Comprueba sus permisos y su propietario. Detalle: ${errorMessage(err)}`,
+    );
+  else if (err instanceof Error && process.env.AGENTFORGE_LOG_LEVEL !== 'debug')
+    // Errores con un mensaje que ya dice qué hacer (otra instancia, base de datos más reciente…): sin traza.
+    console.error(`[agentforge] No se pudo arrancar: ${err.message}`);
   else console.error('[agentforge] Error fatal al arrancar:', err);
   process.exit(1);
 });

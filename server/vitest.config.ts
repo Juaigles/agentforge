@@ -15,7 +15,7 @@ export default defineConfig({
       allowExternal: true,
       reporter: ['text-summary', 'html', 'lcov'],
       reportsDirectory: './coverage',
-      thresholds: { statements: 91, branches: 84, functions: 92, lines: 94 },
+      thresholds: { statements: 92, branches: 84, functions: 93, lines: 94 },
     },
   },
 });

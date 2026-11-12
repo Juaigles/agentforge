@@ -130,6 +130,8 @@ interface TarEntryState {
   remaining: number;
   pad: number;
   sink: Writable | null;
+  /** Se rechaza si el destino falla (disco lleno, ruta ocupada por una carpeta…), en cualquier momento. */
+  failed: Promise<never> | null;
   chunks: Buffer[] | null;
 }
 
@@ -148,66 +150,77 @@ async function readTar(
   const finishEntry = async (entry: TarEntryState): Promise<boolean> => {
     if (entry.sink) {
       const sink = entry.sink;
-      await new Promise<void>((resolve, reject) => {
-        sink.once('error', reject);
-        sink.end(() => resolve());
-      });
+      // Un fallo del destino (también uno anterior a este punto) hace fallar la lectura: la entrada no se da por escrita.
+      const ended = new Promise<void>((resolve, reject) => sink.end((err?: Error | null) => (err ? reject(err) : resolve())));
+      await Promise.race([ended, entry.failed!]);
     }
     return Boolean(entry.chunks && onBuffer?.(entry.name, Buffer.concat(entry.chunks)) === 'stop');
   };
 
-  for await (const raw of source) {
-    const chunk = raw as Buffer;
-    pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
-    for (;;) {
-      const entry: TarEntryState | null = current;
-      if (entry) {
-        if (entry.remaining > 0) {
-          if (!pending.length) break;
-          const part = pending.subarray(0, Math.min(pending.length, entry.remaining));
-          pending = pending.subarray(part.length);
-          entry.remaining -= part.length;
-          if (entry.chunks) entry.chunks.push(Buffer.from(part));
-          else if (entry.sink && !entry.sink.write(part)) {
-            const sink = entry.sink;
-            await new Promise<void>((resolve) => sink.once('drain', () => resolve()));
+  try {
+    for await (const raw of source) {
+      const chunk = raw as Buffer;
+      pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+      for (;;) {
+        const entry: TarEntryState | null = current;
+        if (entry) {
+          if (entry.remaining > 0) {
+            if (!pending.length) break;
+            const part = pending.subarray(0, Math.min(pending.length, entry.remaining));
+            pending = pending.subarray(part.length);
+            entry.remaining -= part.length;
+            if (entry.chunks) entry.chunks.push(Buffer.from(part));
+            else if (entry.sink && !entry.sink.write(part)) {
+              const sink = entry.sink;
+              // Si el destino falla con la escritura detenida, `drain` no llega nunca: se espera a lo primero que ocurra.
+              await Promise.race([new Promise<void>((resolve) => sink.once('drain', () => resolve())), entry.failed!]);
+            }
+            continue;
           }
+          if (pending.length < entry.pad) break;
+          pending = pending.subarray(entry.pad);
+          if (await finishEntry(entry)) return;
+          current = null;
           continue;
         }
-        if (pending.length < entry.pad) break;
-        pending = pending.subarray(entry.pad);
-        current = null;
-        if (await finishEntry(entry)) return;
-        continue;
+        if (pending.length < BLOCK) break;
+        const header = pending.subarray(0, BLOCK);
+        pending = pending.subarray(BLOCK);
+        if (header.every((b) => b === 0)) return; // bloque de fin
+        const text = (from: number, len: number) =>
+          header
+            .subarray(from, from + len)
+            .toString('utf8')
+            .replace(/\0.*$/s, '');
+        const size = parseInt(text(124, 12).trim() || '0', 8);
+        if (!Number.isFinite(size) || size < 0) throw new HttpError(400, 'La copia de seguridad está dañada (tamaño de entrada no válido).');
+        const prefix = text(345, 155);
+        const name = prefix ? `${prefix}/${text(0, 100)}` : text(0, 100);
+        const isFile = (header[156] || 48) === 48; // '0' o nulo: archivo normal
+        const target = isFile ? await onEntry(name, size) : null;
+        const sink = target !== null && target !== 'buffer' ? target : null;
+        // El error se escucha desde que existe el destino: puede llegar antes de la primera espera (al abrir el archivo).
+        const failed = sink ? new Promise<never>((_resolve, reject) => sink.once('error', reject)) : null;
+        failed?.catch(() => undefined);
+        current = { name, remaining: size, pad: (BLOCK - (size % BLOCK)) % BLOCK, sink, failed, chunks: target === 'buffer' ? [] : null };
       }
-      if (pending.length < BLOCK) break;
-      const header = pending.subarray(0, BLOCK);
-      pending = pending.subarray(BLOCK);
-      if (header.every((b) => b === 0)) return; // bloque de fin
-      const text = (from: number, len: number) =>
-        header
-          .subarray(from, from + len)
-          .toString('utf8')
-          .replace(/\0.*$/s, '');
-      const size = parseInt(text(124, 12).trim() || '0', 8);
-      if (!Number.isFinite(size) || size < 0) throw new HttpError(400, 'La copia de seguridad está dañada (tamaño de entrada no válido).');
-      const prefix = text(345, 155);
-      const name = prefix ? `${prefix}/${text(0, 100)}` : text(0, 100);
-      const isFile = (header[156] || 48) === 48; // '0' o nulo: archivo normal
-      const target = isFile ? await onEntry(name, size) : null;
-      current = {
-        name,
-        remaining: size,
-        pad: (BLOCK - (size % BLOCK)) % BLOCK,
-        sink: target !== null && target !== 'buffer' ? target : null,
-        chunks: target === 'buffer' ? [] : null,
-      };
     }
-  }
-  const last: TarEntryState | null = current;
-  if (last) {
-    if (last.remaining > 0) throw new HttpError(400, 'La copia de seguridad está incompleta.');
-    await finishEntry(last);
+    const last: TarEntryState | null = current;
+    if (last) {
+      if (last.remaining > 0) throw new HttpError(400, 'La copia de seguridad está incompleta.');
+      await finishEntry(last);
+      current = null;
+    }
+  } catch (err) {
+    // El destino que quedara abierto se cierra antes de avisar: quien llama va a borrar la carpeta a medio escribir.
+    const open = (current as TarEntryState | null)?.sink;
+    if (open && !open.closed) {
+      await new Promise<void>((resolve) => {
+        open.once('close', () => resolve());
+        open.destroy();
+      });
+    }
+    throw err;
   }
 }
 

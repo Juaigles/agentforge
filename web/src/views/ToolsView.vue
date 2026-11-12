@@ -244,26 +244,53 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
     </header>
 
     <div class="tabs" role="tablist" :aria-label="t('tools.tabs.label')" style="margin-bottom: 18px">
-      <button class="tab" :class="{ active: tab === 'catalog' }" type="button" role="tab" :aria-selected="tab === 'catalog'" @click="tab = 'catalog'">
+      <button
+        id="tools-tab-catalog"
+        class="tab"
+        :class="{ active: tab === 'catalog' }"
+        type="button"
+        role="tab"
+        aria-controls="tools-panel-catalog"
+        :aria-selected="tab === 'catalog'"
+        @click="tab = 'catalog'"
+      >
         <Wrench style="width: 15px; height: 15px" /> {{ t('tools.tabs.catalog') }}
         <span v-if="catalog.tools.length" class="badge">{{ catalog.tools.length }}</span>
       </button>
-      <button class="tab" :class="{ active: tab === 'mcp' }" type="button" role="tab" :aria-selected="tab === 'mcp'" @click="tab = 'mcp'">
+      <button
+        id="tools-tab-mcp"
+        class="tab"
+        :class="{ active: tab === 'mcp' }"
+        type="button"
+        role="tab"
+        aria-controls="tools-panel-mcp"
+        :aria-selected="tab === 'mcp'"
+        @click="tab = 'mcp'"
+      >
         <Plug style="width: 15px; height: 15px" /> {{ t('tools.tabs.mcp') }}
       </button>
-      <button class="tab" :class="{ active: tab === 'files' }" type="button" role="tab" :aria-selected="tab === 'files'" @click="tab = 'files'">
+      <button
+        id="tools-tab-files"
+        class="tab"
+        :class="{ active: tab === 'files' }"
+        type="button"
+        role="tab"
+        aria-controls="tools-panel-files"
+        :aria-selected="tab === 'files'"
+        @click="tab = 'files'"
+      >
         <FolderOpen style="width: 15px; height: 15px" /> {{ t('tools.tabs.files') }}
         <span v-if="filesLoaded && files.length" class="badge">{{ files.length }}</span>
       </button>
     </div>
 
     <!-- ================= Servidores MCP ================= -->
-    <div v-if="tab === 'mcp'" role="tabpanel" :aria-label="t('tools.tabs.mcp')">
+    <div v-if="tab === 'mcp'" id="tools-panel-mcp" role="tabpanel" aria-labelledby="tools-tab-mcp">
       <McpServersPanel @changed="onMcpChanged" />
     </div>
 
     <!-- ================= Catálogo ================= -->
-    <section v-if="tab === 'catalog'" role="tabpanel" :aria-label="t('tools.tabs.catalog')" class="col" style="gap: 16px">
+    <section v-if="tab === 'catalog'" id="tools-panel-catalog" role="tabpanel" aria-labelledby="tools-tab-catalog" class="col" style="gap: 16px">
       <div v-if="loading" class="col" style="gap: 12px">
         <div v-for="i in 3" :key="i" class="skeleton" style="height: 120px; border-radius: var(--radius-lg)" />
       </div>
@@ -402,7 +429,7 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
     </section>
 
     <!-- ================= Archivos ================= -->
-    <section v-else-if="tab === 'files'" role="tabpanel" :aria-label="t('tools.tabs.files')" class="col" style="gap: 14px">
+    <section v-else-if="tab === 'files'" id="tools-panel-files" role="tabpanel" aria-labelledby="tools-tab-files" class="col" style="gap: 14px">
       <div class="toolbar">
         <i18n-t keypath="tools.files.intro" tag="p" class="muted small grow" scope="global">
           <template #workspace

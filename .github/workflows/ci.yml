@@ -97,3 +97,16 @@ jobs:
             e2e/.results
           if-no-files-found: ignore
           retention-days: 7
+
+  docker:
+    name: Imagen de Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # La imagen no se ha construido nunca en el equipo de desarrollo: este trabajo es su primera comprobación real.
+      - run: docker build -t agentforge .
+      - name: Arranca y responde a la sonda
+        run: |
+          docker run -d --name agentforge -p 127.0.0.1:4310:4310 -e AGENTFORGE_TOKEN=clave-de-prueba-de-la-ci-1234 -e AGENTFORGE_SEED=0 agentforge
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:4310/api/health/live && exit 0; sleep 1; done
+          docker logs agentforge; exit 1

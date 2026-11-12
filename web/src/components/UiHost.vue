@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // Avisos (toasts) y diálogo de confirmación globales.
 import { CircleAlert, CircleCheck, Info, X } from 'lucide-vue-next';
+import { useId } from 'vue';
 import { t } from '@/i18n';
 import { useUi } from '@/stores/ui';
 import AppModal from './AppModal.vue';
 
 const ui = useUi();
+const messageId = useId();
 const ICONS = { success: CircleCheck, danger: CircleAlert, info: Info };
 </script>
 
@@ -34,8 +36,9 @@ const ICONS = { success: CircleCheck, danger: CircleAlert, info: Info };
     </div>
   </Teleport>
 
-  <AppModal v-if="ui.confirmState" :title="ui.confirmState.title" :width="440" @close="ui.answer(false)">
-    <p class="muted">{{ ui.confirmState.message }}</p>
+  <AppModal v-if="ui.confirmState" :title="ui.confirmState.title" :width="440" :describedby="messageId" @close="ui.answer(false)">
+    <!-- El mensaje describe el diálogo: se lee al abrirlo, no solo al recorrerlo. -->
+    <p :id="messageId" class="muted">{{ ui.confirmState.message }}</p>
     <template #footer>
       <!-- En una acción destructiva el foco cae en «Cancelar»: Intro por costumbre no debe borrar nada. -->
       <button class="btn" type="button" :autofocus="ui.confirmState.danger ? true : undefined" @click="ui.answer(false)">

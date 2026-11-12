@@ -73,6 +73,7 @@ export default {
     invalid_token: 'The access key is not correct.',
     forbidden_host: 'The server does not accept requests under this name. Declare the name in AGENTFORGE_ALLOWED_HOSTS.',
     cross_site: 'Request rejected: it comes from another website.',
+    credential_required: 'You changed the address: enter again the credentials saved for the previous address.',
     api_key_required: 'You changed the provider address: enter the API key again.',
     validation: 'Some data is not valid. Check the highlighted fields.',
     payload_too_large: 'What was sent is too large.',

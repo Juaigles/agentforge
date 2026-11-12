@@ -115,7 +115,7 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
 </script>
 
 <template>
-  <AppModal :title="editing ? t('providerModal.titleEdit') : t('providerModal.titleAdd')" :width="600" @close="emit('close')">
+  <AppModal :title="editing ? t('providerModal.titleEdit') : t('providerModal.titleAdd')" :width="600" confirm-close @close="emit('close')">
     <form id="provider-form" class="col" style="gap: 16px" @submit.prevent="save">
       <div class="col" style="gap: 6px">
         <span class="label">{{ t('providerModal.presets.label') }}</span>

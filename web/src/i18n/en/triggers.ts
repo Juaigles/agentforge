@@ -43,6 +43,9 @@ export default {
     renewTitle: 'Generate a new secret',
     renewMessage: 'The current secret stops working immediately: you will have to change it in the programs that call this webhook.',
     renewConfirm: 'Generate secret',
+    secretTitle: "You haven't saved the secret yet",
+    secretMessage: "The webhook secret is shown only once. If you close now you won't be able to see it again; you will have to generate a new one.",
+    secretLeave: 'Close without saving it',
   },
   toast: {
     copied: '{what} to the clipboard.',

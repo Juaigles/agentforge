@@ -2,6 +2,7 @@
 // Editor de herramientas HTTP personalizadas contra la API real (ver src/test/harness.ts). El único doble es el proveedor LLM.
 import { DOMWrapper, flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { installFormA11y } from '@/lib/a11y';
 import { freshPinia, startApi, testRouter, until, type TestApi } from '@/test/harness';
 import ToolEditorModal from './ToolEditorModal.vue';
 
@@ -545,5 +546,22 @@ describe('ToolEditorModal: edición', () => {
     await button('Cancelar').trigger('click');
     expect(wrapper.emitted('close')).toHaveLength(1);
     expect(api.ctx.store.getCustomTool(tool.id)?.description).toBe('Busca pedidos por cliente.');
+  });
+});
+
+describe('ToolEditorModal: foco al guardar con errores', () => {
+  it('«Crear herramienta» con el nombre vacío lleva el foco al campo del nombre (el botón del pie envía el formulario)', async () => {
+    const uninstall = installFormA11y();
+    try {
+      await open();
+      const create = button('Crear herramienta');
+      expect(create.attributes('type')).toBe('submit');
+      create.element.focus();
+      await create.trigger('click');
+      await until(() => document.activeElement === $('#te-name').element);
+      expect($('#te-name').attributes('aria-invalid')).toBe('true');
+    } finally {
+      uninstall();
+    }
   });
 });

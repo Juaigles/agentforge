@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { defineComponent, h } from 'vue';
 import { GLOSSARY } from '@/lib/glossary';
 import { setTouchDevice, testRouter } from '@/test/harness';
+import AppModal from './AppModal.vue';
 import Term from './Term.vue';
 
 let wrapper: VueWrapper;
@@ -107,6 +109,72 @@ describe('Term', () => {
     await wrapper.get('a.term').trigger('mouseenter');
     await flushPromises();
     wrapper.unmount();
+    expect(tip()).toBeNull();
+  });
+});
+
+describe('Term dentro de un diálogo o de un formulario', () => {
+  const Host = (closed: { count: number }) =>
+    defineComponent({
+      render: () =>
+        h(AppModal, { title: 'Proveedor', onClose: () => closed.count++ }, () => [
+          h('form', [h('label', [h(Term, { id: 'agente' })]), h('input', { id: 'campo' })]),
+        ]),
+    });
+  async function mountInDialog(closed = { count: 0 }) {
+    const router = testRouter();
+    await router.push('/');
+    wrapper = mount(Host(closed), { global: { plugins: [router] }, attachTo: document.body });
+    await flushPromises();
+    return { router, closed };
+  }
+  const link = () => document.body.querySelector<HTMLAnchorElement>('a.term')!;
+
+  it('el clic enseña la definición y no navega, ni con ratón ni en táctil; el glosario se ofrece en una pestaña nueva', async () => {
+    for (const touch of [false, true]) {
+      setTouchDevice(touch);
+      const { router } = await mountInDialog();
+      (document.body.querySelector('#campo') as HTMLInputElement).value = 'lo escrito';
+      link().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+      link().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+      await flushPromises();
+      expect(router.currentRoute.value.fullPath).toBe('/');
+      expect(tip()?.textContent).toContain(GLOSSARY.agente.definition);
+      expect(tip()?.textContent).not.toContain('Toca otra vez');
+      const open = tip()!.querySelector<HTMLAnchorElement>('a')!;
+      expect(open.getAttribute('href')).toBe('/glosario#g-agente');
+      expect(open.target).toBe('_blank');
+      expect((document.body.querySelector('#campo') as HTMLInputElement).value).toBe('lo escrito');
+      wrapper.unmount();
+      document.body.innerHTML = '';
+    }
+  });
+
+  it('Esc cierra solo la definición: el diálogo que la contiene sigue abierto; un segundo Esc sí lo cierra', async () => {
+    const { closed } = await mountInDialog();
+    link().dispatchEvent(new MouseEvent('mouseenter'));
+    await flushPromises();
+    expect(tip()).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(tip()).toBeNull();
+    expect(closed.count).toBe(0);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(closed.count).toBe(1);
+  });
+
+  it('el puntero puede pasar del término a la definición sin que desaparezca, y al salir de ella se cierra', async () => {
+    await mountInDialog();
+    link().dispatchEvent(new MouseEvent('mouseenter'));
+    await flushPromises();
+    const bubble = tip()!;
+    link().dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: bubble }));
+    link().dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: bubble }));
+    await flushPromises();
+    expect(tip()).not.toBeNull();
+    bubble.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: document.body }));
+    await flushPromises();
     expect(tip()).toBeNull();
   });
 });

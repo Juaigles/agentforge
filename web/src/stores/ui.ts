@@ -1,6 +1,7 @@
 // Estado de interfaz: avisos (toasts), diálogo de confirmación y tema.
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { safeStorage } from '@/lib/storage';
 
 export interface Toast {
   id: number;
@@ -78,14 +79,14 @@ export const useUi = defineStore('ui', () => {
     confirmState.value = null;
   }
 
-  const theme = ref<Theme>((localStorage.getItem('af-theme') as Theme | null) ?? 'system');
+  const theme = ref<Theme>((safeStorage.get('af-theme') as Theme | null) ?? 'system');
   function setTheme(next: Theme): void {
     theme.value = next;
     if (next === 'system') {
-      localStorage.removeItem('af-theme');
+      safeStorage.remove('af-theme');
       delete document.documentElement.dataset.theme;
     } else {
-      localStorage.setItem('af-theme', next);
+      safeStorage.set('af-theme', next);
       document.documentElement.dataset.theme = next;
     }
   }

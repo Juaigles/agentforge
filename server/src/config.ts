@@ -29,6 +29,11 @@ export interface AppConfig {
   rateLimitPerMinute: number;
   /** Tiempo máximo que el apagado espera a las ejecuciones en curso (ms). */
   shutdownGraceMs: number;
+  /**
+   * Hay un proxy inverso delante: la dirección del cliente y el protocolo se leen de `X-Forwarded-For` y
+   * `X-Forwarded-Proto`. Sin proxy debe quedar desactivado (cualquiera podría falsear esas cabeceras).
+   */
+  trustProxy?: boolean;
 }
 
 /** Error de configuración: el mensaje se muestra tal cual al arrancar. */
@@ -115,6 +120,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     .filter(Boolean);
   for (const h of allowedHosts) {
     if (/[\s/]/.test(h) || h.includes('://')) problems.push(`AGENTFORGE_ALLOWED_HOSTS: "${h}" debe ser solo el nombre de host (sin http:// ni rutas).`);
+    // La cabecera Host se compara sin su puerto: un nombre con puerto no coincidiría nunca (403 en cada petición).
+    else if (/:\d+$/.test(h) && !h.startsWith('['))
+      problems.push(`AGENTFORGE_ALLOWED_HOSTS: "${h}" no debe llevar el puerto; escribe solo "${h.replace(/:\d+$/, '')}".`);
   }
 
   const dataDir = path.resolve(text('AGENTFORGE_DATA_DIR') ?? path.join(repoRoot, 'data'));
@@ -134,6 +142,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     authToken,
     rateLimitPerMinute: integer('AGENTFORGE_RATE_LIMIT', 1200, 0, 1_000_000),
     shutdownGraceMs: integer('AGENTFORGE_SHUTDOWN_GRACE_MS', 10_000, 0, 600_000),
+    trustProxy: flag('AGENTFORGE_TRUST_PROXY', false),
   };
   if (problems.length) throw new ConfigurationError(problems);
   return config;

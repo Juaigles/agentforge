@@ -29,6 +29,7 @@ import {
 import { backupFile, cancelRestore, createBackup, deleteBackup, lastRestore, listBackups, pendingRestore, prepareRestore, receiveBackup } from '../backup';
 import type { AppContext } from '../context';
 import { SCHEMA_VERSION } from '../db/database';
+import { orphanedSecretHeaders, sameTemplateOrigin } from '../db/store';
 import { systemTimeZone } from '../engine/cron';
 import { nextOccurrence, upcomingOccurrences } from '../engine/scheduler';
 import { HttpError } from '../errors';
@@ -285,6 +286,9 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
     };
   });
 
+  // Guía de primeros pasos: solo necesita saber si existe alguna ejecución, no cuántas hay (sin COUNT del historial).
+  app.get('/api/onboarding', async () => store.onboardingState());
+
   app.get('/api/settings', async () => store.getSettings());
 
   /** Estado real de los aislamientos de run_javascript: red del proceso (comprobada) y motor de contenedores. */
@@ -485,7 +489,18 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   app.put('/api/tools/custom/:id', async (req) => {
     const input = customToolSchema.parse(req.body);
     assertToolName(input.name, idOf(req));
-    return store.updateCustomTool(idOf(req), input) ?? notFound('Herramienta');
+    const current = store.getCustomTool(idOf(req)) ?? notFound('Herramienta');
+    // La credencial guardada no se «muda» a otra dirección (misma regla que la clave de un proveedor).
+    const orphaned = orphanedSecretHeaders(current, input);
+    if (orphaned.length) {
+      throw new HttpError(
+        400,
+        `Has cambiado la dirección de la herramienta: vuelve a escribir ${orphaned.join(', ')} (o quita esa cabecera) antes de guardar.`,
+        undefined,
+        'credential_required',
+      );
+    }
+    return store.updateCustomTool(current.id, input) ?? notFound('Herramienta');
   });
 
   app.delete('/api/tools/custom/:id', async (req, reply) => {
@@ -511,7 +526,25 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
   app.put('/api/mcp/servers/:id', async (req) => {
     const input = mcpServerSchema.parse(req.body);
     assertMcpName(input.name, idOf(req));
-    if (!store.updateMcpServer(idOf(req), input)) notFound('Servidor MCP');
+    const current = store.getMcpServer(idOf(req)) ?? notFound('Servidor MCP');
+    // Las credenciales guardadas no siguen al servidor a otro origen ni a otro programa: hay que escribirlas de nuevo.
+    if (input.transport === 'http' && input.headers === undefined && Object.keys(current.headers).length && !sameTemplateOrigin(current.url, input.url)) {
+      throw new HttpError(
+        400,
+        'Has cambiado la dirección del servidor MCP: vuelve a escribir sus cabeceras (o déjalas vacías) antes de guardar.',
+        undefined,
+        'credential_required',
+      );
+    }
+    if (input.transport === 'stdio' && input.env === undefined && Object.keys(current.env).length && current.command !== input.command) {
+      throw new HttpError(
+        400,
+        'Has cambiado el programa del servidor MCP: vuelve a escribir sus variables de entorno (o déjalas vacías) antes de guardar.',
+        undefined,
+        'credential_required',
+      );
+    }
+    if (!store.updateMcpServer(current.id, input)) notFound('Servidor MCP');
     return ctx.mcp.sync(idOf(req));
   });
 

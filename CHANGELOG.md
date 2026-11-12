@@ -7,7 +7,7 @@ del desarrollo local, cada uno con sus commits. El detalle de cada hito, con lo 
 
 ## [0.5.0] — 2026-11-12 · Hito 5: llevarlo a primer nivel
 
-Diez fases, cada una con las baterías en verde y un commit.
+Diez fases, cada una cerrada con sus baterías y un commit (el detalle y las excepciones, en `TEST_RESULTS.md`).
 
 ### Añadido
 
@@ -28,7 +28,7 @@ Diez fases, cada una con las baterías en verde y un commit.
   bloqueo de instancia única, apagado ordenado con plazo, `Dockerfile`, especificación OpenAPI.
 - **Documentación**: guía de usuario, guía de arquitectura, solución de problemas, referencia de la API, este
   registro, política de seguridad y guía de contribución.
-- **Calidad**: ESLint y Prettier, cobertura con umbrales, tests de componentes de todos los diálogos, suite
+- **Calidad**: ESLint y Prettier, cobertura con umbrales, tests de componentes de los diálogos principales (disparadores, importación, proveedor, servidores MCP y editor de herramientas), suite
   end-to-end en Chromium, Firefox y WebKit, y archivo de integración continua (sin estrenar).
 
 ### Cambiado
@@ -53,7 +53,14 @@ que quedaban «en curso» para siempre al cortarse el flujo en vivo, un 429 inte
 descargas canceladas en equipos cargados, orden aleatorio en listados creados en el mismo milisegundo y claves de
 API enviadas a una dirección distinta de la guardada.
 
+### Datos
+
+El esquema de la base de datos pasa de v3 a v6. Se actualiza solo al arrancar y antes guarda una copia
+(`agentforge.db.v<N>.bak`). No hay marcha atrás automática: ver «Actualizar a una versión nueva» en el README.
+
 ### Sin verificar
+
+Ver también [docs/informe-hito5.md](docs/informe-hito5.md), con lo que sigue débil.
 
 Proveedores de pago reales, el contenedor (Docker estaba apagado), el archivo de integración continua, un lector
 de pantalla real y la revisión del inglés por una persona nativa. Lista completa en `TEST_RESULTS.md`, sección 4.

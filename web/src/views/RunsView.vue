@@ -37,8 +37,11 @@ const capped = ref(false);
 // y al compartir o guardar el enlace.
 const queryText = (value: unknown): string => (typeof value === 'string' ? value : '');
 const fromQuery = <T extends string>(value: unknown, allowed: readonly T[]): T | '' => (allowed.includes(queryText(value) as T) ? (queryText(value) as T) : '');
-const status = ref<RunStatus | ''>(fromQuery(route.query.estado, ['running', 'completed', 'failed', 'cancelled'] as const));
-const kind = ref<RunKind | ''>(fromQuery(route.query.tipo, ['workflow', 'agent'] as const));
+const listPath = route.path;
+const STATUS_VALUES = ['running', 'completed', 'failed', 'cancelled'] as const;
+const KIND_VALUES = ['workflow', 'agent'] as const;
+const status = ref<RunStatus | ''>(fromQuery(route.query.estado, STATUS_VALUES));
+const kind = ref<RunKind | ''>(fromQuery(route.query.tipo, KIND_VALUES));
 const search = ref(queryText(route.query.q));
 function syncUrl(): void {
   const query: Record<string, string> = {};
@@ -53,8 +56,11 @@ const loadingMore = ref(false);
 const error = ref<string | null>(null);
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let liveTimer: ReturnType<typeof setTimeout> | null = null;
+/** Cada carga lleva su número: una respuesta que llega después de otra más reciente (otro filtro) se descarta. */
+let generation = 0;
 
 async function load(reset = true): Promise<void> {
+  const gen = ++generation;
   if (reset) loading.value = items.value.length === 0;
   else loadingMore.value = true;
   try {
@@ -67,15 +73,19 @@ async function load(reset = true): Promise<void> {
       limit: reset ? Math.min(MAX_REFRESH, Math.max(PAGE, items.value.length)) : PAGE,
       offset: reset ? 0 : items.value.length,
     });
+    if (gen !== generation) return;
     items.value = reset ? res.items : [...items.value, ...res.items];
     total.value = res.total;
     capped.value = Boolean(res.capped);
     error.value = null;
   } catch (err) {
+    if (gen !== generation) return;
     error.value = errorText(err);
   } finally {
-    loading.value = false;
-    loadingMore.value = false;
+    if (gen === generation) {
+      loading.value = false;
+      loadingMore.value = false;
+    }
   }
 }
 
@@ -88,6 +98,22 @@ watch([status, kind], () => {
   syncUrl();
   resetAndLoad();
 });
+// La URL manda: navegar a `/runs` (menú lateral) o a otra consulta con este mismo componente reaplica los filtros.
+watch(
+  () => route.query,
+  (query) => {
+    // Al salir hacia otra pantalla la consulta cambia antes de desmontarse: no es un filtro nuevo.
+    if (route.path !== listPath) return;
+    const nextStatus = fromQuery(query.estado, STATUS_VALUES);
+    const nextKind = fromQuery(query.tipo, KIND_VALUES);
+    const nextSearch = queryText(query.q);
+    // La búsqueda se compara recortada: la URL guarda el texto sin espacios y no debe pisar lo que se está escribiendo.
+    if (nextStatus === status.value && nextKind === kind.value && nextSearch === search.value.trim()) return;
+    status.value = nextStatus;
+    kind.value = nextKind;
+    if (nextSearch !== search.value.trim()) search.value = nextSearch;
+  },
+);
 watch(search, () => {
   if (searchTimer) clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
@@ -95,9 +121,9 @@ watch(search, () => {
     resetAndLoad();
   }, 250);
 });
-// Cualquier cambio en una ejecución (canal SSE global) refresca la lista.
+// Un cambio de estado de una ejecución (canal SSE global) refresca la lista; no hace falta con cada paso terminado.
 watch(
-  () => runsStore.version,
+  () => runsStore.statusVersion,
   () => {
     if (liveTimer) clearTimeout(liveTimer);
     liveTimer = setTimeout(() => void load(), 300);

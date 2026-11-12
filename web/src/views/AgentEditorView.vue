@@ -53,7 +53,9 @@ const manualModel = ref(false);
 const dirty = computed(() => JSON.stringify(form) !== saved.value);
 const snapshot = () => (saved.value = JSON.stringify(form));
 
-onMounted(async () => {
+async function load(): Promise<void> {
+  loadError.value = null;
+  loading.value = true;
   try {
     await catalog.ensure();
     if (agentId.value) {
@@ -71,7 +73,15 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
-});
+}
+onMounted(load);
+// Un error de carga no es definitivo: «Reintentar», o solo cuando vuelve la conexión con el servidor.
+watch(
+  () => catalog.online,
+  (online) => {
+    if (online && loadError.value && !loading.value) void load();
+  },
+);
 onBeforeUnmount(() => (runsStore.watching = null));
 
 async function loadModels(): Promise<void> {
@@ -232,17 +242,21 @@ const playgroundBlocked = computed(() => {
         >
           <Trash2 />
         </button>
-        <button class="btn btn-primary" type="button" :disabled="saving || loading || (!dirty && !isNew)" @click="save">
+        <!-- Envía el formulario (aunque el botón esté fuera de él) para que el foco vaya al primer campo con error. -->
+        <button class="btn btn-primary" type="submit" form="agent-form" :disabled="saving || loading || !!loadError || (!dirty && !isNew)">
           <Save /> {{ saving ? t('common.actions.saving') : t('common.actions.save') }}
         </button>
       </div>
     </header>
 
-    <div v-if="loadError" class="callout danger" role="alert"><CircleAlert /> {{ loadError }}</div>
+    <template v-if="loadError">
+      <div class="callout danger" role="alert"><CircleAlert /> {{ loadError }}</div>
+      <button class="btn" type="button" style="margin-top: 12px" @click="load">{{ t('common.actions.retry') }}</button>
+    </template>
     <div v-else-if="loading" class="card skeleton" style="height: 420px" aria-busy="true" />
 
     <div v-else class="layout">
-      <form class="col" style="gap: 16px" novalidate @submit.prevent="save">
+      <form id="agent-form" class="col" style="gap: 16px" novalidate @submit.prevent="save">
         <section class="card card-pad">
           <h2 class="section-title">{{ t('agentEditor.identity.title') }}</h2>
           <div class="form-grid">

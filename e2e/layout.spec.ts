@@ -133,7 +133,12 @@ test.describe('Vista móvil (375 × 812)', () => {
       await modal.getByRole('radio', { name: kind }).click();
       expect(await dialogFits(), kind).toEqual([]);
     }
-    await modal.getByRole('button', { name: 'Cerrar' }).click();
+    // El formulario del disparador nuevo está a medias: cerrar pide confirmación, y esa confirmación también cabe.
+    await modal.first().getByRole('button', { name: 'Cerrar' }).click();
+    await expect(page.getByRole('dialog', { name: 'Descartar cambios' })).toBeVisible();
+    expect(await dialogFits()).toEqual([]);
+    await page.getByRole('dialog', { name: 'Descartar cambios' }).getByRole('button', { name: 'Descartar', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
 
     await page.goto('/tools');

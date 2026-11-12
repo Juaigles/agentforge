@@ -307,6 +307,10 @@ function domainSchemas(): Record<string, Schema> {
       { description: 'Resultado de la sonda de disponibilidad.' },
     ),
     AuthStatus: obj({ required: bool('¿El servidor exige clave de acceso?'), authenticated: bool() }),
+    OnboardingState: obj({
+      agentRun: bool('¿Existe alguna ejecución de un agente?'),
+      workflowCompleted: bool('¿Existe alguna ejecución de workflow completada?'),
+    }),
     DashboardStats: obj({
       counts: obj({ agents: int(), workflows: int(), tools: int(), providers: int(), runs: int() }),
       runsByStatus: obj(Object.fromEntries(RUN_STATUS.map((status) => [status, int()]))),
@@ -704,8 +708,9 @@ function inputSchemas(): Record<string, Schema> {
     }),
     ToolInvokeInput: fromZod(invokeToolSchema, 'Argumentos de la herramienta.'),
     McpServerInput: fromZod(mcpServerSchema, 'Servidor MCP. `stdio` exige `command`; `http`, una `url` http(s).', {
-      env: 'Variables de entorno (stdio). Omitido al editar = conservar las guardadas.',
-      headers: 'Cabeceras (http). Omitido al editar = conservar las guardadas.',
+      env: 'Variables de entorno (stdio). Omitido al editar = conservar las guardadas; si cambia `command` hay que enviarlas de nuevo (400 `credential_required`).',
+      headers:
+        'Cabeceras (http). Omitido al editar = conservar las guardadas; si cambia el origen de `url` hay que enviarlas de nuevo (400 `credential_required`).',
     }),
     WorkflowInput: fromZod(workflowSchema, 'Definición de un workflow. Además de este esquema se comprueba el grafo con `POST /api/workflows/validate`.', {
       nodes: 'Hasta 100 nodos.',
@@ -821,6 +826,13 @@ function routes(): Array<[string, Method, OpSpec]> {
       id: 'getStats',
       summary: 'Estadísticas del panel: totales, consumo, actividad diaria y sistema',
       response: ref('DashboardStats'),
+    }),
+    R('/api/onboarding', 'get', {
+      tag: T.system,
+      id: 'getOnboarding',
+      summary: 'Qué pasos de la guía de primeros pasos están ya hechos',
+      description: 'Consulta ligera: comprueba si existe alguna ejecución, sin contar el historial.',
+      response: ref('OnboardingState'),
     }),
     R('/api/metrics', 'get', {
       tag: T.system,
@@ -1064,6 +1076,8 @@ function routes(): Array<[string, Method, OpSpec]> {
       tag: T.tools,
       id: 'updateCustomTool',
       summary: 'Modifica una herramienta personalizada',
+      description:
+        'Una cabecera secreta enviada vacía conserva el valor guardado, salvo que `urlTemplate` apunte a otro origen: entonces hay que escribirla de nuevo o quitarla (400 `credential_required`).',
       body: ref('CustomToolInput'),
       response: ref('CustomTool'),
       errors: [400, 404, 409],

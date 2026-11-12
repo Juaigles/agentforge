@@ -2,7 +2,7 @@
 // Monitor de una ejecución: grafo con estados en vivo, pasos, resultado en streaming y registro de actividad.
 import type { RunSummary } from '@shared/types';
 import { ArrowLeft, Bot, CircleAlert, Copy, Hourglass, LayoutList, Pencil, RotateCcw, SkipForward, Square, Trash2, Workflow } from 'lucide-vue-next';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import MarkdownView from '@/components/MarkdownView.vue';
 import RunActivity from '@/components/RunActivity.vue';
@@ -13,7 +13,6 @@ import { t, tn } from '@/i18n';
 import { announce } from '@/lib/a11y';
 import { api, errorText } from '@/lib/api';
 import { elapsedMs, formatCompact, formatDateTime, formatDuration, formatNumber, NODE_LABEL, STATUS_LABEL } from '@/lib/format';
-import { useNow } from '@/lib/useNow';
 import { useRunStream } from '@/lib/useRunStream';
 import { useCatalog } from '@/stores/catalog';
 import { useRuns } from '@/stores/runs';
@@ -24,21 +23,54 @@ const router = useRouter();
 const ui = useUi();
 const runsStore = useRuns();
 const catalog = useCatalog();
-const now = useNow(500);
 
 const runId = computed(() => String(route.params.id));
 const { run, live, loading, error, usage, isActive, reload } = useRunStream(runId);
-// Al recuperar la conexión con el servidor, una ejecución que seguía en curso se vuelve a cargar: lo ocurrido
-// mientras tanto no llegó por el flujo de eventos.
+// El reloj solo corre mientras la ejecución está en curso: con una terminada no hay nada que repintar cada 500 ms.
+const now = ref(Date.now());
+let ticker: ReturnType<typeof setInterval> | undefined;
+watch(
+  isActive,
+  (active) => {
+    clearInterval(ticker);
+    ticker = undefined;
+    if (!active) return;
+    now.value = Date.now();
+    ticker = setInterval(() => (now.value = Date.now()), 500);
+  },
+  { immediate: true },
+);
+onBeforeUnmount(() => clearInterval(ticker));
+// Al recuperar la conexión con el servidor, una ejecución que seguía en curso (o que no llegó a cargarse) se vuelve
+// a cargar: lo ocurrido mientras tanto no llegó por el flujo de eventos.
 watch(
   () => catalog.online,
   (online, was) => {
-    if (online && was === false && isActive.value) void reload();
+    if (online && was === false && (isActive.value || error.value)) void reload();
   },
 );
 
 const selected = ref<string | null>(null);
 const tab = ref<'result' | 'activity' | 'input'>('result');
+const TABS = ['result', 'activity', 'input'] as const;
+/** Flechas, Inicio y Fin entre pestañas (patrón de pestañas de WAI-ARIA, con `tabindex` itinerante). */
+function onTabKey(event: KeyboardEvent): void {
+  const index = TABS.indexOf(tab.value);
+  const next =
+    event.key === 'ArrowRight'
+      ? (index + 1) % TABS.length
+      : event.key === 'ArrowLeft'
+        ? (index + TABS.length - 1) % TABS.length
+        : event.key === 'Home'
+          ? 0
+          : event.key === 'End'
+            ? TABS.length - 1
+            : -1;
+  if (next < 0) return;
+  event.preventDefault();
+  tab.value = TABS[next];
+  void nextTick(() => document.getElementById(`run-tab-${TABS[next]}`)?.focus());
+}
 const raw = ref(false);
 const busy = ref(false);
 
@@ -99,6 +131,8 @@ const runningSteps = computed(() => steps.value.filter((s) => s.status === 'runn
 const waitingSteps = computed(() => steps.value.filter((s) => s.status === 'waiting'));
 const isWorkflow = computed(() => run.value?.kind === 'workflow');
 const duration = computed(() => (live.value ? elapsedMs(live.value.startedAt, live.value.finishedAt, now.value) : null));
+/** Pasos con actividad registrada, para la insignia de la pestaña (se recalcula solo cuando cambian los eventos o la selección). */
+const activityCount = computed(() => (live.value ? live.value.events.filter((e) => !selected.value || e.nodeId === selected.value).length : 0));
 const progress = computed(() => {
   const done = steps.value.filter((s) => ['completed', 'failed', 'skipped', 'cancelled'].includes(s.status)).length;
   return { done, total: steps.value.length };
@@ -189,7 +223,10 @@ async function copy(text: string): Promise<void> {
       <CircleAlert />
       <h3>{{ t('runDetail.loadError') }}</h3>
       <p>{{ error }}</p>
-      <RouterLink class="btn" to="/runs">{{ t('runDetail.backToRuns') }}</RouterLink>
+      <div class="row">
+        <button class="btn btn-primary" type="button" @click="reload()">{{ t('common.actions.retry') }}</button>
+        <RouterLink class="btn" to="/runs">{{ t('runDetail.backToRuns') }}</RouterLink>
+      </div>
     </div>
 
     <div v-else-if="loading || !run || !live" class="card skeleton" style="height: 420px" aria-busy="true" />
@@ -311,14 +348,22 @@ async function copy(text: string): Promise<void> {
 
       <div class="detail">
         <nav class="card steps" :aria-label="t('runDetail.steps.label')">
-          <button class="step" :class="{ active: selected === null }" type="button" @click="selected = null">
+          <button class="step" :class="{ active: selected === null }" type="button" :aria-pressed="selected === null" @click="selected = null">
             <LayoutList class="sum-ico" />
             <span class="grow"
               ><strong>{{ t('runDetail.steps.summary') }}</strong
               ><span class="tiny muted">{{ t('runDetail.steps.summaryHint') }}</span></span
             >
           </button>
-          <button v-for="s in steps" :key="s.nodeId" class="step" :class="{ active: selected === s.nodeId }" type="button" @click="selected = s.nodeId">
+          <button
+            v-for="s in steps"
+            :key="s.nodeId"
+            class="step"
+            :class="{ active: selected === s.nodeId }"
+            type="button"
+            :aria-pressed="selected === s.nodeId"
+            @click="selected = s.nodeId"
+          >
             <StatusBadge :status="s.status" icon-only />
             <span class="grow">
               <strong class="truncate">{{ s.label }}</strong>
@@ -336,28 +381,51 @@ async function copy(text: string): Promise<void> {
 
         <section class="card panel">
           <div class="panel-head">
-            <div class="tabs" role="tablist">
-              <button class="tab" :class="{ active: tab === 'result' }" role="tab" :aria-selected="tab === 'result'" type="button" @click="tab = 'result'">
+            <div class="tabs" role="tablist" :aria-label="t('runDetail.tabs.label')" @keydown="onTabKey">
+              <button
+                id="run-tab-result"
+                class="tab"
+                :class="{ active: tab === 'result' }"
+                role="tab"
+                aria-controls="run-panel"
+                :aria-selected="tab === 'result'"
+                :tabindex="tab === 'result' ? 0 : -1"
+                type="button"
+                @click="tab = 'result'"
+              >
                 {{ t('runDetail.tabs.result') }}
               </button>
               <button
+                id="run-tab-activity"
                 class="tab"
                 :class="{ active: tab === 'activity' }"
                 role="tab"
+                aria-controls="run-panel"
                 :aria-selected="tab === 'activity'"
+                :tabindex="tab === 'activity' ? 0 : -1"
                 type="button"
                 @click="tab = 'activity'"
               >
                 {{ t('runDetail.tabs.activity') }}
-                <span class="badge" style="height: 18px">{{ live.events.filter((e) => !selected || e.nodeId === selected).length }}</span>
+                <span class="badge" style="height: 18px">{{ activityCount }}</span>
               </button>
-              <button class="tab" :class="{ active: tab === 'input' }" role="tab" :aria-selected="tab === 'input'" type="button" @click="tab = 'input'">
+              <button
+                id="run-tab-input"
+                class="tab"
+                :class="{ active: tab === 'input' }"
+                role="tab"
+                aria-controls="run-panel"
+                :aria-selected="tab === 'input'"
+                :tabindex="tab === 'input' ? 0 : -1"
+                type="button"
+                @click="tab = 'input'"
+              >
                 {{ t('runDetail.tabs.input') }}
               </button>
             </div>
           </div>
 
-          <div class="panel-body">
+          <div id="run-panel" class="panel-body" role="tabpanel" :aria-labelledby="`run-tab-${tab}`">
             <!-- Resultado -->
             <template v-if="tab === 'result'">
               <div v-if="step?.error" class="callout danger" role="alert">
