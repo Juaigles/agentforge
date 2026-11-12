@@ -189,8 +189,11 @@ reales y un commit local.
   `TriggersModal`, que sí tiene tests). **No se ha hecho**: tests de componente del constructor y de las vistas
   grandes (Panel, Ajustes, Herramientas, monitor), que siguen cubiertas solo por la suite e2e —de ahí que la
   cobertura medida del frontend sea del 40 %—; y el archivo de CI no se ha ejecutado nunca.*
-- [ ] **F9 · Operación y documentación.** Métricas, `Dockerfile` local, OpenAPI, guía de usuario, guía de
+- [x] **F9 · Operación y documentación.** Métricas, `Dockerfile` local, OpenAPI, guía de usuario, guía de
   arquitectura, solución de problemas, `CHANGELOG.md`, licencia y política de seguridad.
+  *Hecho el 2026-11-12 (detalle en `PROGRESS.md`, «Hito 5 · Fase 9»). **Sin hacer**: la licencia (elegirla es
+  decisión del autor: el repositorio sigue sin ella). **Sin verificar**: el `Dockerfile` no se ha construido (el
+  motor de Docker seguía apagado).*
 - [ ] **F10 · Segunda auditoría e iteración** hasta que no quede nada crítico, alto ni medio, o lo que quede sea
   imposible con las reglas del encargo.
 

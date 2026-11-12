@@ -68,7 +68,7 @@ describe('las API keys guardadas no salen hacia otra dirección', () => {
     for (const url of ['/api/providers/test', '/api/providers/models']) {
       const res = await app.inject({ method: 'POST', url, payload: body(`${attacker.url}/v1`) });
       expect(res.statusCode).toBe(400);
-      expect(res.json()).toMatchObject({ error: expect.stringContaining('vuelve a escribir la API key'), details: { code: 'api_key_required' } });
+      expect(res.json()).toMatchObject({ error: expect.stringContaining('vuelve a escribir la API key'), code: 'api_key_required' });
     }
     expect(attacker.requests).toEqual([]);
 

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { ZodError } from 'zod';
 import type { AppContext } from './context';
 import { ConfigError, HttpError, LlmError, ToolError } from './errors';
+import { HttpCounters } from './metrics';
 import { registerApi } from './routes/api';
 import {
   RateLimiter,
@@ -51,14 +52,14 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   app.addHook('onRequest', async (req, reply) => {
     // 1) Host: solo se aceptan peticiones dirigidas a un nombre conocido (protección frente a DNS rebinding).
     if (!allowedHosts.has(hostName(req.headers.host))) {
-      return reply.status(403).send({ error: 'Host no permitido.' });
+      return reply.status(403).send({ error: 'Host no permitido.', code: 'forbidden_host' });
     }
     const urlPath = req.url.split('?')[0];
     if (!urlPath.startsWith('/api/')) return;
 
     // 2) Origen: otra web no puede usar la API desde el navegador del usuario (CSRF), ni siquiera para leer.
     if (isCrossSiteRequest(req.headers as Record<string, string | undefined>)) {
-      return reply.status(403).send({ error: 'Petición rechazada: procede de otro sitio web.' });
+      return reply.status(403).send({ error: 'Petición rechazada: procede de otro sitio web.', code: 'cross_site' });
     }
 
     // 3) Límite de tasa por cliente; más estricto en lo que lanza trabajo caro y en el inicio de sesión.
@@ -102,6 +103,12 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
 
   // Las herramientas de red no pueden llamar a esta misma API, ni con «redes privadas» permitidas.
   let unprotect: (() => void) | null = null;
+  // Recuento de respuestas de la API por clase de estado, para /api/metrics.
+  const http = new HttpCounters();
+  app.addHook('onResponse', async (req, reply) => {
+    if (req.url.startsWith('/api/')) http.record(reply.statusCode);
+  });
+
   app.addHook('onListen', async () => {
     const address = app.server.address() as AddressInfo | null;
     if (address?.port) unprotect = protectLocalPort(address.port);
@@ -154,7 +161,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     const given = (req.body as { token?: unknown } | null)?.token;
     if (!tokenMatches(config.authToken, given)) {
       app.log.warn({ ip: req.ip }, 'Intento de acceso con una clave incorrecta');
-      throw new HttpError(401, 'La clave de acceso no es correcta.');
+      throw new HttpError(401, 'La clave de acceso no es correcta.', undefined, 'invalid_token');
     }
     return reply
       .header('Set-Cookie', sessionCookieHeader(config.authToken, req.protocol === 'https'))
@@ -169,7 +176,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
       .send(),
   );
 
-  registerApi(app, ctx);
+  registerApi(app, ctx, http);
 
   // En producción el servidor también sirve el frontend compilado (web/dist).
   const hasWeb = fs.existsSync(config.webDist);

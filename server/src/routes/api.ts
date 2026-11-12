@@ -32,6 +32,9 @@ import { SCHEMA_VERSION } from '../db/database';
 import { systemTimeZone } from '../engine/cron';
 import { nextOccurrence, upcomingOccurrences } from '../engine/scheduler';
 import { HttpError } from '../errors';
+import { HttpCounters, renderMetrics } from '../metrics';
+import { buildOpenApi } from '../openapi';
+import { APP_VERSION } from '../version';
 import type { LlmProviderConfig } from '../llm/types';
 import { applyImport, exportAgent, exportWorkflow, planImport } from '../portability';
 import { listWorkspaceFiles, resolveInWorkspace } from '../tools/builtin';
@@ -58,7 +61,7 @@ import {
   workflowSchema,
 } from './schemas';
 
-export const APP_VERSION = '0.1.0';
+export { APP_VERSION };
 const HEALTH_TTL_MS = 10_000;
 /** Bytes pendientes de enviar a partir de los cuales se corta a un cliente SSE que no lee. */
 const MAX_SSE_BUFFER_BYTES = 8 * 1024 * 1024;
@@ -112,7 +115,7 @@ function openSse(req: FastifyRequest, reply: FastifyReply) {
   };
 }
 
-export function registerApi(app: FastifyInstance, ctx: AppContext): void {
+export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCounters = new HttpCounters()): void {
   const { store, tools, runs } = ctx;
   let healthCache: { at: number; data: ProviderHealth[] } | null = null;
 
@@ -149,9 +152,12 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     const saved = input.id ? store.getProviderWithSecret(input.id) : null;
     if (!saved?.apiKey) return undefined;
     if (originOf(saved.baseUrl) !== originOf(input.baseUrl)) {
-      throw new HttpError(400, 'Has cambiado la dirección del proveedor: vuelve a escribir la API key para probarla con la nueva dirección.', {
-        code: 'api_key_required',
-      });
+      throw new HttpError(
+        400,
+        'Has cambiado la dirección del proveedor: vuelve a escribir la API key para probarla con la nueva dirección.',
+        undefined,
+        'api_key_required',
+      );
     }
     return saved.apiKey;
   }
@@ -203,16 +209,50 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
       .send({ ok, version: APP_VERSION, uptimeSec: uptimeSec(), activeRuns: runs.activeCount, queuedRuns: runs.queuedCount, checks });
   });
 
-  app.get('/api/stats', async (): Promise<DashboardStats> => {
-    const s = store.stats();
-    let dbSizeBytes = 0;
+  /** Tamaño en disco de la base de datos y de su diario (0 si está en memoria). */
+  const dbSize = (): number => {
+    let bytes = 0;
     for (const suffix of ['', '-wal']) {
       try {
-        dbSizeBytes += fs.statSync(ctx.config.dbFile + suffix).size;
+        bytes += fs.statSync(ctx.config.dbFile + suffix).size;
       } catch {
         /* en memoria o aún sin crear */
       }
     }
+    return bytes;
+  };
+
+  /** Especificación OpenAPI 3.1 de esta API (la referencia legible está en docs/api.md). */
+  const openApi = buildOpenApi(APP_VERSION);
+  app.get('/api/openapi.json', async () => openApi);
+
+  /** Métricas en el formato de texto de Prometheus. Exige la clave de acceso, como el resto de la API. */
+  app.get('/api/metrics', async (_req, reply) => {
+    const s = store.stats();
+    return reply.type('text/plain; version=0.0.4; charset=utf-8').send(
+      renderMetrics({
+        version: APP_VERSION,
+        nodeVersion: process.version,
+        uptimeSec: uptimeSec(),
+        schemaVersion: SCHEMA_VERSION,
+        counts: { ...s.counts, tools: tools.list().filter((t) => t.enabled).length },
+        runsByStatus: s.runsByStatus,
+        activeRuns: runs.activeCount,
+        queuedRuns: runs.queuedCount,
+        llmCalls: s.llmCalls,
+        toolCalls: s.toolCalls,
+        tokens: s.tokens,
+        memoryBytes: process.memoryUsage().rss,
+        dbSizeBytes: dbSize(),
+        schedulerRunning: ctx.scheduler.running,
+        http: http.snapshot(),
+      }),
+    );
+  });
+
+  app.get('/api/stats', async (): Promise<DashboardStats> => {
+    const s = store.stats();
+    const dbSizeBytes = dbSize();
     return {
       counts: {
         agents: s.counts.agents,
@@ -358,9 +398,12 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     const current = store.getProvider(idOf(req)) ?? notFound('Proveedor');
     // La clave guardada no se «muda» a otra dirección: si cambia el origen hay que escribirla de nuevo (o quitarla).
     if (current.hasApiKey && input.apiKey === undefined && originOf(current.baseUrl) !== originOf(input.baseUrl)) {
-      throw new HttpError(400, 'Has cambiado la dirección del proveedor: vuelve a escribir la API key (o quítala) antes de guardar.', {
-        code: 'api_key_required',
-      });
+      throw new HttpError(
+        400,
+        'Has cambiado la dirección del proveedor: vuelve a escribir la API key (o quítala) antes de guardar.',
+        undefined,
+        'api_key_required',
+      );
     }
     return store.updateProvider(current.id, input) ?? notFound('Proveedor');
   });

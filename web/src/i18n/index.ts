@@ -1,5 +1,17 @@
 // Idiomas de la interfaz. Los textos viven en `es/<ámbito>.ts` y `en/<ámbito>.ts` (un archivo por pantalla o
 // componente); la clave de un texto es `<ámbito>.<ruta>`. El español es el idioma de referencia y el de reserva.
+//
+// Convenciones (las comprueba i18n.test.ts):
+//  - Se usa `t('ámbito.clave')` importado de aquí, en la plantilla y en el script. No `useI18n()` ni `$t`.
+//  - Huecos con nombre: 'Se eliminará «{name}».' → t('x.y', { name }).
+//  - Plurales: '{n} paso | {n} pasos' → tn('x.y', n). La primera forma es para n = 1; el número se escribe con
+//    el formato del idioma.
+//  - Los caracteres { } @ | $ son especiales en un mensaje: si van literales se escriben como {'{{input}}'}.
+//  - Las frases con componentes dentro (<Term>, enlaces, teclas) usan <i18n-t keypath="…" scope="global"> con
+//    ranuras con nombre, para que el orden de las palabras pueda cambiar en cada idioma.
+//  - Nada de textos traducidos en constantes de módulo (se quedarían en el idioma inicial): se guarda la clave
+//    (`labelKey`) y se llama a `t()` al pintar, o se usa `computed`.
+//  - El inglés y el español tienen exactamente las mismas claves, huecos y formas de plural.
 import { computed } from 'vue';
 import { createI18n } from 'vue-i18n';
 

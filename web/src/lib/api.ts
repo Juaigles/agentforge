@@ -74,7 +74,17 @@ function localizedError(message: unknown, code: string | undefined): string | un
   // En una validación se conserva el detalle del servidor (qué campo y por qué), tras el texto genérico.
   return code === 'validation' && original ? `${t('app.errors.validation')} (${original})` : t(`app.errors.${code}`);
 }
-const GENERIC_CODES = new Set(['not_found', 'rate_limited', 'auth_required', 'validation', 'payload_too_large']);
+const GENERIC_CODES = new Set([
+  'not_found',
+  'rate_limited',
+  'auth_required',
+  'invalid_token',
+  'forbidden_host',
+  'cross_site',
+  'api_key_required',
+  'validation',
+  'payload_too_large',
+]);
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;

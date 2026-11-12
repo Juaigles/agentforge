@@ -7,19 +7,24 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 
 Comandos: `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run test:coverage` (Vitest 5 con
 cobertura v8), `npm run test:e2e:all` (Playwright 1.65 en Chromium, Firefox y WebKit) y `npm audit`.
-Resultados del 2026-11-12 (hito 5, tras la fase 8):
+Resultados del 2026-11-12 (hito 5, tras la fase 9):
 
 ```
 lint         sin errores (ESLint 10)
 formato      todo el código con el estilo de Prettier
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
-servidor     Test Files  18 passed (18)   Tests  510 passed | 1 skipped (511)
-             cobertura: sentencias 93,9 % · ramas 86,4 % · funciones 94,9 % · líneas 96,7 %
+servidor     Test Files  20 passed (20)   Tests  563 passed | 1 skipped (564)
+             cobertura: sentencias 94,2 % · ramas 86,7 % · funciones 95,2 % · líneas 96,8 %
 frontend     Test Files  23 passed (23)   Tests  288 passed (288)
              cobertura: sentencias 39,8 % · ramas 42,2 % · funciones 41,5 % · líneas 41,9 %
-end-to-end   213 passed (12.9m): chromium 71, firefox 71, webkit 71
+end-to-end   213 passed (14.4m): chromium 71, firefox 71, webkit 71
 npm audit    found 0 vulnerabilities
 ```
+
+En la batería completa de la fase 9 la suite e2e dio 212 de 213: `backup.spec.ts` falló en Chromium con
+«download.path: canceled» mientras cuatro auditorías de solo lectura cargaban el equipo. Repetida tres veces a
+continuación en los tres navegadores, pasó las nueve (3 passed × 3). Las cifras de arriba son las de esa batería
+con ese test repetido; se anota como intermitencia bajo carga, no como resuelta.
 
 El test omitido es el que ejecuta código dentro de un contenedor: se salta solo cuando no hay Docker ni Podman
 en marcha, y en esta máquina Docker Desktop estaba apagado.
@@ -47,6 +52,8 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `server/test/static.test.ts` | Servido del frontend: fallback de la SPA, caché, 404 de assets, archivos nuevos sin reiniciar | Ninguno |
 | `server/test/ollama.integration.test.ts` | **Modelo real**: chat nativo, adaptador OpenAI vía `/v1`, agente con herramienta por ambos adaptadores, workflow paralelo de 3 agentes | **Ninguno** (se omite si no hay Ollama) |
 | `server/test/gaps.test.ts` | Huecos de la auditoría de pruebas: **migraciones reales** (base nueva e idempotencia; v1, v2 y v3 fabricadas con el SQL de entonces y datos en todas las tablas, comparando fila a fila; dos migraciones que fallan a medias dejan el esquema intacto), **cifrado** (Unicode, IV aleatorio, un byte manipulado, formato, longitud de clave; `secret.key` perdido → 409 legible en las cuatro rutas de prueba de proveedor), **archivos** (`DELETE` y `GET` frente a `../`, `%2F`, `..\\`, rutas absolutas y byte NUL; los datos siguen intactos), **`web_fetch`** contra un servidor local, **SSE** por HTTP real (estados, `llm.snapshot`, retirada de la suscripción), **ramas de error del motor** y de la delegación, el **`code` de cada tipo de error**, un caso por cada uno de los **50 códigos de validación** y ramas del almacén | Solo el proveedor LLM; servidores HTTP locales reales |
+| `server/test/openapi.test.ts` | **Especificación OpenAPI**: toda ruta registrada bajo `/api/` está documentada y ninguna documentada falta (se leen las rutas reales de Fastify); toda `$ref` resuelve; cada operación tiene resumen, etiqueta, `operationId` único y respuesta de éxito; 24 respuestas reales contrastadas con su esquema; `GET /api/openapi.json`; y `docs/api.md` al día | Solo el proveedor LLM |
+| `server/test/metrics.test.ts` | **Métricas**: formato de texto de Prometheus línea a línea (HELP, TYPE, etiquetas escapadas), valores tras una ejecución real (llamadas, tokens, respuestas HTTP por clase), exigencia de la clave de acceso; **versión única** (raíz, paquetes, sondas, Panel y especificación); códigos `invalid_token`, `forbidden_host` y `cross_site` | Solo el proveedor LLM |
 | `web/src/components/TriggersModal.test.ts` | Disparadores: lista, alta de cada tipo con su validación en el campo, vista previa del cron, secreto del webhook mostrado una vez y llamada HTTP real con él, editar, pausar, ejecutar ahora (ejecución real), regenerar el secreto, eliminar y tope del servidor | Solo el proveedor LLM: **API real** en memoria |
 | `web/src/components/ImportModal.test.ts` | Revisión de una importación con archivos exportados de verdad: todo nuevo, todo existente, distinto (usar el de aquí, sustituir, copiar), proveedor ausente, avisos, archivo no válido, cancelar y fallo a medias (todo o nada) | Solo el proveedor LLM: **API real** en memoria |
 | `web/src/components/ProviderModal.test.ts` | Proveedor: plantillas, alta con y sin clave (cifrada en la base, nunca devuelta), probar antes de guardar, proveedor caído, validación campo a campo, edición sin reenviar la clave, quitar y deshacer, cambio de dirección | Solo el proveedor LLM: **API real** en memoria |
@@ -400,6 +407,12 @@ de una ejecución anterior al reinicio.
   todas las claves, que conserva huecos y plurales y que las pantallas la muestran.
 - **Inglés con datos reales en todas las pantallas**: en el navegador se han visto el Panel, Ajustes, el
   constructor y la ficha de un agente; el resto de pantallas en inglés se ha recorrido en la suite e2e.
+- **Contenedor de AgentForge**: el `Dockerfile` no se ha construido ni ejecutado (el motor de Docker estaba
+  apagado). Tampoco la sonda de salud ni el apagado ordenado dentro de un contenedor.
+- **Métricas con un Prometheus real**: el formato se valida línea a línea en los tests y se ha leído en el
+  navegador; no se ha recogido con un servidor de Prometheus.
+- **Especificación OpenAPI con herramientas de terceros**: se comprueba su estructura y su correspondencia con las
+  rutas reales; no se ha pasado por un validador externo ni se ha generado un cliente a partir de ella.
 - **Lector de pantalla real**: los nombres, roles, foco y regiones vivas están comprobados en el DOM (e2e y
   navegador); no se ha escuchado la interfaz con NVDA, JAWS ni VoiceOver.
 - **Guía de primeros pasos sin Ollama en el navegador**: el caso «proveedor caído» está probado en el test de

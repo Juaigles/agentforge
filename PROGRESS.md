@@ -1,6 +1,6 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-12 (hito 5, fases 1 a 8; ver «Hito 5» más abajo)._
+_Última actualización: 2026-11-12 (hito 5, fases 1 a 9; ver «Hito 5» más abajo)._
 
 ## Estado real
 
@@ -471,7 +471,45 @@ Defectos encontrados por los tests nuevos y por los otros motores, y corregidos:
 32. **En Safari el foco no volvía al botón al cerrar un diálogo**: allí pulsar un botón con el ratón no lo enfoca.
 33. Un test de proveedores dependía del orden en que llegaban dos peticiones de fondo (fallaba en Firefox).
 
+### Fase 9 · Operación y documentación — HECHA (2026-11-12)
+
+- **Métricas** (`GET /api/metrics`, formato de texto de Prometheus): ejecuciones por estado, en marcha y en cola;
+  llamadas a modelos y a herramientas y tokens (acumulados); inventario; memoria del proceso, tamaño de la base de
+  datos, estado del planificador y respuestas HTTP por clase. Exige la clave de acceso si la hay.
+- **Especificación OpenAPI 3.1** (`GET /api/openapi.json`, `server/src/openapi.ts`): las 89 operaciones de la
+  API, con los cuerpos de entrada derivados de los esquemas de validación reales. Un test compara la
+  especificación con **las rutas realmente registradas** (ninguna sin documentar, ninguna documentada que no
+  exista) y contrasta 24 respuestas reales con su esquema. La referencia legible es `docs/api.md`, generada con
+  `npm run docs:api`; otro test falla si se queda atrás.
+- **Versión única**: sale del `package.json` de la raíz (`server/src/version.ts`); es la que anuncian las sondas,
+  el Panel, las métricas y la especificación. Pasa a 0.5.0.
+- **Códigos de error que faltaban**: una clave incorrecta al entrar (`invalid_token`) ya no se confunde con una
+  clave ausente (`auth_required`); los 403 por `Host` ajeno o por petición de otra web llevan `forbidden_host` y
+  `cross_site`; `api_key_required` iba dentro de `details` y ahora es el `code`.
+- **`Dockerfile`** en tres etapas (compilación, dependencias de ejecución, imagen final sin privilegios, con
+  volumen de datos, sonda de salud y apagado ordenado). **No se ha construido ni ejecutado.**
+- **Documentación** (`docs/`): guía de usuario, solución de problemas (con los mensajes reales del servidor),
+  arquitectura (piezas, recorrido de una ejecución y «dónde tocar para…») y referencia de la API. En la raíz,
+  `CHANGELOG.md`, `SECURITY.md` (modelo de amenazas y lo que no cubre) y `CONTRIBUTING.md` (baterías, reglas de
+  las pruebas y convenciones).
+- **Verificado con Ollama real en el navegador** (2026-11-12): una ejecución del agente «Calculista» movió las
+  métricas (de 55 a 57 llamadas al modelo, de 12 a 13 a herramientas, de 16 a 17 completadas); versión 0.5.0 en
+  la sonda, en `agentforge_info` y en la especificación.
+
 ## Pendiente y limitaciones
+
+- **Operación y documentación (fase 9)**:
+  - **Sin licencia.** Elegirla es decisión del autor; mientras tanto, nadie más tiene permiso para usar o
+    redistribuir el código.
+  - **El `Dockerfile` no se ha construido** y `SECURITY.md` no tiene un contacto real (el proyecto no está
+    publicado).
+  - Las métricas no incluyen histogramas de duración ni cifras por agente o por workflow; el recuento de
+    respuestas HTTP se pierde al reiniciar.
+  - En la especificación, los esquemas de las respuestas están escritos a mano a partir de los tipos; solo los
+    cuerpos de entrada salen de los esquemas de validación. Los tests de contrato cubren 24 respuestas, no todas.
+  - `GET /api/runs/:id/stream?after=` no valida su parámetro (un valor no válido se toma como 0), a diferencia de
+    `GET /api/runs/:id/events`. «Probar» un proveedor exige un nombre aunque no haga falta para probar la dirección.
+  - La documentación está solo en español.
 
 - **Pruebas (fase 8)**:
   - *Sin test de componente*: el constructor de workflows, el monitor de una ejecución, el Panel, Ajustes y

@@ -5,6 +5,19 @@ instrucciones, herramientas), conéctalos en workflows visuales y observa su eje
 Funciona al 100 % en tu equipo con [Ollama](https://ollama.com); opcionalmente con cualquier API
 compatible con OpenAI.
 
+## Documentación
+
+| Documento | Para qué |
+|---|---|
+| [docs/guia-usuario.md](docs/guia-usuario.md) | Usar la aplicación: modelos, agentes, workflows, ejecuciones, disparadores, herramientas |
+| [docs/solucion-problemas.md](docs/solucion-problemas.md) | Qué ves, por qué pasa y qué hacer |
+| [docs/arquitectura.md](docs/arquitectura.md) | Las piezas, cómo viaja una ejecución y dónde tocar para cada cambio |
+| [docs/api.md](docs/api.md) | Referencia de la API (generada de la especificación OpenAPI, `GET /api/openapi.json`) |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Entorno, baterías, reglas de las pruebas y convenciones |
+| [SECURITY.md](SECURITY.md) | Qué protege y qué no, y cómo informar de una vulnerabilidad |
+| [CHANGELOG.md](CHANGELOG.md) | Cambios por versión |
+| [PLAN.md](PLAN.md), [PROGRESS.md](PROGRESS.md), [TEST_RESULTS.md](TEST_RESULTS.md) | Decisiones, estado y limitaciones, y evidencias de las pruebas |
+
 ## Requisitos
 
 - **Node.js ≥ 22.13** (probado con v24.19; usa el módulo integrado `node:sqlite`).
@@ -36,6 +49,7 @@ npm run test:coverage  # tests con cobertura; falla si baja de los umbrales
 npm run lint       # ESLint            ·  npm run format  aplica Prettier
 npm run typecheck  # tsc + vue-tsc + tipos de la suite e2e
 npm run loadtest -- --runs 10000,50000   # prueba de carga con el servidor real (no toca data/)
+npm run docs:api   # vuelve a generar docs/api.md a partir de la especificación OpenAPI
 ```
 
 La suite end-to-end necesita los navegadores de Playwright (`npx playwright install`, solo la primera vez;
@@ -82,6 +96,31 @@ lugar seguro: contienen la clave con la que se descifran las API keys.
 
 Copiar a mano la carpeta `data/` también sirve, pero **con el servidor parado** (con él en marcha, parte de los
 datos está en el diario `agentforge.db-wal`).
+
+### Vigilarlo: sondas, métricas y registro
+
+- `GET /api/health/live` — el proceso atiende (no exige clave). `GET /api/health/ready` — base de datos, carpeta de
+  datos y planificador; 503 si falla algo.
+- `GET /api/metrics` — métricas en el formato de texto de Prometheus: ejecuciones por estado, en marcha y en cola,
+  llamadas a modelos y a herramientas, tokens, inventario, memoria del proceso, tamaño de la base de datos y
+  respuestas HTTP por clase de estado. Exige la clave de acceso si hay una configurada
+  (`Authorization: Bearer <clave>`).
+- El registro es JSON, una línea por suceso, por la salida estándar (`AGENTFORGE_LOG_LEVEL`).
+
+### En un contenedor
+
+Hay un `Dockerfile` para uso local. **No se ha construido ni ejecutado** (el motor de Docker estaba apagado al
+escribirlo): pruébalo antes de fiarte.
+
+```bash
+docker build -t agentforge .
+docker run --rm -p 4310:4310 -v agentforge-data:/data \
+  -e AGENTFORGE_TOKEN=una-clave-de-16-caracteres-o-mas \
+  -e OLLAMA_URL=http://host.docker.internal:11434 agentforge
+```
+
+La clave de acceso es obligatoria porque dentro del contenedor el servidor escucha en `0.0.0.0`. Los datos viven en
+el volumen `/data`. `docker stop` hace un apagado ordenado.
 
 ### Parar el servidor
 
@@ -234,6 +273,7 @@ server/   Node + TypeScript (tsx) + Fastify 5 + node:sqlite
   src/tools     registro, herramientas integradas, validación, protección SSRF, sandbox
   src/engine    agent-runner, workflow-engine, run-manager, scheduler
   src/routes    API REST + SSE
+  src/openapi.ts, metrics.ts, version.ts   especificación de la API, métricas y versión única
   test/         tests de unidad, protocolo, motor, API, persistencia e integración con Ollama
 web/      Vue 3 + Vite + Pinia + Vue Router + Vue Flow
   src/**/*.test.ts   tests de lógica y de componentes (Vitest + Vue Test Utils, contra la API real)

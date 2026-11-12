@@ -143,8 +143,13 @@ describe('cliente de la API: errores de la API real', () => {
 
   it('una clave incorrecta al entrar da 401 con el mensaje del servidor y sigue pidiendo la clave', async () => {
     (testApi.ctx.config as { authToken: string | null }).authToken = 'clave-de-prueba';
+    // La interfaz ya está en la pantalla de entrada (una petición anterior fue rechazada por falta de clave).
+    await failure(api.agents.list());
+    expect(authRequired.value).toBe(true);
     const err = await failure(api.auth.login('equivocada'));
     expect(err.status).toBe(401);
+    // Código propio: una clave incorrecta no es lo mismo que una clave ausente.
+    expect(err.code).toBe('invalid_token');
     expect(err.message).toBe('La clave de acceso no es correcta.');
     expect(authRequired.value).toBe(true);
   });
