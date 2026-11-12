@@ -562,8 +562,7 @@ Defectos encontrados al verificar la propia fase 10:
   tareas cargaban el equipo; repetida, pasó, y la última batería completa pasó entera. Sin causa conocida.
 
 - **Operación y documentación (fase 9)**:
-  - **Sin licencia.** Elegirla es decisión del autor; mientras tanto, nadie más tiene permiso para usar o
-    redistribuir el código.
+  - ~~Sin licencia.~~ Licencia MIT desde la 1.0.0 (`LICENSE`).
   - **El `Dockerfile` no se ha construido** y `SECURITY.md` no tiene un contacto real (el proyecto no está
     publicado).
   - Las métricas no incluyen histogramas de duración ni cifras por agente o por workflow; el recuento de
@@ -743,7 +742,7 @@ Hechos en la pasada de cierre de la 1.0 (2026-11-12): traducir lo que escribe el
 con actividad incremental, filtrar el historial por workflow, agente y fecha, y el primer guardado sin volver a
 montar la pantalla. Lo que queda, por orden de valor:
 
-1. **Decisiones del autor**: elegir la licencia y, si se publica, estrenar la integración continua, construir la
+1. **Decisiones del autor**: la licencia ya es MIT; si se publica, estrenar la integración continua, construir la
    imagen de Docker y poner un contacto real en `SECURITY.md`.
 2. **Comprobaciones que piden algo que esta máquina no tiene**: un proveedor de pago con clave real, Docker en
    marcha (aislamiento en contenedor), Safari real y una pasada con un lector de pantalla (NVDA o VoiceOver).

@@ -378,3 +378,8 @@ y parámetros en `web/src/i18n/es/builtinTools.ts` y `en/builtinTools.ts`, y su 
 ## Limitaciones conocidas
 
 Ver la sección «Pendiente y limitaciones» de [PROGRESS.md](PROGRESS.md).
+
+## Licencia
+
+[MIT](LICENSE): puedes usar, copiar, modificar y distribuir AgentForge, también con fines comerciales, siempre que
+conserves el aviso de copyright y el de la licencia. Se entrega tal cual, sin garantía.

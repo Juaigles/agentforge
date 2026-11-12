@@ -31,7 +31,11 @@ Pasada de cierre sobre el hito 5. Las baterías y la verificación con Ollama, e
 
 ### Sin hacer
 
-- Licencia, publicación, imagen de contenedor construida y proveedores de pago probados: ver «Pendiente y
+- Licencia MIT (`LICENSE`), declarada también en los `package.json`.
+
+### Sin hacer
+
+- Publicación, imagen de contenedor construida y proveedores de pago probados: ver «Pendiente y
   limitaciones» en `PROGRESS.md`.
 
 ## [0.5.0] — 2026-11-12 · Hito 5: llevarlo a primer nivel

@@ -1,6 +1,7 @@
 {
   "name": "agentforge",
   "version": "1.0.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "description": "Plataforma local para crear, gestionar y ejecutar sistemas de agentes de IA",
