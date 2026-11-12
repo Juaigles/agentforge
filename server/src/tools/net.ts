@@ -362,24 +362,32 @@ export function htmlTitle(html: string): string | null {
   const start = lower.indexOf('>', open);
   const close = start < 0 ? -1 : lower.indexOf('</title', start);
   if (start < 0 || close < 0) return null;
-  return html.slice(start + 1, close).replace(/\s+/g, ' ').trim().slice(0, 300) || null;
+  return (
+    decodeEntities(html.slice(start + 1, close))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 300) || null
+  );
+}
+
+const NAMED_ENTITIES: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"' };
+
+/** Decodifica las entidades HTML habituales en una sola pasada: «&amp;lt;» es el texto «&lt;», no «<». */
+function decodeEntities(text: string): string {
+  return text.replace(/&(?:(nbsp|amp|lt|gt|quot)|#(\d{1,7}));/g, (match, name: string | undefined, code: string | undefined) => {
+    if (name) return NAMED_ENTITIES[name];
+    const n = Number(code);
+    return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : match;
+  });
 }
 
 /** Convierte HTML en texto legible (sin scripts, estilos ni etiquetas). Coste lineal en el tamaño de la entrada. */
 export function htmlToText(html: string): string {
-  return stripBlocks(html.length > MAX_HTML_CHARS ? html.slice(0, MAX_HTML_CHARS) : html)
+  const text = stripBlocks(html.length > MAX_HTML_CHARS ? html.slice(0, MAX_HTML_CHARS) : html)
     .replace(/<\/(p|div|section|article|li|tr|h[1-6]|br)\s*>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^<>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#(\d{1,7});/g, (m, code) => {
-      const n = Number(code);
-      return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m;
-    })
+    .replace(/<[^<>]*>/g, ' ');
+  return decodeEntities(text)
     .replace(/[ \t]+/g, ' ')
     .replace(/ ?\n ?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

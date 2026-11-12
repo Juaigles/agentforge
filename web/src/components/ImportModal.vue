@@ -32,13 +32,20 @@ onMounted(async () => {
 
 const KIND_ORDER: ImportItemKind[] = ['agent', 'workflow', 'tool', 'provider'];
 const groups = computed(() =>
-  KIND_ORDER.map((kind) => ({ kind, label: t(`importModal.kind.${kind}`), items: (plan.value?.items ?? []).filter((i) => i.kind === kind) })).filter((g) => g.items.length),
+  KIND_ORDER.map((kind) => ({ kind, label: t(`importModal.kind.${kind}`), items: (plan.value?.items ?? []).filter((i) => i.kind === kind) })).filter(
+    (g) => g.items.length,
+  ),
 );
 
 function actionLabel(item: ImportItem, action: ImportAction): string {
   const feminine = item.kind === 'tool';
   if (action === 'create') return item.match ? t('importModal.action.createCopy') : t('importModal.action.create');
-  if (action === 'reuse') return item.kind === 'provider' ? t('importModal.action.reuseProvider') : feminine ? t('importModal.action.reuseFeminine') : t('importModal.action.reuseMasculine');
+  if (action === 'reuse')
+    return item.kind === 'provider'
+      ? t('importModal.action.reuseProvider')
+      : feminine
+        ? t('importModal.action.reuseFeminine')
+        : t('importModal.action.reuseMasculine');
   if (action === 'replace') return feminine ? t('importModal.action.replaceFeminine') : t('importModal.action.replaceMasculine');
   return t('importModal.action.skip');
 }
@@ -73,21 +80,40 @@ async function apply(): Promise<void> {
       <div class="skeleton" style="height: 120px" />
     </div>
     <div v-else-if="loadError" class="callout danger" role="alert">
-      <CircleAlert /><span><strong>{{ t('importModal.cannotImport', { fileName }) }}</strong> {{ loadError }}</span>
+      <CircleAlert /><span
+        ><strong>{{ t('importModal.cannotImport', { fileName }) }}</strong> {{ loadError }}</span
+      >
     </div>
 
     <div v-else-if="plan" class="col" style="gap: 16px">
-      <i18n-t v-if="plan.kind === 'workflow' && plan.items.length" keypath="importModal.introWithItems" tag="p" class="muted small" style="margin: 0" scope="global">
-        <template #workflow><Term id="workflow">{{ t('importModal.introWorkflow') }}</Term></template>
-        <template #name><strong>{{ plan.name }}</strong></template>
+      <i18n-t
+        v-if="plan.kind === 'workflow' && plan.items.length"
+        keypath="importModal.introWithItems"
+        tag="p"
+        class="muted small"
+        style="margin: 0"
+        scope="global"
+      >
+        <template #workflow
+          ><Term id="workflow">{{ t('importModal.introWorkflow') }}</Term></template
+        >
+        <template #name
+          ><strong>{{ plan.name }}</strong></template
+        >
       </i18n-t>
       <i18n-t v-else-if="plan.kind === 'workflow'" keypath="importModal.introAlone" tag="p" class="muted small" style="margin: 0" scope="global">
-        <template #workflow><Term id="workflow">{{ t('importModal.introWorkflow') }}</Term></template>
-        <template #name><strong>{{ plan.name }}</strong></template>
+        <template #workflow
+          ><Term id="workflow">{{ t('importModal.introWorkflow') }}</Term></template
+        >
+        <template #name
+          ><strong>{{ plan.name }}</strong></template
+        >
       </i18n-t>
       <p v-else class="muted small" style="margin: 0">{{ t('importModal.introFile') }}</p>
 
-      <div v-for="(warning, i) in plan.warnings" :key="i" class="callout warning small"><TriangleAlert /><span>{{ warning }}</span></div>
+      <div v-for="(warning, i) in plan.warnings" :key="i" class="callout warning small">
+        <TriangleAlert /><span>{{ warning }}</span>
+      </div>
 
       <section v-for="g in groups" :key="g.kind" class="col" style="gap: 8px">
         <h3 class="eyebrow" style="margin: 0">{{ g.label }}</h3>
@@ -97,7 +123,14 @@ async function apply(): Promise<void> {
               <strong class="name">{{ item.name }}</strong>
               <span class="badge" :class="status(item).tone">{{ status(item).text }}</span>
               <span class="grow" />
-              <select v-if="item.actions.length > 1" v-model="decisions[item.key].action" class="select" style="width: auto" :aria-label="t('importModal.itemAria', { name: item.name })" @change="onAction(item)">
+              <select
+                v-if="item.actions.length > 1"
+                v-model="decisions[item.key].action"
+                class="select"
+                style="width: auto"
+                :aria-label="t('importModal.itemAria', { name: item.name })"
+                @change="onAction(item)"
+              >
                 <option v-for="action in item.actions" :key="action" :value="action">{{ actionLabel(item, action) }}</option>
               </select>
               <span v-else class="small muted">{{ actionLabel(item, item.actions[0]) }}</span>
@@ -116,7 +149,9 @@ async function apply(): Promise<void> {
         </ul>
       </section>
 
-      <div v-if="applyError" class="callout danger" role="alert"><CircleAlert /><span>{{ applyError }}</span></div>
+      <div v-if="applyError" class="callout danger" role="alert">
+        <CircleAlert /><span>{{ applyError }}</span>
+      </div>
     </div>
 
     <template #footer>

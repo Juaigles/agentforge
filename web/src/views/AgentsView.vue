@@ -70,7 +70,8 @@ async function onImported(result: ImportResult): Promise<void> {
     ui.error(errorText(err));
   }
   const summary = importSummary(result);
-  if (result.workflow) ui.success(summary ? t('agents.toast.importedWith', { name: result.workflow.name, summary }) : t('agents.toast.imported', { name: result.workflow.name }));
+  if (result.workflow)
+    ui.success(summary ? t('agents.toast.importedWith', { name: result.workflow.name, summary }) : t('agents.toast.imported', { name: result.workflow.name }));
   else ui.success(summary ? t('agents.toast.importDone', { summary }) : t('agents.toast.importNothing'));
   for (const warning of result.warnings) ui.info(warning);
   if (result.workflow) await router.push(`/workflows/${result.workflow.id}`);
@@ -111,14 +112,30 @@ async function remove(agent: Agent): Promise<void> {
       <div>
         <h1>{{ t('agents.title') }}</h1>
         <i18n-t keypath="agents.subtitle" tag="p" class="subtitle" scope="global">
-          <template #agent><Term id="agente">{{ t('agents.subtitleAgent') }}</Term></template>
-          <template #model><Term id="modelo">{{ t('agents.subtitleModel') }}</Term></template>
-          <template #tools><Term id="herramienta">{{ t('agents.subtitleTools') }}</Term></template>
-          <template #workflow><Term id="workflow">{{ t('agents.subtitleWorkflow') }}</Term></template>
+          <template #agent
+            ><Term id="agente">{{ t('agents.subtitleAgent') }}</Term></template
+          >
+          <template #model
+            ><Term id="modelo">{{ t('agents.subtitleModel') }}</Term></template
+          >
+          <template #tools
+            ><Term id="herramienta">{{ t('agents.subtitleTools') }}</Term></template
+          >
+          <template #workflow
+            ><Term id="workflow">{{ t('agents.subtitleWorkflow') }}</Term></template
+          >
         </i18n-t>
       </div>
       <div class="row wrap" style="gap: 8px">
-        <input ref="fileInput" class="sr-only" type="file" accept=".json,application/json" :aria-label="t('agents.importFileLabel')" tabindex="-1" @change="onImportFile" />
+        <input
+          ref="fileInput"
+          class="sr-only"
+          type="file"
+          accept=".json,application/json"
+          :aria-label="t('agents.importFileLabel')"
+          tabindex="-1"
+          @change="onImportFile"
+        />
         <button class="btn" type="button" :title="t('agents.importTitle')" @click="fileInput?.click()"><Upload /> {{ t('common.actions.import') }}</button>
         <RouterLink class="btn btn-primary" to="/agents/new"><Plus /> {{ t('agents.newAgent') }}</RouterLink>
       </div>
@@ -150,9 +167,33 @@ async function remove(agent: Agent): Promise<void> {
           <footer class="row" @click.stop>
             <RouterLink class="btn btn-sm" :to="`/agents/${agent.id}`"><Pencil /> {{ t('agents.card.editAndTry') }}</RouterLink>
             <span class="grow" />
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('agents.card.exportLabel', { name: agent.name })" :title="t('agents.card.exportTitle')" @click="exportAgent(agent)"><Download /></button>
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('agents.card.duplicateLabel', { name: agent.name })" :title="t('common.actions.duplicate')" @click="duplicate(agent)"><Copy /></button>
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('agents.card.deleteLabel', { name: agent.name })" :title="t('common.actions.delete')" @click="remove(agent)"><Trash2 /></button>
+            <button
+              class="btn btn-ghost btn-icon btn-sm"
+              type="button"
+              :aria-label="t('agents.card.exportLabel', { name: agent.name })"
+              :title="t('agents.card.exportTitle')"
+              @click="exportAgent(agent)"
+            >
+              <Download />
+            </button>
+            <button
+              class="btn btn-ghost btn-icon btn-sm"
+              type="button"
+              :aria-label="t('agents.card.duplicateLabel', { name: agent.name })"
+              :title="t('common.actions.duplicate')"
+              @click="duplicate(agent)"
+            >
+              <Copy />
+            </button>
+            <button
+              class="btn btn-ghost btn-icon btn-sm"
+              type="button"
+              :aria-label="t('agents.card.deleteLabel', { name: agent.name })"
+              :title="t('common.actions.delete')"
+              @click="remove(agent)"
+            >
+              <Trash2 />
+            </button>
           </footer>
         </article>
       </div>
@@ -166,8 +207,12 @@ async function remove(agent: Agent): Promise<void> {
         <template v-else>
           <h3>{{ t('agents.empty.title') }}</h3>
           <i18n-t keypath="agents.empty.text" tag="p" scope="global">
-            <template #model><Term id="modelo">{{ t('agents.empty.textModel') }}</Term></template>
-            <template #tools><Term id="herramienta">{{ t('agents.empty.textTools') }}</Term></template>
+            <template #model
+              ><Term id="modelo">{{ t('agents.empty.textModel') }}</Term></template
+            >
+            <template #tools
+              ><Term id="herramienta">{{ t('agents.empty.textTools') }}</Term></template
+            >
           </i18n-t>
           <RouterLink class="btn btn-primary" to="/agents/new"><Plus /> {{ t('agents.empty.create') }}</RouterLink>
         </template>

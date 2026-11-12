@@ -53,7 +53,12 @@ async function until<T>(read: () => T | Promise<T>, ok: (value: T) => boolean, w
 }
 
 const pendingApprovals = () => ctx!.store.listApprovals({ pendingOnly: true });
-const waitApproval = (runId?: string) => until(() => pendingApprovals().filter((a) => !runId || a.runId === runId), (list) => list.length > 0, 'una aprobación pendiente').then((l) => l[0]);
+const waitApproval = (runId?: string) =>
+  until(
+    () => pendingApprovals().filter((a) => !runId || a.runId === runId),
+    (list) => list.length > 0,
+    'una aprobación pendiente',
+  ).then((l) => l[0]);
 const finished = async (runId: string): Promise<Run> => {
   await ctx!.runs.waitFor(runId);
   return ctx!.store.getRun(runId)!;
@@ -85,12 +90,24 @@ describe('subworkflows', () => {
   function family(c: AppContext) {
     const agent = addAgent(c, { name: 'Trabajador' });
     const child = c.store.createWorkflow({
-      ...workflow([node('entrada', 'input'), node('resumen', 'agent', { agentId: agent.id, prompt: 'resume {{input}}' }), node('salida', 'output', { template: 'R[{{resumen}}]' })], edges('entrada>resumen', 'resumen>salida')),
+      ...workflow(
+        [
+          node('entrada', 'input'),
+          node('resumen', 'agent', { agentId: agent.id, prompt: 'resume {{input}}' }),
+          node('salida', 'output', { template: 'R[{{resumen}}]' }),
+        ],
+        edges('entrada>resumen', 'resumen>salida'),
+      ),
       name: 'Resumir',
     });
     const parent = c.store.createWorkflow({
       ...workflow(
-        [node('entrada', 'input'), node('previo', 'agent', { agentId: agent.id, prompt: 'prepara {{input}}' }), node('sub', 'subworkflow', { workflowId: child.id, input: '{{previo}}' }), node('fin', 'output', { template: 'FIN {{sub}}' })],
+        [
+          node('entrada', 'input'),
+          node('previo', 'agent', { agentId: agent.id, prompt: 'prepara {{input}}' }),
+          node('sub', 'subworkflow', { workflowId: child.id, input: '{{previo}}' }),
+          node('fin', 'output', { template: 'FIN {{sub}}' }),
+        ],
         edges('entrada>previo', 'previo>sub', 'sub>fin'),
       ),
       name: 'Padre',
@@ -113,7 +130,14 @@ describe('subworkflows', () => {
 
     const children = (await api.get(`/api/runs/${run.id}/children`)).json() as RunSummary[];
     expect(children).toHaveLength(1);
-    expect(children[0]).toMatchObject({ name: 'Resumir', status: 'completed', parentRunId: run.id, parentNodeId: 'sub', workflowId: child.id, input: 'eco(prepara dato)' });
+    expect(children[0]).toMatchObject({
+      name: 'Resumir',
+      status: 'completed',
+      parentRunId: run.id,
+      parentNodeId: 'sub',
+      workflowId: child.id,
+      input: 'eco(prepara dato)',
+    });
     expect(ctx.store.listEvents(run.id).find((e) => e.type === 'subrun.started')!.data).toEqual({ runId: children[0].id, name: 'Resumir' });
     // La instantánea de la ejecución incluye el subworkflow tal como era al lanzarla.
     expect(Object.keys(run.snapshot.subworkflows ?? {})).toEqual([child.id]);
@@ -129,9 +153,17 @@ describe('subworkflows', () => {
     const { ctx } = await boot(llm);
     const { child, parent, agent } = family(ctx);
     const started = ctx.runs.startWorkflowRun(parent, 'dato');
-    await until(() => llm.calls.length, (n) => n === 1, 'el primer agente en marcha');
+    await until(
+      () => llm.calls.length,
+      (n) => n === 1,
+      'el primer agente en marcha',
+    );
     // Con la ejecución a medias se cambia la definición del hijo.
-    ctx.store.updateWorkflow(child.id, { ...child, nodes: [node('entrada', 'input'), node('otro', 'agent', { agentId: agent.id, prompt: 'CAMBIADO {{input}}' })], edges: edges('entrada>otro') });
+    ctx.store.updateWorkflow(child.id, {
+      ...child,
+      nodes: [node('entrada', 'input'), node('otro', 'agent', { agentId: agent.id, prompt: 'CAMBIADO {{input}}' })],
+      edges: edges('entrada>otro'),
+    });
     release();
     const run = await finished(started.id);
     expect(run.output).toBe('FIN R[eco(resume eco(prepara dato))]');
@@ -172,7 +204,11 @@ describe('subworkflows', () => {
     const { ctx } = await boot(llm);
     const { parent } = family(ctx);
     const started = ctx.runs.startWorkflowRun(parent, 'dato');
-    const [child] = await until(() => ctx.store.listChildRuns(started.id), (list) => list.length === 1 && list[0].status === 'running', 'la subejecución en marcha');
+    const [child] = await until(
+      () => ctx.store.listChildRuns(started.id),
+      (list) => list.length === 1 && list[0].status === 'running',
+      'la subejecución en marcha',
+    );
     expect(ctx.runs.isActive(child.id)).toBe(true);
     ctx.runs.cancel(started.id);
     const run = await finished(started.id);
@@ -199,8 +235,12 @@ describe('subworkflows', () => {
     // La hoja no puede llamar a «Arriba»: cerraría el ciclo Arriba → Medio → Hoja → Arriba.
     const cyclic = { nodes: [node('s', 'subworkflow', { workflowId: top.id, input: '{{input}}' })], edges: [] };
     expect(issues(cyclic, leaf.id)[0]).toMatch(/subworkflow «Arriba».*acaba llamando a este mismo workflow/);
-    expect(issues({ nodes: [node('s', 'subworkflow', { workflowId: leaf.id, input: '{{input}}' })], edges: [] }, leaf.id)[0]).toMatch(/no puede llamar al workflow del que forma parte/);
-    expect(issues({ nodes: [node('s', 'subworkflow', { workflowId: 'wf_no_existe', input: 'x' })], edges: [] }, null)[0]).toMatch(/usa un workflow que ya no existe/);
+    expect(issues({ nodes: [node('s', 'subworkflow', { workflowId: leaf.id, input: '{{input}}' })], edges: [] }, leaf.id)[0]).toMatch(
+      /no puede llamar al workflow del que forma parte/,
+    );
+    expect(issues({ nodes: [node('s', 'subworkflow', { workflowId: 'wf_no_existe', input: 'x' })], edges: [] }, null)[0]).toMatch(
+      /usa un workflow que ya no existe/,
+    );
     expect(issues({ nodes: [node('s', 'subworkflow', { input: 'x' })], edges: [] }, null)[0]).toMatch(/no tiene workflow asignado/);
     expect(issues({ nodes: [node('s', 'subworkflow', { workflowId: leaf.id })], edges: [] }, null)[0]).toMatch(/no tiene entrada que pasar/);
 
@@ -218,7 +258,10 @@ describe('«para cada» con herramienta, subworkflow y política por elemento', 
   it('cuerpo de herramienta: la ejecuta con cada elemento, sin modelo', async () => {
     const { ctx, llm } = await boot();
     const wf = workflow(
-      [node('lista', 'transform', { template: '["2+2", "10/4", "3*3"]' }), node('calc', 'foreach', { body: 'tool', tool: 'calculator', args: { expression: '{{item}}' }, format: 'json', concurrency: 3 })],
+      [
+        node('lista', 'transform', { template: '["2+2", "10/4", "3*3"]' }),
+        node('calc', 'foreach', { body: 'tool', tool: 'calculator', args: { expression: '{{item}}' }, format: 'json', concurrency: 3 }),
+      ],
       edges('lista>calc'),
     );
     const run = await finished(ctx.runs.startWorkflowRun(ctx.store.createWorkflow(wf), '').id);
@@ -227,8 +270,18 @@ describe('«para cada» con herramienta, subworkflow y política por elemento', 
     expect(llm.calls).toHaveLength(0);
     expect(run.usage.toolCalls).toBe(3);
     const calls = ctx.store.listEvents(run.id).filter((e) => e.type === 'tool.call');
-    expect(calls.map((e) => [e.data.item, e.data.arguments.expression])).toEqual(expect.arrayContaining([[0, '2+2'], [1, '10/4'], [2, '3*3']]));
-    expect((await api.get(`/api/runs/${run.id}/steps/calc/items`)).json()).toMatchObject([{ index: 0, item: '2+2', status: 'completed' }, { index: 1 }, { index: 2 }]);
+    expect(calls.map((e) => [e.data.item, e.data.arguments.expression])).toEqual(
+      expect.arrayContaining([
+        [0, '2+2'],
+        [1, '10/4'],
+        [2, '3*3'],
+      ]),
+    );
+    expect((await api.get(`/api/runs/${run.id}/steps/calc/items`)).json()).toMatchObject([
+      { index: 0, item: '2+2', status: 'completed' },
+      { index: 1 },
+      { index: 2 },
+    ]);
   });
 
   it('cuerpo de subworkflow: un flujo de varios nodos por elemento', async () => {
@@ -236,16 +289,29 @@ describe('«para cada» con herramienta, subworkflow y política por elemento', 
     const agent = addAgent(ctx);
     const child = ctx.store.createWorkflow({
       ...workflow(
-        [node('entrada', 'input'), node('uno', 'agent', { agentId: agent.id, prompt: 'analiza {{input}}' }), node('dos', 'agent', { agentId: agent.id, prompt: 'redacta {{uno}}' }), node('salida', 'output')],
+        [
+          node('entrada', 'input'),
+          node('uno', 'agent', { agentId: agent.id, prompt: 'analiza {{input}}' }),
+          node('dos', 'agent', { agentId: agent.id, prompt: 'redacta {{uno}}' }),
+          node('salida', 'output'),
+        ],
         edges('entrada>uno', 'uno>dos', 'dos>salida'),
       ),
       name: 'Dos pasos',
     });
-    const wf = ctx.store.createWorkflow(workflow([node('entrada', 'input'), node('cada', 'foreach', { body: 'subworkflow', workflowId: child.id, input: 'ficha de {{item}}', format: 'json' })], edges('entrada>cada')));
+    const wf = ctx.store.createWorkflow(
+      workflow(
+        [node('entrada', 'input'), node('cada', 'foreach', { body: 'subworkflow', workflowId: child.id, input: 'ficha de {{item}}', format: 'json' })],
+        edges('entrada>cada'),
+      ),
+    );
     const run = await finished(ctx.runs.startWorkflowRun(wf, 'Ana\nLuis').id);
     expect(run.status).toBe('completed');
     expect(JSON.parse(run.output!)).toEqual(['eco(redacta eco(analiza ficha de Ana))', 'eco(redacta eco(analiza ficha de Luis))']);
-    expect(ctx.store.listChildRuns(run.id).map((c) => [c.name, c.status, c.parentNodeId])).toEqual([['Dos pasos', 'completed', 'cada'], ['Dos pasos', 'completed', 'cada']]);
+    expect(ctx.store.listChildRuns(run.id).map((c) => [c.name, c.status, c.parentNodeId])).toEqual([
+      ['Dos pasos', 'completed', 'cada'],
+      ['Dos pasos', 'completed', 'cada'],
+    ]);
     expect(run.usage.llmCalls).toBe(4);
   });
 
@@ -257,7 +323,12 @@ describe('«para cada» con herramienta, subworkflow y política por elemento', 
     const { ctx } = await boot(llm);
     const agent = addAgent(ctx);
     const base = { agentId: agent.id, prompt: '{{item}}', concurrency: 1 };
-    const keep = ctx.store.createWorkflow(workflow([node('entrada', 'input'), node('cada', 'foreach', { ...base, onItemError: 'continue' }), node('salida', 'output')], edges('entrada>cada', 'cada>salida')));
+    const keep = ctx.store.createWorkflow(
+      workflow(
+        [node('entrada', 'input'), node('cada', 'foreach', { ...base, onItemError: 'continue' }), node('salida', 'output')],
+        edges('entrada>cada', 'cada>salida'),
+      ),
+    );
     const run = await finished(ctx.runs.startWorkflowRun(keep, 'bueno\nmalo\notro').id);
     expect(run.status).toBe('completed');
     expect(run.output).toContain('### 1. bueno\n\nok(bueno)');
@@ -267,7 +338,9 @@ describe('«para cada» con herramienta, subworkflow y política por elemento', 
     expect(ctx.store.listStepItems(run.id, 'cada').map((i) => i.status)).toEqual(['completed', 'failed', 'completed']);
 
     // En formato JSON el elemento fallido lleva su error en su posición.
-    const asJson = ctx.store.createWorkflow(workflow([node('entrada', 'input'), node('cada', 'foreach', { ...base, onItemError: 'continue', format: 'json' })], edges('entrada>cada')));
+    const asJson = ctx.store.createWorkflow(
+      workflow([node('entrada', 'input'), node('cada', 'foreach', { ...base, onItemError: 'continue', format: 'json' })], edges('entrada>cada')),
+    );
     expect(JSON.parse((await finished(ctx.runs.startWorkflowRun(asJson, 'bueno\nmalo').id)).output!)).toEqual(['ok(bueno)', { error: 'no puedo con este' }]);
     // Si fallan todos, el nodo falla.
     const all = await finished(ctx.runs.startWorkflowRun(keep, 'malo 1\nmalo 2').id);
@@ -289,7 +362,12 @@ describe('«para cada» con herramienta, subworkflow y política por elemento', 
     });
     const { ctx } = await boot(llm);
     const agent = addAgent(ctx);
-    const wf = ctx.store.createWorkflow(workflow([node('entrada', 'input'), node('cada', 'foreach', { agentId: agent.id, prompt: '{{item}}', concurrency: 1, format: 'json' })], edges('entrada>cada')));
+    const wf = ctx.store.createWorkflow(
+      workflow(
+        [node('entrada', 'input'), node('cada', 'foreach', { agentId: agent.id, prompt: '{{item}}', concurrency: 1, format: 'json' })],
+        edges('entrada>cada'),
+      ),
+    );
     const first = await finished(ctx.runs.startWorkflowRun(wf, 'uno\ndos\ntres\ncuatro').id);
     expect(first.status).toBe('failed');
     expect(llm.calls.map(userText)).toEqual(['uno', 'dos', 'tres']);
@@ -312,14 +390,19 @@ describe('«para cada» con herramienta, subworkflow y política por elemento', 
   it('valida el cuerpo elegido', async () => {
     const { ctx } = await boot();
     const errors = (config: Record<string, unknown>) =>
-      validateWorkflow({ nodes: [node('e', 'input'), node('f', 'foreach', config)], edges: edges('e>f') }, { agentIds: [], toolNames: ['calculator'], workflows: [] })
+      validateWorkflow(
+        { nodes: [node('e', 'input'), node('f', 'foreach', config)], edges: edges('e>f') },
+        { agentIds: [], toolNames: ['calculator'], workflows: [] },
+      )
         .filter((i) => i.level === 'error')
         .map((i) => i.message);
     expect(errors({ body: 'tool' })).toEqual(['El nodo "f" no tiene herramienta asignada.']);
     expect(errors({ body: 'tool', tool: 'no_existe', args: { x: '{{item}}' } })).toEqual(['El nodo "f" usa una herramienta desconocida: no_existe.']);
     expect(errors({ body: 'tool', tool: 'calculator', args: { expression: '{{item}}' } })).toEqual([]);
     expect(errors({ body: 'subworkflow' })).toEqual(['El nodo "f" no tiene workflow asignado.']);
-    expect(errors({ body: 'tool', tool: 'calculator', args: { expression: '{{item}}' }, onItemError: 'ignorar' })[0]).toMatch(/política ante un elemento fallido/);
+    expect(errors({ body: 'tool', tool: 'calculator', args: { expression: '{{item}}' }, onItemError: 'ignorar' })[0]).toMatch(
+      /política ante un elemento fallido/,
+    );
     expect(ctx.tools.names()).toContain('calculator');
   });
 });
@@ -348,8 +431,16 @@ describe('aprobación humana', () => {
     const { ctx } = await boot();
     const run = ctx.runs.startWorkflowRun(reviewFlow(ctx), 'nota de prensa');
     const approval = await waitApproval(run.id);
-    expect(approval).toMatchObject({ runName: 'Con revisión', nodeLabel: 'revisar', status: 'pending', message: '¿Publicamos esto?\n\neco(borrador de nota de prensa)' });
-    expect(ctx.store.getRun(run.id)).toMatchObject({ status: 'waiting', steps: expect.arrayContaining([expect.objectContaining({ nodeId: 'revisar', status: 'waiting' })]) });
+    expect(approval).toMatchObject({
+      runName: 'Con revisión',
+      nodeLabel: 'revisar',
+      status: 'pending',
+      message: '¿Publicamos esto?\n\neco(borrador de nota de prensa)',
+    });
+    expect(ctx.store.getRun(run.id)).toMatchObject({
+      status: 'waiting',
+      steps: expect.arrayContaining([expect.objectContaining({ nodeId: 'revisar', status: 'waiting' })]),
+    });
     expect((await api.get('/api/runs?status=waiting')).json().total).toBe(1);
     expect(((await api.get('/api/approvals')).json() as Approval[]).map((a) => a.id)).toEqual([approval.id]);
 
@@ -359,7 +450,15 @@ describe('aprobación humana', () => {
     expect(done.status).toBe('completed');
     expect(done.output).toBe('PUBLICADO: eco(borrador de nota de prensa)');
     expect(stepStatus(done)).toMatchObject({ revisar: 'completed', publicar: 'completed', corregir: 'skipped' });
-    expect(ctx.store.listEvents(run.id).filter((e) => e.type.startsWith('approval.')).map((e) => [e.type, e.data.approved])).toEqual([['approval.requested', undefined], ['approval.decided', true]]);
+    expect(
+      ctx.store
+        .listEvents(run.id)
+        .filter((e) => e.type.startsWith('approval.'))
+        .map((e) => [e.type, e.data.approved]),
+    ).toEqual([
+      ['approval.requested', undefined],
+      ['approval.decided', true],
+    ]);
     // Ya no está pendiente, y no se puede decidir dos veces.
     expect((await api.get('/api/approvals')).json()).toEqual([]);
     expect((await api.post(`/api/approvals/${approval.id}/decide`, { approved: false })).statusCode).toBe(409);
@@ -442,10 +541,18 @@ describe('aprobación humana', () => {
       validateWorkflow({ nodes, edges: edges(...es) }, { agentIds: [], toolNames: [] })
         .filter((i) => i.level === 'error')
         .map((i) => i.message);
-    expect(errors([node('e', 'input'), node('a', 'approval', { message: '' })], ['e>a'])).toEqual(['La aprobación "a" no tiene el texto de lo que se pide aprobar.']);
-    expect(errors([node('e', 'input'), node('a', 'approval', { message: '¿ok?' }), node('t', 'transform', { template: 'x' })], ['e>a', 'a>t'])[0]).toMatch(/deben partir de "aprobado" o "rechazado"/);
-    expect(errors([node('e', 'input'), node('t', 'transform', { template: '{{e.comment}}' })], ['e>t'])).toEqual(['"t" usa {{e.comment}}, pero solo las aprobaciones tienen comentario.']);
-    expect(errors([node('e', 'input'), node('a', 'approval', { message: '¿ok?' }), node('t', 'transform', { template: '{{a.comment}}' })], ['e>a', 'a:false>t'])).toEqual([]);
+    expect(errors([node('e', 'input'), node('a', 'approval', { message: '' })], ['e>a'])).toEqual([
+      'La aprobación "a" no tiene el texto de lo que se pide aprobar.',
+    ]);
+    expect(errors([node('e', 'input'), node('a', 'approval', { message: '¿ok?' }), node('t', 'transform', { template: 'x' })], ['e>a', 'a>t'])[0]).toMatch(
+      /deben partir de "aprobado" o "rechazado"/,
+    );
+    expect(errors([node('e', 'input'), node('t', 'transform', { template: '{{e.comment}}' })], ['e>t'])).toEqual([
+      '"t" usa {{e.comment}}, pero solo las aprobaciones tienen comentario.',
+    ]);
+    expect(
+      errors([node('e', 'input'), node('a', 'approval', { message: '¿ok?' }), node('t', 'transform', { template: '{{a.comment}}' })], ['e>a', 'a:false>t']),
+    ).toEqual([]);
   });
 });
 
@@ -459,9 +566,15 @@ describe('reanudación automática', () => {
       });
     const first = await boot(hang(), { dataDir });
     const agent = addAgent(first.ctx);
-    const wf = first.ctx.store.createWorkflow(workflow([node('a', 'agent', { agentId: agent.id, prompt: 'rápido' }), node('b', 'agent', { agentId: agent.id, prompt: 'lento {{a}}' })], edges('a>b')));
+    const wf = first.ctx.store.createWorkflow(
+      workflow([node('a', 'agent', { agentId: agent.id, prompt: 'rápido' }), node('b', 'agent', { agentId: agent.id, prompt: 'lento {{a}}' })], edges('a>b')),
+    );
     const run = first.ctx.runs.startWorkflowRun(wf, '');
-    await until(() => first.llm.calls.length, (n) => n === 2, 'el paso lento en marcha');
+    await until(
+      () => first.llm.calls.length,
+      (n) => n === 2,
+      'el paso lento en marcha',
+    );
     await first.app.close();
     await first.ctx.close();
 
@@ -504,7 +617,11 @@ describe('texto parcial de un paso que no termina', () => {
     const run = ctx.runs.startAgentRun(addAgent(ctx), 'escribe');
     const events: RunEvent[] = [];
     ctx.runs.subscribe(run.id, (ev) => events.push(ev));
-    await until(() => ctx.runs.partials(run.id), (p) => p.length === 1, 'texto parcial en vivo');
+    await until(
+      () => ctx.runs.partials(run.id),
+      (p) => p.length === 1,
+      'texto parcial en vivo',
+    );
     ctx.runs.cancel(run.id);
     const done = await finished(run.id);
     expect(done.status).toBe('cancelled');
@@ -525,7 +642,11 @@ describe('respuestas cortadas del proveedor (protocolo de OpenAI)', () => {
       res.end(sse({ choices: [{ delta: { content: 'El informe empieza así y' } }] }));
     });
     cleanups.push(server.close);
-    await expect(new OpenAiCompatibleClient(server.url).chat(req)).rejects.toMatchObject({ name: 'LlmError', retryable: true, message: 'La respuesta del proveedor se cortó antes de terminar.' });
+    await expect(new OpenAiCompatibleClient(server.url).chat(req)).rejects.toMatchObject({
+      name: 'LlmError',
+      retryable: true,
+      message: 'La respuesta del proveedor se cortó antes de terminar.',
+    });
   });
 
   it('con motivo de fin o con [DONE] la respuesta es válida', async () => {
@@ -548,7 +669,16 @@ describe('respuestas cortadas del proveedor (protocolo de OpenAI)', () => {
       turn++;
       if (turn === 1) {
         // Argumentos a medias y fin por límite de tokens.
-        res.end(sse({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'file_write', arguments: '{"path": "informe.md", "content": "Empie' } }] } }] }, { choices: [{ delta: {}, finish_reason: 'length' }] }));
+        res.end(
+          sse(
+            {
+              choices: [
+                { delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'file_write', arguments: '{"path": "informe.md", "content": "Empie' } }] } },
+              ],
+            },
+            { choices: [{ delta: {}, finish_reason: 'length' }] },
+          ),
+        );
       } else {
         res.end(sse({ choices: [{ delta: { content: 'No pude guardar el archivo.' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }));
       }

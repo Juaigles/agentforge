@@ -25,7 +25,14 @@ describe('interpretación de listas', () => {
   });
 
   it('entiende listas con viñetas, numeradas o una por línea', () => {
-    expect(parseList('- Madrid\n* Barcelona\n• Sevilla\n\n  1. Bilbao\n2) Vigo\nA Coruña')).toEqual(['Madrid', 'Barcelona', 'Sevilla', 'Bilbao', 'Vigo', 'A Coruña']);
+    expect(parseList('- Madrid\n* Barcelona\n• Sevilla\n\n  1. Bilbao\n2) Vigo\nA Coruña')).toEqual([
+      'Madrid',
+      'Barcelona',
+      'Sevilla',
+      'Bilbao',
+      'Vigo',
+      'A Coruña',
+    ]);
     expect(parseList('   \n\n')).toEqual([]);
     expect(parseList('un solo elemento')).toEqual(['un solo elemento']);
     // Un texto que empieza por corchete pero no es JSON se trata por líneas, sin perder nada.
@@ -71,7 +78,12 @@ describe('nodo «para cada»', () => {
     expect(step.agentId).toBe(a.id);
 
     const events = itemEvents(run.id);
-    expect(events.filter((e) => e.data.status === 'started').map((e) => e.data.index).sort()).toEqual([0, 1, 2, 3, 4]);
+    expect(
+      events
+        .filter((e) => e.data.status === 'started')
+        .map((e) => e.data.index)
+        .sort(),
+    ).toEqual([0, 1, 2, 3, 4]);
     expect(events.filter((e) => e.data.status === 'completed')).toHaveLength(5);
     expect(events[0].data).toMatchObject({ index: 0, total: 5, item: 'alfa', status: 'started' });
     // La actividad de cada elemento va anidada un nivel y etiquetada con su índice.
@@ -89,7 +101,10 @@ describe('nodo «para cada»', () => {
     const a = addAgent(ctx);
     const run = await runWorkflow(
       ctx,
-      workflow([node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 1, format: 'json' })], edges('entrada>cada')),
+      workflow(
+        [node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 1, format: 'json' })],
+        edges('entrada>cada'),
+      ),
       '- uno\n- dos\n- tres',
     );
     expect(llm.maxInFlight).toBe(1);
@@ -105,7 +120,11 @@ describe('nodo «para cada»', () => {
     const run = await runWorkflow(
       ctx,
       workflow(
-        [node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '[]', prompt: '{{item}}', format: 'json' }), node('salida', 'output', { template: 'Resultados: {{cada}}' })],
+        [
+          node('entrada', 'input'),
+          node('cada', 'foreach', { agentId: a.id, items: '[]', prompt: '{{item}}', format: 'json' }),
+          node('salida', 'output', { template: 'Resultados: {{cada}}' }),
+        ],
         edges('entrada>cada', 'cada>salida'),
       ),
     );
@@ -119,7 +138,10 @@ describe('nodo «para cada»', () => {
     const a = addAgent(ctx);
     const run = await runWorkflow(
       ctx,
-      workflow([node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', maxItems: 3 })], edges('entrada>cada')),
+      workflow(
+        [node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', maxItems: 3 })],
+        edges('entrada>cada'),
+      ),
       'a\nb\nc\nd',
     );
     expect(run.status).toBe('failed');
@@ -144,7 +166,11 @@ describe('nodo «para cada»', () => {
     const run = await runWorkflow(
       ctx,
       workflow(
-        [node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 2 }), node('salida', 'output', { template: '{{cada}}' })],
+        [
+          node('entrada', 'input'),
+          node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 2 }),
+          node('salida', 'output', { template: '{{cada}}' }),
+        ],
         edges('entrada>cada', 'cada>salida'),
       ),
       'lento\nmalo\nnunca-1\nnunca-2',
@@ -154,7 +180,11 @@ describe('nodo «para cada»', () => {
     expect(run.error).toContain('Elemento 2 de 4 («malo»): modelo no encontrado');
     expect(stepStatus(run)).toEqual({ entrada: 'completed', cada: 'failed', salida: 'cancelled' });
     expect(started.sort()).toEqual(['lento', 'malo']);
-    expect(itemEvents(run.id).filter((e) => e.data.status === 'failed').map((e) => e.data.index)).toEqual([1]);
+    expect(
+      itemEvents(run.id)
+        .filter((e) => e.data.status === 'failed')
+        .map((e) => e.data.index),
+    ).toEqual([1]);
   });
 
   it('reintenta por elemento los errores pasajeros, sin repetir los que ya terminaron', async () => {
@@ -170,14 +200,23 @@ describe('nodo «para cada»', () => {
     const a = addAgent(ctx);
     const run = await runWorkflow(
       ctx,
-      workflow([node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 1, retries: 2, format: 'json' })], edges('entrada>cada')),
+      workflow(
+        [
+          node('entrada', 'input'),
+          node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 1, retries: 2, format: 'json' }),
+        ],
+        edges('entrada>cada'),
+      ),
       'estable\ninestable\nfinal',
     );
     expect(run.status).toBe('completed');
     expect(JSON.parse(run.output!)).toEqual(['ok(estable)', 'ok(inestable)', 'ok(final)']);
     expect(Object.fromEntries(attempts)).toEqual({ estable: 1, inestable: 3, final: 1 });
     const retries = itemEvents(run.id).filter((e) => e.data.status === 'retry');
-    expect(retries.map((e) => [e.data.index, e.data.attempt])).toEqual([[1, 1], [1, 2]]);
+    expect(retries.map((e) => [e.data.index, e.data.attempt])).toEqual([
+      [1, 1],
+      [1, 2],
+    ]);
   });
 
   it('se agotan los reintentos de un elemento: el nodo falla', async () => {
@@ -188,7 +227,10 @@ describe('nodo «para cada»', () => {
     const a = addAgent(ctx);
     const run = await runWorkflow(
       ctx,
-      workflow([node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', retries: 1 })], edges('entrada>cada')),
+      workflow(
+        [node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', retries: 1 })],
+        edges('entrada>cada'),
+      ),
       'único',
     );
     expect(run.status).toBe('failed');
@@ -204,7 +246,10 @@ describe('nodo «para cada»', () => {
     ctx = makeContext(llm);
     const a = addAgent(ctx);
     const wf = ctx.store.createWorkflow(
-      workflow([node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 2 })], edges('entrada>cada')),
+      workflow(
+        [node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 2 })],
+        edges('entrada>cada'),
+      ),
     );
     const run = ctx.runs.startWorkflowRun(wf, 'a\nb\nc\nd\ne');
     for (let i = 0; i < 100 && llm.calls.length < 2; i++) await delay(10);
@@ -222,7 +267,11 @@ describe('nodo «para cada»', () => {
     const a = addAgent(ctx);
     const run = await runWorkflow(
       ctx,
-      workflow([node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 1 })], edges('entrada>cada'), { maxLlmCalls: 3 }),
+      workflow(
+        [node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 1 })],
+        edges('entrada>cada'),
+        { maxLlmCalls: 3 },
+      ),
       'a\nb\nc\nd\ne',
     );
     expect(run.status).toBe('failed');
@@ -242,7 +291,10 @@ describe('nodo «para cada»', () => {
     const a = addAgent(ctx, { tools: ['calculator'] });
     const run = await runWorkflow(
       ctx,
-      workflow([node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 3, format: 'json' })], edges('entrada>cada')),
+      workflow(
+        [node('entrada', 'input'), node('cada', 'foreach', { agentId: a.id, items: '{{input}}', prompt: '{{item}}', concurrency: 3, format: 'json' })],
+        edges('entrada>cada'),
+      ),
       '1\n2\n3',
     );
     expect(JSON.parse(run.output!)).toEqual(['resultado: 10', 'resultado: 20', 'resultado: 30']);
@@ -313,7 +365,9 @@ describe('validación del nodo «para cada»', () => {
       'error: La concurrencia de "cada" debe estar entre 1 y 8.',
       'error: El máximo de elementos de "cada" debe estar entre 1 y 100.',
     ]);
-    expect(check({ agentId: 'agt', items: '', prompt: '{{item}}' }, [], false)).toContain('error: El nodo "cada" no tiene de dónde sacar la lista: conéctalo o indica una plantilla.');
+    expect(check({ agentId: 'agt', items: '', prompt: '{{item}}' }, [], false)).toContain(
+      'error: El nodo "cada" no tiene de dónde sacar la lista: conéctalo o indica una plantilla.',
+    );
     expect(check({ agentId: 'agt', items: '{{item}}', prompt: '{{item}}' })).toContain(
       'error: La lista de "cada" no puede usar {{item}}, {{index}} ni {{total}}: solo existen dentro de la tarea.',
     );

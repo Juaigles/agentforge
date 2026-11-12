@@ -16,7 +16,8 @@ export default {
     addOne: 'Add one in Settings',
     notResponding: '“{name}” is not responding.',
     notRespondingWith: '“{name}” is not responding: {error}',
-    ollama: '{ollama} runs models on your own computer, for free and without sending data out. {download}, leave it open and download the model with this command in a terminal:',
+    ollama:
+      '{ollama} runs models on your own computer, for free and without sending data out. {download}, leave it open and download the model with this command in a terminal:',
     ollamaDownload: 'Download and install it',
     remote: 'Prefer a remote service? {add} with an {compatible} API.',
     remoteAdd: 'Add a provider in Settings',

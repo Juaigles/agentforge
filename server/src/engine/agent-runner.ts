@@ -137,7 +137,7 @@ export async function runAgent(agent: Agent, input: string, ctx: AgentRunContext
       let resultText: string;
       try {
         if (failedCalls.has(signature)) {
-          throw new ToolError("Ya hiciste esta misma llamada y falló. No la repitas: prueba con otros argumentos o responde con lo que sabes.");
+          throw new ToolError('Ya hiciste esta misma llamada y falló. No la repitas: prueba con otros argumentos o responde con lo que sabes.');
         }
         if (!allowed.has(call.name)) {
           throw new ToolError(`La herramienta "${call.name}" no está disponible. Disponibles: ${[...allowed].join(', ') || 'ninguna'}.`);
@@ -183,8 +183,7 @@ export async function runAgent(agent: Agent, input: string, ctx: AgentRunContext
     if (iteration === maxIterations) {
       messages.push({
         role: 'user',
-        content:
-          'Has alcanzado el límite de pasos con herramientas. Da ahora tu respuesta final con la información que ya tienes.',
+        content: 'Has alcanzado el límite de pasos con herramientas. Da ahora tu respuesta final con la información que ya tienes.',
       });
     }
   }

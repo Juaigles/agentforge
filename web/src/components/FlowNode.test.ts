@@ -32,7 +32,8 @@ const agent: Agent = {
 function render(data: FlowNodeData, props: { selected?: boolean; id?: string } = {}) {
   return mount(FlowNode, { props: { id: props.id ?? 'nodo', data, selected: props.selected }, global: { stubs: { Handle } } });
 }
-const handles = (w: ReturnType<typeof render>) => w.findAll('.handle').map((h) => `${h.attributes('data-type')}${h.attributes('data-id') ? `:${h.attributes('data-id')}` : ''}`);
+const handles = (w: ReturnType<typeof render>) =>
+  w.findAll('.handle').map((h) => `${h.attributes('data-type')}${h.attributes('data-id') ? `:${h.attributes('data-id')}` : ''}`);
 
 beforeEach(() => {
   freshPinia();
@@ -75,7 +76,14 @@ describe('FlowNode', () => {
 
   it('en el monitor usa el nombre y el color del agente guardados en la ejecución, aunque el agente ya no exista', () => {
     useCatalog().agents = [];
-    const node = render({ kind: 'agent', label: 'Paso', config: { agentId: 'agt_1' }, agentName: 'Nombre histórico', agentColor: '#123456', status: 'completed' });
+    const node = render({
+      kind: 'agent',
+      label: 'Paso',
+      config: { agentId: 'agt_1' },
+      agentName: 'Nombre histórico',
+      agentColor: '#123456',
+      status: 'completed',
+    });
     expect(node.get('.sub').text()).toBe('Nombre histórico');
     expect(node.get('.flow-node').attributes('style')).toContain('--tint: #123456');
   });

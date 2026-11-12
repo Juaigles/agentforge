@@ -33,7 +33,15 @@ test.beforeAll(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentforge-e2e-token-'));
   child = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
     cwd: path.join(repoRoot, 'server'),
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', AGENTFORGE_DATA_DIR: dataDir, AGENTFORGE_SEED: '0', AGENTFORGE_LOG: '0', AGENTFORGE_TOKEN: TOKEN },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOST: '127.0.0.1',
+      AGENTFORGE_DATA_DIR: dataDir,
+      AGENTFORGE_SEED: '0',
+      AGENTFORGE_LOG: '0',
+      AGENTFORGE_TOKEN: TOKEN,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stdout?.on('data', (c) => (output += c));
@@ -63,14 +71,16 @@ test.afterAll(async () => {
 });
 
 test.describe('Clave de acceso', () => {
-  test('sin la clave la API no entrega nada; con ella se entra y la sesión se conserva', async ({ page }) => {
+  test('sin la clave la API no entrega nada; con ella se entra y la sesión se conserva', async ({ page, browserName }) => {
     // Los 401 esperados aparecen en la consola del navegador como «Failed to load resource»: no son errores de la página.
     const pageErrors: string[] = [];
     page.on('pageerror', (err) => pageErrors.push(err.message));
 
     // Por API: nada sin clave, todo con ella.
     expect((await fetch(`${url}/api/agents`)).status).toBe(401);
-    expect((await fetch(`${url}/api/settings`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"allowCodeExecution":true}' })).status).toBe(401);
+    expect(
+      (await fetch(`${url}/api/settings`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"allowCodeExecution":true}' })).status,
+    ).toBe(401);
     expect((await fetch(`${url}/api/agents`, { headers: { Authorization: `Bearer ${TOKEN}` } })).status).toBe(200);
 
     await page.goto(`${url}/agents`);
@@ -99,7 +109,16 @@ test.describe('Clave de acceso', () => {
     // La cookie de sesión no es legible desde la página y no contiene la clave.
     const cookies = await page.context().cookies(url);
     const session = cookies.find((c) => c.name === 'af_session');
-    expect(session).toMatchObject({ httpOnly: true, sameSite: 'Strict' });
+    expect(session).toMatchObject({ httpOnly: true });
+    // WebKit en Windows no conserva el atributo SameSite en su almacén de cookies: lo que envía el servidor se
+    // comprueba además en la cabecera de la respuesta, igual para los tres motores.
+    if (browserName !== 'webkit') expect(session).toMatchObject({ sameSite: 'Strict' });
+    const login = await fetch(`${url}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN }),
+    });
+    expect(login.headers.get('set-cookie')).toMatch(/af_session=[^;]+;.*HttpOnly.*SameSite=Strict/i);
     expect(session!.value).not.toContain(TOKEN);
     expect(await page.evaluate(() => document.cookie)).not.toContain('af_session');
 

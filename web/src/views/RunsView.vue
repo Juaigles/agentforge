@@ -120,7 +120,12 @@ async function cancel(run: RunSummary): Promise<void> {
 }
 
 async function remove(run: RunSummary): Promise<void> {
-  const ok = await ui.confirm({ title: t('runs.confirm.deleteTitle'), message: t('runs.confirm.deleteMessage', { name: run.name }), confirmLabel: t('common.actions.delete'), danger: true });
+  const ok = await ui.confirm({
+    title: t('runs.confirm.deleteTitle'),
+    message: t('runs.confirm.deleteMessage', { name: run.name }),
+    confirmLabel: t('common.actions.delete'),
+    danger: true,
+  });
   if (!ok) return;
   try {
     await api.runs.remove(run.id);
@@ -156,8 +161,12 @@ async function clearFinished(): Promise<void> {
       <div>
         <h1>{{ t('runs.title') }}</h1>
         <i18n-t keypath="runs.subtitle" tag="p" class="subtitle" scope="global">
-          <template #run><Term id="ejecucion">{{ t('runs.subtitleRun') }}</Term></template>
-          <template #streaming><Term id="streaming">{{ t('runs.subtitleStreaming') }}</Term></template>
+          <template #run
+            ><Term id="ejecucion">{{ t('runs.subtitleRun') }}</Term></template
+          >
+          <template #streaming
+            ><Term id="streaming">{{ t('runs.subtitleStreaming') }}</Term></template
+          >
         </i18n-t>
       </div>
       <div class="row">
@@ -168,7 +177,14 @@ async function clearFinished(): Promise<void> {
 
     <div class="filters">
       <div class="segmented" role="group" :aria-label="t('runs.filters.statusLabel')">
-        <button v-for="s in STATUSES" :key="s.value" type="button" :class="{ active: status === s.value }" :aria-pressed="status === s.value" @click="status = s.value">
+        <button
+          v-for="s in STATUSES"
+          :key="s.value"
+          type="button"
+          :class="{ active: status === s.value }"
+          :aria-pressed="status === s.value"
+          @click="status = s.value"
+        >
           {{ t(s.labelKey) }}
         </button>
       </div>
@@ -190,20 +206,40 @@ async function clearFinished(): Promise<void> {
         <table class="table">
           <thead>
             <tr>
-              <th>{{ t('runs.table.name') }}</th><th>{{ t('runs.table.status') }}</th><th>{{ t('runs.table.inputOutput') }}</th><th class="right">{{ t('runs.table.duration') }}</th><th class="right"><Term id="tokens">{{ t('runs.table.tokens') }}</Term></th><th class="right">{{ t('runs.table.start') }}</th><th><span class="sr-only">{{ t('runs.table.actions') }}</span></th>
+              <th>{{ t('runs.table.name') }}</th>
+              <th>{{ t('runs.table.status') }}</th>
+              <th>{{ t('runs.table.inputOutput') }}</th>
+              <th class="right">{{ t('runs.table.duration') }}</th>
+              <th class="right">
+                <Term id="tokens">{{ t('runs.table.tokens') }}</Term>
+              </th>
+              <th class="right">{{ t('runs.table.start') }}</th>
+              <th>
+                <span class="sr-only">{{ t('runs.table.actions') }}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="run in items" :key="run.id" class="clickable" @click="router.push(`/runs/${run.id}`)">
               <td>
                 <RouterLink :to="`/runs/${run.id}`" class="row name" @click.stop>
-                  <component :is="run.kind === 'workflow' ? Workflow : Bot" class="kind" :aria-label="run.kind === 'workflow' ? t('runs.row.workflow') : t('runs.row.agent')" />
+                  <component
+                    :is="run.kind === 'workflow' ? Workflow : Bot"
+                    class="kind"
+                    :aria-label="run.kind === 'workflow' ? t('runs.row.workflow') : t('runs.row.agent')"
+                  />
                   <span>
                     <strong>{{ run.name }}</strong>
                     <span v-if="run.retryOf" class="badge" style="margin-left: 6px; height: 18px">{{ t('runs.row.retry') }}</span>
-                    <span v-if="run.parentRunId" class="badge" style="margin-left: 6px; height: 18px" :title="t('runs.row.childTitle')">{{ t('runs.row.child') }}</span>
-                    <span v-if="run.triggerKind === 'webhook'" class="badge info" style="margin-left: 6px; height: 18px" :title="t('runs.row.webhookTitle')">{{ t('runs.row.webhook') }}</span>
-                    <span v-else-if="run.scheduled" class="badge info" style="margin-left: 6px; height: 18px" :title="t('runs.row.scheduledTitle')">{{ t('runs.row.scheduled') }}</span>
+                    <span v-if="run.parentRunId" class="badge" style="margin-left: 6px; height: 18px" :title="t('runs.row.childTitle')">{{
+                      t('runs.row.child')
+                    }}</span>
+                    <span v-if="run.triggerKind === 'webhook'" class="badge info" style="margin-left: 6px; height: 18px" :title="t('runs.row.webhookTitle')">{{
+                      t('runs.row.webhook')
+                    }}</span>
+                    <span v-else-if="run.scheduled" class="badge info" style="margin-left: 6px; height: 18px" :title="t('runs.row.scheduledTitle')">{{
+                      t('runs.row.scheduled')
+                    }}</span>
                   </span>
                 </RouterLink>
               </td>
@@ -217,8 +253,26 @@ async function clearFinished(): Promise<void> {
               <td class="right num">{{ formatCompact(run.usage.promptTokens + run.usage.completionTokens) }}</td>
               <td class="right muted" style="white-space: nowrap" :title="formatDateTime(run.createdAt)">{{ relativeTime(run.createdAt, now) }}</td>
               <td class="right" @click.stop>
-                <button v-if="isActiveStatus(run.status)" class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('runs.row.cancelLabel', { name: run.name })" :title="t('common.actions.cancel')" @click="cancel(run)"><Square /></button>
-                <button v-else class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('runs.row.deleteLabel', { name: run.name })" :title="t('common.actions.delete')" @click="remove(run)"><Trash2 /></button>
+                <button
+                  v-if="isActiveStatus(run.status)"
+                  class="btn btn-ghost btn-icon btn-sm"
+                  type="button"
+                  :aria-label="t('runs.row.cancelLabel', { name: run.name })"
+                  :title="t('common.actions.cancel')"
+                  @click="cancel(run)"
+                >
+                  <Square />
+                </button>
+                <button
+                  v-else
+                  class="btn btn-ghost btn-icon btn-sm"
+                  type="button"
+                  :aria-label="t('runs.row.deleteLabel', { name: run.name })"
+                  :title="t('common.actions.delete')"
+                  @click="remove(run)"
+                >
+                  <Trash2 />
+                </button>
               </td>
             </tr>
           </tbody>
@@ -234,8 +288,12 @@ async function clearFinished(): Promise<void> {
         <template v-else>
           <h3>{{ t('runs.empty.none') }}</h3>
           <i18n-t keypath="runs.empty.noneText" tag="p" scope="global">
-            <template #agent><Term id="agente">{{ t('runs.empty.noneAgent') }}</Term></template>
-            <template #workflow><Term id="workflow">{{ t('runs.empty.noneWorkflow') }}</Term></template>
+            <template #agent
+              ><Term id="agente">{{ t('runs.empty.noneAgent') }}</Term></template
+            >
+            <template #workflow
+              ><Term id="workflow">{{ t('runs.empty.noneWorkflow') }}</Term></template
+            >
           </i18n-t>
           <RouterLink class="btn btn-primary" to="/workflows">{{ t('runs.empty.goToWorkflows') }}</RouterLink>
         </template>
@@ -244,7 +302,9 @@ async function clearFinished(): Promise<void> {
 
     <div v-if="items.length" class="row between" style="margin-top: 12px">
       <span class="small muted" role="status">{{ t(capped ? 'runs.footer.showingCapped' : 'runs.footer.showing', { n: items.length, total }) }}</span>
-      <button v-if="items.length < total" class="btn" type="button" :disabled="loadingMore" @click="load(false)">{{ loadingMore ? t('common.actions.loading') : t('runs.footer.loadMore') }}</button>
+      <button v-if="items.length < total" class="btn" type="button" :disabled="loadingMore" @click="load(false)">
+        {{ loadingMore ? t('common.actions.loading') : t('runs.footer.loadMore') }}
+      </button>
     </div>
   </div>
 </template>

@@ -1,7 +1,8 @@
 // Texts for the MCP servers panel (list, create and edit).
 export default {
   sectionLabel: 'MCP servers',
-  intro: 'An {mcp} server is a program that offers ready-made {tools} (file access, databases, services…). Once connected, its tools appear in the catalog named {pattern} and can be assigned to agents.',
+  intro:
+    'An {mcp} server is a program that offers ready-made {tools} (file access, databases, services…). Once connected, its tools appear in the catalog named {pattern} and can be assigned to agents.',
   introTools: 'tools',
   introPattern: 'server__tool',
   add: 'Add MCP server',
@@ -29,11 +30,11 @@ export default {
   noTools: "Connected, but it doesn't offer any tools.",
   toast: {
     reconnected: '"{name}" connected: {n} tool. | "{name}" connected: {n} tools.',
-    reconnectFailed: "Couldn't connect to \"{name}\": {error}",
+    reconnectFailed: 'Couldn\'t connect to "{name}": {error}',
     removed: 'Server "{name}" deleted.',
     connected: 'Server "{name}" connected: {n} tool available. | Server "{name}" connected: {n} tools available.',
     savedDisabled: 'Server "{name}" saved, but disabled.',
-    savedFailed: "Server \"{name}\" saved, but couldn't connect: {error}",
+    savedFailed: 'Server "{name}" saved, but couldn\'t connect: {error}',
   },
   confirm: {
     removeTitle: 'Delete MCP server',

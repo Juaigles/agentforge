@@ -26,17 +26,7 @@ import {
   type WorkflowExport,
   type WorkflowImportResult,
 } from '../../../shared/types';
-import {
-  backupFile,
-  cancelRestore,
-  createBackup,
-  deleteBackup,
-  lastRestore,
-  listBackups,
-  pendingRestore,
-  prepareRestore,
-  receiveBackup,
-} from '../backup';
+import { backupFile, cancelRestore, createBackup, deleteBackup, lastRestore, listBackups, pendingRestore, prepareRestore, receiveBackup } from '../backup';
 import type { AppContext } from '../context';
 import { SCHEMA_VERSION } from '../db/database';
 import { systemTimeZone } from '../engine/cron';
@@ -195,7 +185,8 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     const checks: Record<string, { ok: boolean; detail?: string }> = {};
     try {
       const version = Number((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
-      checks.database = version === SCHEMA_VERSION ? { ok: true, detail: `esquema v${version}` } : { ok: false, detail: `esquema v${version}, se esperaba v${SCHEMA_VERSION}` };
+      checks.database =
+        version === SCHEMA_VERSION ? { ok: true, detail: `esquema v${version}` } : { ok: false, detail: `esquema v${version}, se esperaba v${SCHEMA_VERSION}` };
     } catch (err) {
       checks.database = { ok: false, detail: errorMessage(err) };
     }
@@ -207,7 +198,9 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
     }
     checks.scheduler = ctx.scheduler.running ? { ok: true } : { ok: false, detail: 'el temporizador de programaciones no está en marcha' };
     const ok = Object.values(checks).every((c) => c.ok);
-    return reply.status(ok ? 200 : 503).send({ ok, version: APP_VERSION, uptimeSec: uptimeSec(), activeRuns: runs.activeCount, queuedRuns: runs.queuedCount, checks });
+    return reply
+      .status(ok ? 200 : 503)
+      .send({ ok, version: APP_VERSION, uptimeSec: uptimeSec(), activeRuns: runs.activeCount, queuedRuns: runs.queuedCount, checks });
   });
 
   app.get('/api/stats', async (): Promise<DashboardStats> => {
@@ -688,7 +681,9 @@ export function registerApi(app: FastifyInstance, ctx: AppContext): void {
         const value = req.headers[name];
         return typeof value === 'string' ? value.trim() : '';
       };
-      const signature = header('x-agentforge-signature').replace(/^sha256=/i, '').toLowerCase();
+      const signature = header('x-agentforge-signature')
+        .replace(/^sha256=/i, '')
+        .toLowerCase();
       const plain = header('x-agentforge-secret') || header('authorization').replace(/^Bearer\s+/i, '');
       // Se comprueba siempre contra algo (aunque el webhook no exista) para no revelar cuáles existen por el tiempo de respuesta.
       const expected = secret ?? newWebhookSecret();

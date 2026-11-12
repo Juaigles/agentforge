@@ -32,7 +32,11 @@ export const useUi = defineStore('ui', () => {
   const lifetime = (t: Pick<Toast, 'tone' | 'action'>): number => (t.tone === 'danger' ? 0 : t.action ? 12_000 : 5000);
   function schedule(id: number, ms: number): void {
     clearTimeout(timers.get(id));
-    if (ms > 0) timers.set(id, setTimeout(() => dismiss(id), ms));
+    if (ms > 0)
+      timers.set(
+        id,
+        setTimeout(() => dismiss(id), ms),
+      );
   }
   function toast(tone: Toast['tone'], message: string, action?: Toast['action']): void {
     // El mismo aviso repetido no se apila.
@@ -64,6 +68,8 @@ export const useUi = defineStore('ui', () => {
   const confirmState = ref<(ConfirmOptions & { resolve: (ok: boolean) => void }) | null>(null);
   function confirm(options: ConfirmOptions): Promise<boolean> {
     return new Promise((resolve) => {
+      // Una confirmación nueva sustituye a la abierta: la anterior se resuelve con «no» para que nadie quede esperando.
+      confirmState.value?.resolve(false);
       confirmState.value = { ...options, resolve };
     });
   }

@@ -36,7 +36,8 @@ const providerStatus = computed(() => {
   if (catalog.loadError && !catalog.loaded) return { tone: 'danger', text: t('app.status.offline') };
   if (!catalog.health.length) return { tone: '', text: catalog.providers.length ? t('app.status.checking') : t('app.status.noProviders') };
   const ok = catalog.health.filter((h) => h.ok).length;
-  if (ok === catalog.health.length) return { tone: 'success', text: ok === 1 ? t('app.status.oneAvailable', { name: catalog.health[0].name }) : tn('app.providersAvailable', ok) };
+  if (ok === catalog.health.length)
+    return { tone: 'success', text: ok === 1 ? t('app.status.oneAvailable', { name: catalog.health[0].name }) : tn('app.providersAvailable', ok) };
   return { tone: 'danger', text: ok ? t('app.status.someAvailable', { ok, total: catalog.health.length }) : t('app.status.unavailable') };
 });
 
@@ -57,7 +58,11 @@ onMounted(async () => {
   try {
     await catalog.ensure();
     // Las ejecuciones que ya estaban en marcha al abrir la página también se siguen en vivo.
-    const [running, queued, waiting] = await Promise.all([api.runs.list({ status: 'running' }), api.runs.list({ status: 'queued' }), api.runs.list({ status: 'waiting' })]);
+    const [running, queued, waiting] = await Promise.all([
+      api.runs.list({ status: 'running' }),
+      api.runs.list({ status: 'queued' }),
+      api.runs.list({ status: 'waiting' }),
+    ]);
     runs.seed([...running.items, ...queued.items, ...waiting.items]);
   } catch {
     /* el estado de conexión se muestra en la barra lateral y en cada vista */
@@ -114,15 +119,27 @@ onBeforeUnmount(() => {
       </RouterLink>
 
       <nav :aria-label="t('app.nav.label')">
-        <RouterLink v-for="item in NAV" :key="item.to" :to="item.to" class="nav-item" :class="{ exact: item.exact }" :aria-label="t(item.labelKey)" :title="t(item.labelKey)">
+        <RouterLink
+          v-for="item in NAV"
+          :key="item.to"
+          :to="item.to"
+          class="nav-item"
+          :class="{ exact: item.exact }"
+          :aria-label="t(item.labelKey)"
+          :title="t(item.labelKey)"
+        >
           <component :is="item.icon" aria-hidden="true" />
           <span>{{ t(item.labelKey) }}</span>
-          <span v-if="item.to === '/runs' && runs.active.length" class="count" :title="tn('app.runningCount', runs.active.length)">{{ runs.active.length }}</span>
+          <span v-if="item.to === '/runs' && runs.active.length" class="count" :title="tn('app.runningCount', runs.active.length)">{{
+            runs.active.length
+          }}</span>
         </RouterLink>
       </nav>
 
       <div class="sidebar-foot">
-        <RouterLink to="/glosario" class="nav-item subtle" :aria-label="t('app.nav.glossary')" :title="t('app.nav.glossary')"><BookOpen aria-hidden="true" /><span>{{ t('app.nav.glossary') }}</span></RouterLink>
+        <RouterLink to="/glosario" class="nav-item subtle" :aria-label="t('app.nav.glossary')" :title="t('app.nav.glossary')"
+          ><BookOpen aria-hidden="true" /><span>{{ t('app.nav.glossary') }}</span></RouterLink
+        >
         <RouterLink to="/settings" class="status" :title="providerStatus.text" :aria-label="t('app.status.label', { text: providerStatus.text })">
           <span class="dot" :class="[providerStatus.tone, { pulse: !providerStatus.tone && catalog.providers.length > 0 }]" />
           <span class="truncate">{{ providerStatus.text }}</span>

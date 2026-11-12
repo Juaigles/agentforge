@@ -103,7 +103,9 @@ test.describe('Herramientas', () => {
     expect((await app.api('GET', '/api/settings')).allowPrivateNetwork).toBe(true);
 
     await page.getByRole('link', { name: 'Herramientas' }).click();
-    await card(page, name).getByRole('button', { name: `Probar ${name}` }).click();
+    await card(page, name)
+      .getByRole('button', { name: `Probar ${name}` })
+      .click();
     bench = page.getByRole('dialog', { name: `Probar ${name}` });
     await bench.getByLabel('producto').fill('tornillo');
     await bench.getByLabel('almacen').selectOption('norte');
@@ -196,7 +198,9 @@ test.describe('Herramientas', () => {
     await editor.getByRole('button', { name: 'Crear herramienta' }).click();
     await expect(toast(page, 'creada')).toBeVisible();
 
-    await card(page, name).getByRole('button', { name: `Probar ${name}` }).click();
+    await card(page, name)
+      .getByRole('button', { name: `Probar ${name}` })
+      .click();
     const bench = page.getByRole('dialog', { name: `Probar ${name}` });
     await bench.getByLabel('articulo').fill('arandela');
     await expect(bench.getByLabel('cantidad')).toHaveValue('1');
@@ -287,7 +291,10 @@ test.describe('Herramientas', () => {
     await expect(txtRow).toHaveCount(1);
 
     // Markdown: vista previa renderizada y alternancia con el texto original.
-    await mdRow.getByRole('button', { name: `Ver ${md}` }).first().click();
+    await mdRow
+      .getByRole('button', { name: `Ver ${md}` })
+      .first()
+      .click();
     const viewer = page.getByRole('dialog', { name: md });
     await expect(viewer.getByRole('heading', { name: 'Informe trimestral' })).toBeVisible();
     await expect(viewer.locator('strong')).toHaveText('al alza');
@@ -297,7 +304,10 @@ test.describe('Herramientas', () => {
     await viewer.getByRole('button', { name: 'Cerrar' }).first().click();
 
     // Texto plano: sin selector de modo, contenido literal.
-    await txtRow.getByRole('button', { name: `Ver ${txt}` }).first().click();
+    await txtRow
+      .getByRole('button', { name: `Ver ${txt}` })
+      .first()
+      .click();
     const plain = page.getByRole('dialog', { name: txt });
     await expect(plain.locator('.codeblock')).toHaveText('línea uno\nlínea dos');
     await expect(plain.getByRole('group', { name: 'Modo de visualización' })).toHaveCount(0);

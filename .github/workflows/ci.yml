@@ -1,0 +1,99 @@
+# Integración continua de AgentForge.
+#
+# Este archivo está preparado pero NO se ha ejecutado nunca: el repositorio no está publicado. Refleja los
+# comandos que sí se ejecutan en local (`npm run check`, `npm run test:coverage`, `npm run test:e2e:all`).
+# Antes de fiarse de él hay que verlo pasar una vez en un repositorio real.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Los tests de integración con un modelo real se omiten solos cuando no hay Ollama (ver más abajo).
+  AGENTFORGE_LOG_LEVEL: silent
+
+jobs:
+  static:
+    name: Lint, formato y tipos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm audit --audit-level=moderate
+
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # El desarrollo es en Windows y hay código sensible a las rutas: se prueban los dos.
+        # macOS queda fuera: los tests de rebinding escuchan en 127.0.0.2, que allí no existe sin un alias.
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Falla si la cobertura baja de los umbrales de server/vitest.config.ts y web/vite.config.ts.
+      - run: npm run test:coverage
+      - name: Tests omitidos
+        if: always()
+        shell: bash
+        # Sin Ollama ni Docker en el ejecutor se omiten los tests del modelo real y del contenedor: que se vea.
+        run: echo "Los tests de server/test/ollama.integration.test.ts y el del contenedor se omiten sin Ollama ni Docker." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cobertura-${{ matrix.os }}
+          path: |
+            server/coverage
+            web/coverage
+          if-no-files-found: ignore
+
+  e2e:
+    name: E2E (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npm run build
+      - run: npx playwright test --project=${{ matrix.browser }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-${{ matrix.browser }}
+          path: |
+            e2e/.report
+            e2e/.results
+          if-no-files-found: ignore
+          retention-days: 7

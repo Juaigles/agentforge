@@ -111,7 +111,9 @@ async function cancel(): Promise<void> {
         <span v-else-if="!isActive" class="tiny faint">{{ t('playground.shortcut') }}</span>
         <span v-if="live?.startedAt" class="small muted num" style="margin-left: auto">
           {{ formatDuration(elapsedMs(live.startedAt, live.finishedAt, now)) }}
-          <template v-if="usage"> · {{ formatCompact(usage.promptTokens + usage.completionTokens) }} <Term id="tokens">{{ t('playground.tokens') }}</Term></template>
+          <template v-if="usage">
+            · {{ formatCompact(usage.promptTokens + usage.completionTokens) }} <Term id="tokens">{{ t('playground.tokens') }}</Term></template
+          >
         </span>
       </div>
 
@@ -119,7 +121,9 @@ async function cancel(): Promise<void> {
 
       <template v-if="live">
         <div v-if="live.error" class="callout danger" role="alert">{{ live.error }}</div>
-        <div v-if="thinking && !text" class="thinking small"><span class="eyebrow">{{ t('playground.reasoning') }}</span>{{ thinking.slice(-400) }}</div>
+        <div v-if="thinking && !text" class="thinking small">
+          <span class="eyebrow">{{ t('playground.reasoning') }}</span>{{ thinking.slice(-400) }}
+        </div>
         <div v-if="text" class="answer">
           <MarkdownView :source="text" />
           <span v-if="isActive" class="caret" aria-hidden="true" />
@@ -130,7 +134,9 @@ async function cancel(): Promise<void> {
           <summary>{{ hasTools ? t('playground.activityTools') : t('playground.activity') }}</summary>
           <RunActivity :events="live.events" node-id="agent" />
         </details>
-        <RouterLink v-if="runId" class="small row" :to="`/runs/${runId}`" style="gap: 4px">{{ t('playground.viewFull') }} <ArrowUpRight style="width: 13px; height: 13px" /></RouterLink>
+        <RouterLink v-if="runId" class="small row" :to="`/runs/${runId}`" style="gap: 4px"
+          >{{ t('playground.viewFull') }} <ArrowUpRight style="width: 13px; height: 13px"
+        /></RouterLink>
       </template>
 
       <div v-if="history.length" class="history">

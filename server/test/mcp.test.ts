@@ -43,7 +43,8 @@ const post = (url: string, payload?: unknown) => app.inject({ method: 'POST', ur
 const put = (url: string, payload: unknown) => app.inject({ method: 'PUT', url, payload: payload as object });
 const get = (url: string) => app.inject({ method: 'GET', url });
 const del = (url: string) => app.inject({ method: 'DELETE', url });
-const invoke = async (name: string, args: Record<string, unknown> = {}) => (await post(`/api/tools/${name}/invoke`, { args })).json() as { ok: boolean; result?: string; error?: string };
+const invoke = async (name: string, args: Record<string, unknown> = {}) =>
+  (await post(`/api/tools/${name}/invoke`, { args })).json() as { ok: boolean; result?: string; error?: string };
 const mcpTools = async () => ((await get('/api/tools')).json() as ToolInfo[]).filter((t) => t.source === 'mcp');
 
 /** Servidor MCP por HTTP (sin estado: un servidor y un transporte por petición), protegido con una cabecera. */
@@ -76,7 +77,14 @@ describe('nombres y resultados', () => {
   });
 
   it('convierte los bloques de contenido en texto para el modelo', () => {
-    expect(mcpResultText({ content: [{ type: 'text', text: 'uno' }, { type: 'text', text: 'dos' }] })).toBe('uno\ndos');
+    expect(
+      mcpResultText({
+        content: [
+          { type: 'text', text: 'uno' },
+          { type: 'text', text: 'dos' },
+        ],
+      }),
+    ).toBe('uno\ndos');
     expect(mcpResultText({ content: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }] })).toBe('[image image/png: contenido no textual omitido]');
     expect(mcpResultText({ content: [{ type: 'resource', resource: { uri: 'file:///a', text: 'contenido' } }] })).toBe('contenido');
     expect(mcpResultText({ content: [{ type: 'resource_link', uri: 'file:///b' }] })).toBe('[recurso: file:///b]');
@@ -92,8 +100,24 @@ describe('servidor MCP por stdio', () => {
     const res = await post('/api/mcp/servers', stdio({ env: { CLAVE_SECRETA: 'valor-muy-secreto' } }));
     expect(res.statusCode).toBe(201);
     const server = res.json() as McpServer;
-    expect(server).toMatchObject({ name: 'eco', transport: 'stdio', enabled: true, status: 'connected', error: null, envKeys: ['CLAVE_SECRETA'], headerKeys: [] });
-    expect(server.tools.map((t) => t.name)).toEqual(['eco__sumar', 'eco__get_env_value', 'eco__buscar', 'eco__fallar', 'eco__lenta', 'eco__ampliar', 'eco__salir']);
+    expect(server).toMatchObject({
+      name: 'eco',
+      transport: 'stdio',
+      enabled: true,
+      status: 'connected',
+      error: null,
+      envKeys: ['CLAVE_SECRETA'],
+      headerKeys: [],
+    });
+    expect(server.tools.map((t) => t.name)).toEqual([
+      'eco__sumar',
+      'eco__get_env_value',
+      'eco__buscar',
+      'eco__fallar',
+      'eco__lenta',
+      'eco__ampliar',
+      'eco__salir',
+    ]);
     // Los valores secretos no salen por la API y en la base de datos están cifrados.
     expect(res.body).not.toContain('valor-muy-secreto');
     expect((await get('/api/mcp/servers')).body).not.toContain('valor-muy-secreto');
@@ -104,7 +128,15 @@ describe('servidor MCP por stdio', () => {
     const listed = await mcpTools();
     expect(listed).toHaveLength(7);
     const sumar = listed.find((t) => t.name === 'eco__sumar')!;
-    expect(sumar).toMatchObject({ title: 'sumar', description: 'Suma dos números.', category: 'MCP · eco', source: 'mcp', enabled: true, mcpServerId: server.id, mcpServerName: 'eco' });
+    expect(sumar).toMatchObject({
+      title: 'sumar',
+      description: 'Suma dos números.',
+      category: 'MCP · eco',
+      source: 'mcp',
+      enabled: true,
+      mcpServerId: server.id,
+      mcpServerName: 'eco',
+    });
     expect(sumar.parameters).toMatchObject({ type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } }, required: ['a', 'b'] });
 
     expect(await invoke('eco__sumar', { a: 2, b: 40 })).toMatchObject({ ok: true, result: '42' });
@@ -152,11 +184,23 @@ describe('servidor MCP por stdio', () => {
     await post('/api/mcp/servers', stdio());
     const run = await runWorkflow(
       ctx,
-      workflow([node('entrada', 'input'), node('suma', 'tool', { tool: 'eco__sumar', args: { a: 5, b: 6 } }), node('salida', 'output', { template: 'total: {{suma}}' })], edges('entrada>suma', 'suma>salida')),
+      workflow(
+        [
+          node('entrada', 'input'),
+          node('suma', 'tool', { tool: 'eco__sumar', args: { a: 5, b: 6 } }),
+          node('salida', 'output', { template: 'total: {{suma}}' }),
+        ],
+        edges('entrada>suma', 'suma>salida'),
+      ),
     );
     expect(run).toMatchObject({ status: 'completed', output: 'total: 11' });
     // Y la validación conoce la herramienta: un workflow que la usa no tiene errores.
-    const wf = (await post('/api/workflows', workflow([node('entrada', 'input'), node('suma', 'tool', { tool: 'eco__sumar', args: { a: 1, b: 2 } })], edges('entrada>suma')))).json();
+    const wf = (
+      await post(
+        '/api/workflows',
+        workflow([node('entrada', 'input'), node('suma', 'tool', { tool: 'eco__sumar', args: { a: 1, b: 2 } })], edges('entrada>suma')),
+      )
+    ).json();
     expect(((await post('/api/workflows/validate', wf)).json().issues as Array<{ level: string }>).filter((i) => i.level === 'error')).toEqual([]);
   });
 
@@ -197,7 +241,14 @@ describe('servidor MCP por stdio', () => {
     await boot();
     await post('/api/mcp/servers', stdio());
     const controller = new AbortController();
-    const toolCtx = { runId: 'r', nodeId: 'n', signal: controller.signal, workspaceDir: ctx.config.workspaceDir, settings: ctx.store.getSettings(), memory: new Map<string, string>() };
+    const toolCtx = {
+      runId: 'r',
+      nodeId: 'n',
+      signal: controller.signal,
+      workspaceDir: ctx.config.workspaceDir,
+      settings: ctx.store.getSettings(),
+      memory: new Map<string, string>(),
+    };
     const started = Date.now();
     const pending = ctx.tools.invoke('eco__lenta', { ms: 20_000 }, toolCtx);
     setTimeout(() => controller.abort(new Error('cancelada por el usuario')), 100);

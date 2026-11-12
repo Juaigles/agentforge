@@ -225,7 +225,9 @@ function collect(
           if (startProblem) return reject(new ToolError(startProblem));
           const oom = /heap out of memory|Allocation failed/i.test(stderr);
           return reject(
-            new ToolError(oom ? `El código superó el límite de memoria (${opts.memoryMb} MB).` : 'El código terminó sin devolver resultado (¿límite de memoria?).'),
+            new ToolError(
+              oom ? `El código superó el límite de memoria (${opts.memoryMb} MB).` : 'El código terminó sin devolver resultado (¿límite de memoria?).',
+            ),
           );
         }
         if (!message.ok) return reject(new ToolError(`Error al ejecutar el código: ${message.error}`));
@@ -296,7 +298,8 @@ export async function detectContainerEngine(force = false): Promise<{ value: Con
       error = null;
       break;
     }
-    if (res.code !== null) error ??= `${engine === 'docker' ? 'Docker' : 'Podman'} está instalado pero su servicio no responde. Arráncalo e inténtalo de nuevo.`;
+    if (res.code !== null)
+      error ??= `${engine === 'docker' ? 'Docker' : 'Podman'} está instalado pero su servicio no responde. Arráncalo e inténtalo de nuevo.`;
   }
   if (!value) error ??= 'No se ha encontrado Docker ni Podman en este equipo.';
   engineCache = { at: Date.now(), value, error };
@@ -444,7 +447,11 @@ export async function sandboxStatus(force = false): Promise<SandboxStatus> {
       version: found.value?.version ?? null,
       image: SANDBOX_IMAGE,
       imagePresent,
-      error: found.value ? (imagePresent ? null : `Falta la imagen ${SANDBOX_IMAGE}. Descárgala una vez con: ${found.value.engine} pull ${SANDBOX_IMAGE}`) : found.error,
+      error: found.value
+        ? imagePresent
+          ? null
+          : `Falta la imagen ${SANDBOX_IMAGE}. Descárgala una vez con: ${found.value.engine} pull ${SANDBOX_IMAGE}`
+        : found.error,
     },
   };
 }

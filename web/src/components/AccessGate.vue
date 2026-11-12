@@ -41,7 +41,9 @@ async function submit(): Promise<void> {
       <div class="gate-icon" aria-hidden="true"><KeyRound /></div>
       <h1>AgentForge</h1>
       <i18n-t keypath="accessGate.intro" tag="p" class="muted" scope="global">
-        <template #key><Term id="clave-acceso">{{ t('accessGate.introKey') }}</Term></template>
+        <template #key
+          ><Term id="clave-acceso">{{ t('accessGate.introKey') }}</Term></template
+        >
         <template #variable><code>AGENTFORGE_TOKEN</code></template>
       </i18n-t>
       <div class="field">

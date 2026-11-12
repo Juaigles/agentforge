@@ -2,7 +2,8 @@
 export default {
   titleEdit: 'Edit HTTP tool',
   titleNew: 'New HTTP tool',
-  intro: 'Connect any {http} API as a tool. When it runs, each placeholder in the {template} (for example {example}) is replaced with the value the agent decides.',
+  intro:
+    'Connect any {http} API as a tool. When it runs, each placeholder in the {template} (for example {example}) is replaced with the value the agent decides.',
   introTemplate: 'template',
   introExample: "{'{{city}}'}",
   name: {
@@ -36,7 +37,8 @@ export default {
     label: 'Headers',
     add: 'Add header',
     none: 'No additional headers.',
-    secretHint: 'Headers with credentials (Authorization, Cookie, API keys…) are stored {encrypted} and their value is never shown again or included when exporting.',
+    secretHint:
+      'Headers with credentials (Authorization, Cookie, API keys…) are stored {encrypted} and their value is never shown again or included when exporting.',
     encrypted: 'encrypted',
     nameAria: 'Name of header {n}',
     valueAria: 'Value of header {n}',
@@ -45,12 +47,13 @@ export default {
   },
   body: {
     label: 'Body template',
-    placeholder: "{'{ \"query\": \"{{text}}\" }'}",
+    placeholder: '{\'{ "query": "{{text}}" }\'}',
     hint: 'If left empty, all parameters are sent as {json}.',
   },
   params: {
     legend: 'Parameters',
-    intro: 'They make up the {schema}: what the agent must fill in when calling the tool. With "allowed values" it can only pick from that list; the "default value" is used when it does not send the parameter.',
+    intro:
+      'They make up the {schema}: what the agent must fill in when calling the tool. With "allowed values" it can only pick from that list; the "default value" is used when it does not send the parameter.',
     introSchema: 'parameter schema',
     none: "This tool doesn't take any parameters.",
     name: 'Name',

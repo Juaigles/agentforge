@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+data
+e2e/.results
+e2e/.report
+presentacion
+package-lock.json
+*.md
+.claude

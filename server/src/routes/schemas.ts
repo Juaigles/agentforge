@@ -69,7 +69,11 @@ const jsonSchemaProp = z
   .object({
     type: z.enum(['string', 'number', 'integer', 'boolean', 'object', 'array']),
     description: z.string().max(500).optional(),
-    enum: z.array(z.union([z.string(), z.number()])).min(1).max(100).optional(),
+    enum: z
+      .array(z.union([z.string(), z.number()]))
+      .min(1)
+      .max(100)
+      .optional(),
     default: z.unknown().optional(),
     items: z.object({ type: z.string() }).optional(),
   })
@@ -140,7 +144,12 @@ const edgeSchema = z.object({
 
 export const workflowSettingsSchema = z.object({
   maxConcurrency: z.number().int().min(1).max(16).default(DEFAULT_WORKFLOW_SETTINGS.maxConcurrency),
-  maxDurationMs: z.number().int().min(1000).max(6 * 3600_000).default(DEFAULT_WORKFLOW_SETTINGS.maxDurationMs),
+  maxDurationMs: z
+    .number()
+    .int()
+    .min(1000)
+    .max(6 * 3600_000)
+    .default(DEFAULT_WORKFLOW_SETTINGS.maxDurationMs),
   maxLlmCalls: z.number().int().min(1).max(500).default(DEFAULT_WORKFLOW_SETTINGS.maxLlmCalls),
   onError: z.enum(['fail', 'continue']).default(DEFAULT_WORKFLOW_SETTINGS.onError),
   defaultRetries: z.number().int().min(0).max(5).default(DEFAULT_WORKFLOW_SETTINGS.defaultRetries),
@@ -177,7 +186,8 @@ export const triggerSchema = z
     enabled: z.boolean().default(true),
   })
   .superRefine((value, ctx) => {
-    if (value.kind === 'interval' && value.intervalMinutes === null) ctx.addIssue({ code: 'custom', path: ['intervalMinutes'], message: 'Indica cada cuántos minutos' });
+    if (value.kind === 'interval' && value.intervalMinutes === null)
+      ctx.addIssue({ code: 'custom', path: ['intervalMinutes'], message: 'Indica cada cuántos minutos' });
     if (value.kind === 'daily' && value.time === null) ctx.addIssue({ code: 'custom', path: ['time'], message: 'Indica la hora' });
     if (value.timezone && !isValidTimeZone(value.timezone)) {
       ctx.addIssue({ code: 'custom', path: ['timezone'], message: `«${value.timezone}» no es una zona horaria conocida (ejemplo: Europe/Madrid)` });
@@ -187,13 +197,16 @@ export const triggerSchema = z
     if (!value.cron) return void ctx.addIssue({ code: 'custom', path: ['cron'], message: 'Indica la expresión cron' });
     try {
       parseCron(value.cron);
-      if (!nextOccurrence(value, new Date())) ctx.addIssue({ code: 'custom', path: ['cron'], message: 'Esa expresión no se cumple nunca (por ejemplo, un 30 de febrero).' });
+      if (!nextOccurrence(value, new Date()))
+        ctx.addIssue({ code: 'custom', path: ['cron'], message: 'Esa expresión no se cumple nunca (por ejemplo, un 30 de febrero).' });
     } catch (err) {
       ctx.addIssue({ code: 'custom', path: ['cron'], message: err instanceof CronError ? err.message : 'La expresión cron no es válida.' });
     }
   });
 
-const secretMap = z.record(z.string().trim().min(1).max(100), z.string().max(4000)).refine((v) => Object.keys(v).length <= 30, 'Demasiados valores (máximo 30)');
+const secretMap = z
+  .record(z.string().trim().min(1).max(100), z.string().max(4000))
+  .refine((v) => Object.keys(v).length <= 30, 'Demasiados valores (máximo 30)');
 
 export const mcpServerSchema = z
   .object({
@@ -210,13 +223,17 @@ export const mcpServerSchema = z
     enabled: z.boolean().default(true),
   })
   .superRefine((value, ctx) => {
-    if (value.transport === 'stdio' && !value.command) ctx.addIssue({ code: 'custom', path: ['command'], message: 'Indica el programa que arranca el servidor' });
-    if (value.transport === 'http' && !httpUrl.safeParse(value.url).success) ctx.addIssue({ code: 'custom', path: ['url'], message: 'Debe ser una URL http(s) válida' });
+    if (value.transport === 'stdio' && !value.command)
+      ctx.addIssue({ code: 'custom', path: ['command'], message: 'Indica el programa que arranca el servidor' });
+    if (value.transport === 'http' && !httpUrl.safeParse(value.url).success)
+      ctx.addIssue({ code: 'custom', path: ['url'], message: 'Debe ser una URL http(s) válida' });
     for (const key of Object.keys(value.env ?? {})) {
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) ctx.addIssue({ code: 'custom', path: ['env'], message: `«${key}» no es un nombre de variable de entorno válido` });
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+        ctx.addIssue({ code: 'custom', path: ['env'], message: `«${key}» no es un nombre de variable de entorno válido` });
     }
     for (const [key, v] of Object.entries(value.headers ?? {})) {
-      if (!/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(key) || /[\r\n]/.test(v)) ctx.addIssue({ code: 'custom', path: ['headers'], message: `La cabecera «${key}» no es válida` });
+      if (!/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(key) || /[\r\n]/.test(v))
+        ctx.addIssue({ code: 'custom', path: ['headers'], message: `La cabecera «${key}» no es válida` });
     }
   });
 
@@ -225,7 +242,10 @@ const exportedAgentSchema = z.object({
   name: z.string().trim().min(1).max(80),
   role: z.string().max(160).default(''),
   description: z.string().max(1000).default(''),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#6366f1'),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .default('#6366f1'),
   model: z.string().max(200).default(''),
   systemPrompt: z.string().max(20_000).default(''),
   temperature: z.number().min(0).max(2).default(0.7),

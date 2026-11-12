@@ -67,8 +67,12 @@ const isLong = (text: string) => text.length > 280 || text.split('\n').length > 
       {{ tn('approvals.title', pending.length) }}
     </h2>
     <i18n-t keypath="approvals.intro" tag="p" class="small muted intro" scope="global">
-      <template #approval><Term id="aprobacion">{{ t('approvals.introApproval') }}</Term></template>
-      <template #run><Term id="ejecucion">{{ t('approvals.introRun') }}</Term></template>
+      <template #approval
+        ><Term id="aprobacion">{{ t('approvals.introApproval') }}</Term></template
+      >
+      <template #run
+        ><Term id="ejecucion">{{ t('approvals.introRun') }}</Term></template
+      >
     </i18n-t>
     <ul>
       <li v-for="approval in pending" :key="approval.id" class="approval">

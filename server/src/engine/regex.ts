@@ -46,7 +46,11 @@ export async function regexTest(pattern: string, text: string, opts: { timeoutMs
     const timer = setTimeout(
       () =>
         finish(() =>
-          reject(new ConfigError(`La expresión regular «${pattern.slice(0, 80)}» tardó más de ${timeoutMs} ms en evaluarse y se ha detenido. Simplifícala (evita cuantificadores anidados como (a+)+).`)),
+          reject(
+            new ConfigError(
+              `La expresión regular «${pattern.slice(0, 80)}» tardó más de ${timeoutMs} ms en evaluarse y se ha detenido. Simplifícala (evita cuantificadores anidados como (a+)+).`,
+            ),
+          ),
         ),
       timeoutMs,
     );

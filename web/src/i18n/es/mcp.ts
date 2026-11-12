@@ -1,7 +1,8 @@
 // Textos del panel de servidores MCP (lista, alta y edición).
 export default {
   sectionLabel: 'Servidores MCP',
-  intro: 'Un servidor {mcp} es un programa que ofrece {tools} ya hechas (acceso a archivos, bases de datos, servicios…). Al conectarlo, sus herramientas aparecen en el catálogo con el nombre {pattern} y se pueden asignar a los agentes.',
+  intro:
+    'Un servidor {mcp} es un programa que ofrece {tools} ya hechas (acceso a archivos, bases de datos, servicios…). Al conectarlo, sus herramientas aparecen en el catálogo con el nombre {pattern} y se pueden asignar a los agentes.',
   introTools: 'herramientas',
   introPattern: 'servidor__herramienta',
   add: 'Añadir servidor MCP',

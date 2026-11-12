@@ -5,7 +5,8 @@ export default {
     new: 'Nuevo disparador de «{name}»',
     edit: 'Editar disparador',
   },
-  intro: 'Un {trigger} lanza el {workflow} sin que nadie pulse «Ejecutar»: a ciertas horas o cuando otro programa llama a un {webhook}. Los que tienen horario solo funcionan mientras AgentForge esté en marcha.',
+  intro:
+    'Un {trigger} lanza el {workflow} sin que nadie pulse «Ejecutar»: a ciertas horas o cuando otro programa llama a un {webhook}. Los que tienen horario solo funcionan mientras AgentForge esté en marcha.',
   introTrigger: 'disparador',
   introWorkflow: 'workflow',
   introWebhook: 'webhook',
@@ -82,7 +83,8 @@ export default {
   cronLabel: 'Expresión {cron}',
   cronTerm: 'cron',
   cronHint: 'Cinco campos: minuto, hora, día del mes, mes y día de la semana. «0 9 * * 1-5» = de lunes a viernes a las 9:00.',
-  webhookNote: 'Al guardar se crea una dirección y un secreto. Cualquier programa que envíe un {post} a esa dirección con el secreto lanza el workflow, y el cuerpo de la petición es su texto de entrada.',
+  webhookNote:
+    'Al guardar se crea una dirección y un secreto. Cualquier programa que envíe un {post} a esa dirección con el secreto lanza el workflow, y el cuerpo de la petición es su texto de entrada.',
   zone: 'Zona horaria',
   zonePlaceholder: 'La del servidor (este navegador: {zone})',
   zoneHint: 'Déjala vacía para usar la del equipo donde corre AgentForge. Con una zona, el cambio de hora de verano se aplica solo.',

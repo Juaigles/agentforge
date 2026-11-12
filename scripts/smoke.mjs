@@ -18,7 +18,8 @@ async function follow(run) {
       after = ev.seq;
       const d = ev.data;
       const tag = `[${String(ev.seq).padStart(3)}] ${ev.type.padEnd(14)} ${ev.nodeId ?? ''}`;
-      if (ev.type === 'llm.message') console.log(tag, `tools=${d.toolCalls.map((t) => t.name).join(',') || '-'} tokens=${d.usage.promptTokens}/${d.usage.completionTokens}`);
+      if (ev.type === 'llm.message')
+        console.log(tag, `tools=${d.toolCalls.map((t) => t.name).join(',') || '-'} tokens=${d.usage.promptTokens}/${d.usage.completionTokens}`);
       else if (ev.type === 'tool.call') console.log(tag, d.name, JSON.stringify(d.arguments).slice(0, 120));
       else if (ev.type === 'tool.result') console.log(tag, d.ok ? 'ok' : 'ERROR', String(d.result).replace(/\s+/g, ' ').slice(0, 120));
       else if (ev.type === 'step.finished') console.log(tag, d.status, d.error ?? '', `${d.durationMs ?? 0}ms`);

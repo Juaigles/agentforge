@@ -47,7 +47,10 @@ const providerKey = (name: string): string => `provider:${name}`;
 const workflowKey = (id: string): string => `workflow:${id}`;
 
 const sameUrl = (a: string, b: string): boolean => a.trim().replace(/\/+$/, '').toLowerCase() === b.trim().replace(/\/+$/, '').toLowerCase();
-const stable = (value: unknown): string => JSON.stringify(value, (_key, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v));
+const stable = (value: unknown): string =>
+  JSON.stringify(value, (_key, v) =>
+    v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v,
+  );
 
 function toolNodeName(node: WorkflowNode): string | null {
   const config = (node.config ?? {}) as Record<string, unknown>;
@@ -71,7 +74,13 @@ function exportedTool(tool: CustomTool): ExportedTool {
   return fields;
 }
 
-const workflowInput = (wf: Workflow): WorkflowInput => ({ name: wf.name, description: wf.description, nodes: wf.nodes, edges: wf.edges, settings: wf.settings });
+const workflowInput = (wf: Workflow): WorkflowInput => ({
+  name: wf.name,
+  description: wf.description,
+  nodes: wf.nodes,
+  edges: wf.edges,
+  settings: wf.settings,
+});
 
 /** Agentes, herramientas HTTP y proveedores de los que dependen unos agentes y unos workflows. */
 function collectDependencies(store: Store, agentIds: Iterable<string>, workflows: WorkflowInput[]) {
@@ -192,7 +201,8 @@ export function planImport({ store, tools }: ImportDeps, bundle: ExportBundle): 
   const defaultProvider = localProviders.find((p) => p.enabled) ?? localProviders[0];
 
   for (const provider of parts.providers) {
-    const match = localProviders.find((p) => p.name === provider.name) ?? localProviders.find((p) => p.kind === provider.kind && sameUrl(p.baseUrl, provider.baseUrl));
+    const match =
+      localProviders.find((p) => p.name === provider.name) ?? localProviders.find((p) => p.kind === provider.kind && sameUrl(p.baseUrl, provider.baseUrl));
     const notes: string[] = [];
     let recommended: ImportAction;
     let recommendedTargetId: string | undefined;
@@ -210,7 +220,11 @@ export function planImport({ store, tools }: ImportDeps, bundle: ExportBundle): 
         notes.push(`No existe aquí. Sus agentes usarán «${sameKind.name}», que es del mismo tipo, salvo que elijas crearlo.`);
       } else {
         recommended = 'create';
-        notes.push(provider.kind === 'openai' ? 'Se creará sin clave de API: añádela en Ajustes antes de ejecutar sus agentes.' : `Se creará apuntando a ${provider.baseUrl}.`);
+        notes.push(
+          provider.kind === 'openai'
+            ? 'Se creará sin clave de API: añádela en Ajustes antes de ejecutar sus agentes.'
+            : `Se creará apuntando a ${provider.baseUrl}.`,
+        );
       }
     }
     items.push({
@@ -258,7 +272,16 @@ export function planImport({ store, tools }: ImportDeps, bundle: ExportBundle): 
     if (tool.secretHeaders.length && recommended !== 'reuse' && recommended !== 'skip') {
       notes.push(`Lleva credenciales que no viajan en el archivo: habrá que escribir ${tool.secretHeaders.join(', ')} al editarla.`);
     }
-    items.push({ key: toolKey(tool.name), kind: 'tool', name: tool.name, match: match ? { id: match.id, name: match.name } : null, differs, actions, recommended, notes });
+    items.push({
+      key: toolKey(tool.name),
+      kind: 'tool',
+      name: tool.name,
+      match: match ? { id: match.id, name: match.name } : null,
+      differs,
+      actions,
+      recommended,
+      notes,
+    });
   }
 
   const localAgents = store.listAgents();
@@ -266,7 +289,8 @@ export function planImport({ store, tools }: ImportDeps, bundle: ExportBundle): 
     const match = localAgents.find((a) => a.id === agent.id) ?? localAgents.find((a) => a.name === agent.name);
     const differs = Boolean(match) && stable(comparableAgent(match!)) !== stable(comparableAgent(agent));
     const notes: string[] = [];
-    if (differs) notes.push('Ya existe un agente con ese nombre y su configuración es distinta. Se usará el de aquí salvo que elijas sustituirlo o crear una copia.');
+    if (differs)
+      notes.push('Ya existe un agente con ese nombre y su configuración es distinta. Se usará el de aquí salvo que elijas sustituirlo o crear una copia.');
     if (!match && !agent.provider && !defaultProvider) notes.push('No hay ningún proveedor configurado: no se podrá crear.');
     items.push({
       key: agentKey(agent.id),
@@ -304,9 +328,12 @@ export function planImport({ store, tools }: ImportDeps, bundle: ExportBundle): 
   }
   const sensitive = SENSITIVE_TOOLS.filter((name) => used.has(name));
   if (sensitive.length) {
-    warnings.push(`Este archivo usa herramientas que actúan fuera de la conversación (${sensitive.join(', ')}). Revisa los agentes antes de ejecutarlo si no conoces su origen.`);
+    warnings.push(
+      `Este archivo usa herramientas que actúan fuera de la conversación (${sensitive.join(', ')}). Revisa los agentes antes de ejecutarlo si no conoces su origen.`,
+    );
   }
-  if (parts.triggers.length) warnings.push(`Trae ${parts.triggers.length === 1 ? 'un disparador, que se creará' : `${parts.triggers.length} disparadores, que se crearán`} en pausa.`);
+  if (parts.triggers.length)
+    warnings.push(`Trae ${parts.triggers.length === 1 ? 'un disparador, que se creará' : `${parts.triggers.length} disparadores, que se crearán`} en pausa.`);
 
   const main = parts.workflow?.name ?? parts.agents[0]?.name ?? '';
   return { kind: parts.isWorkflow ? 'workflow' : 'agent', name: main, items, warnings };
@@ -385,7 +412,10 @@ export function applyImport(deps: ImportDeps, bundle: ExportBundle, decisions: R
           store.updateCustomTool(item.match.id, input);
           result.replacedTools.push(tool.name);
         } else continue;
-        if (secretHeaders.length) result.warnings.push(`La herramienta «${tool.name}» lleva credenciales que no viajan en el archivo: escribe ${secretHeaders.join(', ')} al editarla.`);
+        if (secretHeaders.length)
+          result.warnings.push(
+            `La herramienta «${tool.name}» lleva credenciales que no viajan en el archivo: escribe ${secretHeaders.join(', ')} al editarla.`,
+          );
       }
       const knownTools = new Set(tools.list().map((t) => t.name));
 
@@ -401,14 +431,22 @@ export function applyImport(deps: ImportDeps, bundle: ExportBundle, decisions: R
           continue;
         }
         const { id: _id, provider: providerName, ...fields } = incoming;
-        const provider = (providerName && providerIds.has(providerName) ? store.getProvider(providerIds.get(providerName)!) : null) ?? (action === 'replace' && local ? store.getProvider(local.providerId) : null) ?? fallbackProvider();
+        const provider =
+          (providerName && providerIds.has(providerName) ? store.getProvider(providerIds.get(providerName)!) : null) ??
+          (action === 'replace' && local ? store.getProvider(local.providerId) : null) ??
+          fallbackProvider();
         if (!provider) {
           result.warnings.push(`No se pudo crear el agente «${incoming.name}»: no hay ningún proveedor configurado.`);
           continue;
         }
         const missing = incoming.tools.filter((t) => !knownTools.has(t));
         if (missing.length) result.warnings.push(`El agente «${incoming.name}» usaba herramientas que no existen aquí: ${missing.join(', ')}.`);
-        const input = { ...fields, providerId: provider.id, model: incoming.model || provider.defaultModel, tools: incoming.tools.filter((t) => knownTools.has(t)) };
+        const input = {
+          ...fields,
+          providerId: provider.id,
+          model: incoming.model || provider.defaultModel,
+          tools: incoming.tools.filter((t) => knownTools.has(t)),
+        };
         let saved: Agent;
         if (action === 'replace' && local) {
           saved = store.updateAgent(local.id, input)!;

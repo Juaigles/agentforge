@@ -14,7 +14,17 @@ import StatusBadge from './StatusBadge.vue';
 const props = defineProps<{ id: string; data: FlowNodeData; selected?: boolean }>();
 const catalog = useCatalog();
 
-const ICONS = { input: LogIn, agent: Bot, tool: Wrench, condition: GitBranch, transform: Shuffle, foreach: Repeat, subworkflow: Workflow, approval: UserCheck, output: Flag };
+const ICONS = {
+  input: LogIn,
+  agent: Bot,
+  tool: Wrench,
+  condition: GitBranch,
+  transform: Shuffle,
+  foreach: Repeat,
+  subworkflow: Workflow,
+  approval: UserCheck,
+  output: Flag,
+};
 const TINT = {
   input: '#64748b',
   agent: '#c2410c',
@@ -27,7 +37,9 @@ const TINT = {
   output: '#16a34a',
 };
 
-const body = computed(() => (props.data.kind === 'foreach' ? foreachBody({ id: props.id, type: 'foreach', label: '', position: { x: 0, y: 0 }, config: props.data.config }) : null));
+const body = computed(() =>
+  props.data.kind === 'foreach' ? foreachBody({ id: props.id, type: 'foreach', label: '', position: { x: 0, y: 0 }, config: props.data.config }) : null,
+);
 const usesAgent = computed(() => props.data.kind === 'agent' || body.value === 'agent');
 const workflowName = computed(() => {
   const id = props.data.config.workflowId;
@@ -37,7 +49,9 @@ const workflowName = computed(() => {
 /** Nodos con dos salidas: condición (sí / no) y aprobación (aprobado / rechazado). */
 const branching = computed(() => props.data.kind === 'condition' || props.data.kind === 'approval');
 const agent = computed(() => (usesAgent.value ? catalog.agentById.get(props.data.config.agentId) : undefined));
-const agentLabel = computed(() => props.data.agentName ?? agent.value?.name ?? (props.data.config.agentId ? t('flowNode.agentDeleted') : t('flowNode.noAgent')));
+const agentLabel = computed(
+  () => props.data.agentName ?? agent.value?.name ?? (props.data.config.agentId ? t('flowNode.agentDeleted') : t('flowNode.noAgent')),
+);
 const tint = computed(() => (props.data.kind === 'agent' ? (props.data.agentColor ?? agent.value?.color ?? TINT.agent) : TINT[props.data.kind]));
 
 const subtitle = computed(() => {
@@ -46,7 +60,9 @@ const subtitle = computed(() => {
     case 'agent':
       return agentLabel.value;
     case 'foreach':
-      return t('flowNode.forEach', { target: body.value === 'tool' ? c.tool || t('flowNode.noToolShort') : body.value === 'subworkflow' ? workflowName.value : agentLabel.value });
+      return t('flowNode.forEach', {
+        target: body.value === 'tool' ? c.tool || t('flowNode.noToolShort') : body.value === 'subworkflow' ? workflowName.value : agentLabel.value,
+      });
     case 'subworkflow':
       return workflowName.value;
     case 'approval':

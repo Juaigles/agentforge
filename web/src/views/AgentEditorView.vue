@@ -184,7 +184,12 @@ async function remove(): Promise<void> {
 
 onBeforeRouteLeave(async () => {
   if (!dirty.value || loading.value || loadError.value) return true;
-  return ui.confirm({ title: t('agentEditor.confirm.leaveTitle'), message: t('agentEditor.confirm.leaveMessage'), confirmLabel: t('agentEditor.confirm.leaveLabel'), danger: true });
+  return ui.confirm({
+    title: t('agentEditor.confirm.leaveTitle'),
+    message: t('agentEditor.confirm.leaveMessage'),
+    confirmLabel: t('agentEditor.confirm.leaveLabel'),
+    danger: true,
+  });
 });
 
 const playgroundBlocked = computed(() => {
@@ -207,9 +212,29 @@ const playgroundBlocked = computed(() => {
       </div>
       <div class="row wrap">
         <span v-if="dirty && !loading" class="badge warning">{{ t('agentEditor.unsaved') }}</span>
-        <button v-if="!isNew" class="btn btn-ghost btn-icon" type="button" :aria-label="t('agentEditor.duplicateLabel')" :title="t('common.actions.duplicate')" @click="duplicate"><Copy /></button>
-        <button v-if="!isNew" class="btn btn-ghost btn-icon" type="button" :aria-label="t('agentEditor.deleteLabel')" :title="t('common.actions.delete')" @click="remove"><Trash2 /></button>
-        <button class="btn btn-primary" type="button" :disabled="saving || loading || (!dirty && !isNew)" @click="save"><Save /> {{ saving ? t('common.actions.saving') : t('common.actions.save') }}</button>
+        <button
+          v-if="!isNew"
+          class="btn btn-ghost btn-icon"
+          type="button"
+          :aria-label="t('agentEditor.duplicateLabel')"
+          :title="t('common.actions.duplicate')"
+          @click="duplicate"
+        >
+          <Copy />
+        </button>
+        <button
+          v-if="!isNew"
+          class="btn btn-ghost btn-icon"
+          type="button"
+          :aria-label="t('agentEditor.deleteLabel')"
+          :title="t('common.actions.delete')"
+          @click="remove"
+        >
+          <Trash2 />
+        </button>
+        <button class="btn btn-primary" type="button" :disabled="saving || loading || (!dirty && !isNew)" @click="save">
+          <Save /> {{ saving ? t('common.actions.saving') : t('common.actions.save') }}
+        </button>
       </div>
     </header>
 
@@ -223,14 +248,23 @@ const playgroundBlocked = computed(() => {
           <div class="form-grid">
             <div class="field">
               <label for="ag-name">{{ t('agentEditor.identity.name') }}</label>
-              <input id="ag-name" v-model="form.name" class="input" maxlength="80" :placeholder="t('agentEditor.identity.namePlaceholder')" :aria-invalid="!!fieldErrors.name" />
+              <input
+                id="ag-name"
+                v-model="form.name"
+                class="input"
+                maxlength="80"
+                :placeholder="t('agentEditor.identity.namePlaceholder')"
+                :aria-invalid="!!fieldErrors.name"
+              />
               <span v-if="fieldErrors.name" class="error">{{ fieldErrors.name }}</span>
             </div>
             <div class="field">
               <label for="ag-role">{{ t('agentEditor.identity.role') }}</label>
               <input id="ag-role" v-model="form.role" class="input" maxlength="160" :placeholder="t('agentEditor.identity.rolePlaceholder')" />
               <i18n-t keypath="agentEditor.identity.roleHint" tag="span" class="hint" scope="global">
-                <template #model><Term id="modelo">{{ t('agentEditor.identity.roleHintModel') }}</Term></template>
+                <template #model
+                  ><Term id="modelo">{{ t('agentEditor.identity.roleHintModel') }}</Term></template
+                >
                 <template #name>{{ form.name || '…' }}</template>
                 <template #role>{{ form.role || '…' }}</template>
               </i18n-t>
@@ -239,7 +273,9 @@ const playgroundBlocked = computed(() => {
               <label for="ag-desc">{{ t('agentEditor.identity.description') }}</label>
               <input id="ag-desc" v-model="form.description" class="input" maxlength="1000" :placeholder="t('agentEditor.identity.descriptionPlaceholder')" />
               <i18n-t keypath="agentEditor.identity.descriptionHint" tag="span" class="hint" scope="global">
-                <template #delegation><Term id="delegacion">{{ t('agentEditor.identity.descriptionHintDelegation') }}</Term></template>
+                <template #delegation
+                  ><Term id="delegacion">{{ t('agentEditor.identity.descriptionHintDelegation') }}</Term></template
+                >
               </i18n-t>
             </div>
             <div class="field span-2">
@@ -267,12 +303,16 @@ const playgroundBlocked = computed(() => {
           <div v-if="!catalog.providers.length" class="callout warning">
             <TriangleAlert />
             <i18n-t keypath="agentEditor.model.noProviders" tag="div" scope="global">
-              <template #add><RouterLink to="/settings">{{ t('agentEditor.model.addOne') }}</RouterLink></template>
+              <template #add
+                ><RouterLink to="/settings">{{ t('agentEditor.model.addOne') }}</RouterLink></template
+              >
             </i18n-t>
           </div>
           <div class="form-grid">
             <div class="field">
-              <label for="ag-provider"><Term id="proveedor">{{ t('agentEditor.model.provider') }}</Term></label>
+              <label for="ag-provider"
+                ><Term id="proveedor">{{ t('agentEditor.model.provider') }}</Term></label
+              >
               <select id="ag-provider" v-model="form.providerId" class="select" :aria-invalid="!!fieldErrors.providerId" @change="form.model = ''">
                 <option value="" disabled>{{ t('agentEditor.model.select') }}</option>
                 <option v-for="p in catalog.providers" :key="p.id" :value="p.id">{{ p.name }}{{ p.enabled ? '' : t('agentEditor.model.disabled') }}</option>
@@ -282,7 +322,14 @@ const playgroundBlocked = computed(() => {
             <div class="field">
               <label for="ag-model">
                 <Term id="modelo">{{ t('agentEditor.model.label') }}</Term>
-                <button v-if="form.providerId" class="link-btn" type="button" :title="t('agentEditor.model.reloadTitle')" :aria-label="t('agentEditor.model.reloadLabel')" @click="loadModels">
+                <button
+                  v-if="form.providerId"
+                  class="link-btn"
+                  type="button"
+                  :title="t('agentEditor.model.reloadTitle')"
+                  :aria-label="t('agentEditor.model.reloadLabel')"
+                  @click="loadModels"
+                >
                   <RefreshCw :class="{ spin: modelsLoading }" />
                 </button>
               </label>
@@ -293,12 +340,22 @@ const playgroundBlocked = computed(() => {
                   {{ m.id }}{{ m.parameterSize ? ` · ${m.parameterSize}` : '' }}{{ m.sizeBytes ? ` · ${formatBytes(m.sizeBytes)}` : '' }}
                 </option>
               </select>
-              <input v-else id="ag-model" v-model="form.model" class="input" :placeholder="t('agentEditor.model.manualPlaceholder')" :aria-invalid="!!fieldErrors.model" />
+              <input
+                v-else
+                id="ag-model"
+                v-model="form.model"
+                class="input"
+                :placeholder="t('agentEditor.model.manualPlaceholder')"
+                :aria-invalid="!!fieldErrors.model"
+              />
               <span v-if="fieldErrors.model" class="error">{{ fieldErrors.model }}</span>
               <span v-else-if="modelsError" class="error">{{ t('agentEditor.model.listError', { error: modelsError }) }}</span>
               <span v-else-if="modelMissing" class="error">{{ t('agentEditor.model.unavailable') }}</span>
               <span v-else class="hint">
-                <template v-if="currentModel?.capabilities"><Term id="capacidades">{{ t('agentEditor.model.capabilities') }}</Term>: {{ currentModel.capabilities.join(', ') }}. </template>
+                <template v-if="currentModel?.capabilities"
+                  ><Term id="capacidades">{{ t('agentEditor.model.capabilities') }}</Term
+                  >: {{ currentModel.capabilities.join(', ') }}.
+                </template>
                 <button v-if="models.length" class="link-btn text" type="button" @click="manualModel = !manualModel">
                   {{ manualModel ? t('agentEditor.model.pickFromList') : t('agentEditor.model.typeByHand') }}
                 </button>
@@ -306,25 +363,36 @@ const playgroundBlocked = computed(() => {
             </div>
 
             <div class="field">
-              <label for="ag-temp"><Term id="temperatura">{{ t('agentEditor.model.temperature') }}</Term> <span class="num value">{{ temperatureText }}</span></label>
+              <label for="ag-temp"
+                ><Term id="temperatura">{{ t('agentEditor.model.temperature') }}</Term> <span class="num value">{{ temperatureText }}</span></label
+              >
               <input id="ag-temp" v-model.number="form.temperature" type="range" min="0" max="2" step="0.1" />
-              <span class="hint row between"><span>{{ t('agentEditor.model.precise') }}</span><span>{{ t('agentEditor.model.creative') }}</span></span>
+              <span class="hint row between"
+                ><span>{{ t('agentEditor.model.precise') }}</span
+                ><span>{{ t('agentEditor.model.creative') }}</span></span
+              >
             </div>
             <div class="field">
               <i18n-t keypath="agentEditor.model.maxIterations" tag="label" for="ag-iter" scope="global">
-                <template #iterations><Term id="iteraciones">{{ t('agentEditor.model.iterations') }}</Term></template>
+                <template #iterations
+                  ><Term id="iteraciones">{{ t('agentEditor.model.iterations') }}</Term></template
+                >
               </i18n-t>
               <input id="ag-iter" v-model.number="form.maxIterations" class="input" type="number" min="1" max="30" />
               <span class="hint">{{ t('agentEditor.model.iterationsHint') }}</span>
             </div>
             <div class="field">
               <i18n-t keypath="agentEditor.model.maxTokens" tag="label" for="ag-maxtok" scope="global">
-                <template #tokens><Term id="tokens">{{ t('agentEditor.model.tokens') }}</Term></template>
+                <template #tokens
+                  ><Term id="tokens">{{ t('agentEditor.model.tokens') }}</Term></template
+                >
               </i18n-t>
               <input id="ag-maxtok" v-model="maxTokensText" class="input" type="number" min="16" :placeholder="t('agentEditor.model.maxTokensPlaceholder')" />
             </div>
             <div class="field">
-              <span class="label"><Term id="razonamiento">{{ t('agentEditor.model.thinking') }}</Term></span>
+              <span class="label"
+                ><Term id="razonamiento">{{ t('agentEditor.model.thinking') }}</Term></span
+              >
               <label class="check" style="padding-top: 6px">
                 <input v-model="form.thinking" type="checkbox" class="switch" />
                 <span class="small muted">{{ t('agentEditor.model.thinkingHint') }}</span>
@@ -354,7 +422,9 @@ const playgroundBlocked = computed(() => {
               :placeholder="t('agentEditor.prompt.placeholder')"
             />
             <i18n-t keypath="agentEditor.prompt.hint" tag="span" class="hint" scope="global">
-              <template #prompt><Term id="prompt-sistema">{{ t('agentEditor.prompt.hintPrompt') }}</Term></template>
+              <template #prompt
+                ><Term id="prompt-sistema">{{ t('agentEditor.prompt.hintPrompt') }}</Term></template
+              >
               <template #count>{{ formatNumber(form.systemPrompt.length) }}</template>
             </i18n-t>
           </div>
@@ -366,8 +436,12 @@ const playgroundBlocked = computed(() => {
             <span class="badge" :class="{ accent: form.tools.length }">{{ t('agentEditor.tools.active', { n: form.tools.length }) }}</span>
           </div>
           <i18n-t keypath="agentEditor.tools.intro" tag="p" class="small muted" style="margin-bottom: 12px" scope="global">
-            <template #tool><Term id="herramienta">{{ t('agentEditor.tools.introTool') }}</Term></template>
-            <template #memory><Term id="memoria-compartida">{{ t('agentEditor.tools.introMemory') }}</Term></template>
+            <template #tool
+              ><Term id="herramienta">{{ t('agentEditor.tools.introTool') }}</Term></template
+            >
+            <template #memory
+              ><Term id="memoria-compartida">{{ t('agentEditor.tools.introMemory') }}</Term></template
+            >
           </i18n-t>
           <div v-if="unknownTools.length" class="callout warning" style="margin-bottom: 12px">
             <TriangleAlert />

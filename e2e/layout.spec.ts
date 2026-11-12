@@ -99,8 +99,15 @@ test.describe('Vista móvil (375 × 812)', () => {
   test('el diálogo de disparadores y la lista de servidores MCP caben en el móvil', async ({ page, app }) => {
     const name = unique('Disparado en el móvil');
     const wf = await app.createWorkflow(name, [{ id: 'entrada', type: 'input' }], []);
-    await app.api('POST', `/api/workflows/${wf.id}/triggers`, { kind: 'webhook', name: 'Un webhook con un nombre bastante largo para forzar el ajuste de línea' });
-    await app.api('POST', `/api/workflows/${wf.id}/triggers`, { kind: 'cron', cron: '0 9,12,15,18 1-7,15-21 * 1-5', timezone: 'America/Argentina/Buenos_Aires' });
+    await app.api('POST', `/api/workflows/${wf.id}/triggers`, {
+      kind: 'webhook',
+      name: 'Un webhook con un nombre bastante largo para forzar el ajuste de línea',
+    });
+    await app.api('POST', `/api/workflows/${wf.id}/triggers`, {
+      kind: 'cron',
+      cron: '0 9,12,15,18 1-7,15-21 * 1-5',
+      timezone: 'America/Argentina/Buenos_Aires',
+    });
     const server = await app.api('POST', '/api/mcp/servers', {
       name: 'movil',
       transport: 'stdio',
@@ -110,7 +117,11 @@ test.describe('Vista móvil (375 × 812)', () => {
     expect(server.status).toBe('error');
     /** Ningún elemento del diálogo abierto sobresale del ancho de la pantalla. */
     const dialogFits = () =>
-      page.evaluate(() => [...document.querySelectorAll('.modal, .modal *')].filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1).map((el) => el.className || el.tagName));
+      page.evaluate(() =>
+        [...document.querySelectorAll('.modal, .modal *')]
+          .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1)
+          .map((el) => el.className || el.tagName),
+      );
 
     await page.goto('/workflows');
     await page.getByRole('button', { name: `Disparadores de ${name}` }).click();
@@ -137,13 +148,33 @@ test.describe('Vista móvil (375 × 812)', () => {
 
     // Revisión de una importación con nombres largos, avisos y un selector por elemento.
     const bundle = await app.api('GET', `/api/workflows/${wf.id}/export`);
-    bundle.agents = [{ id: 'agt_movil', name: 'Un agente con un nombre bastante largo para el móvil', tools: ['http_request', 'file_write'], provider: 'Un proveedor que no existe aquí' }];
-    bundle.providers = [{ name: 'Un proveedor que no existe aquí', kind: 'openai', baseUrl: 'https://un-servidor-con-un-nombre-muy-largo.ejemplo.test/v1', defaultModel: '' }];
+    bundle.agents = [
+      {
+        id: 'agt_movil',
+        name: 'Un agente con un nombre bastante largo para el móvil',
+        tools: ['http_request', 'file_write'],
+        provider: 'Un proveedor que no existe aquí',
+      },
+    ];
+    bundle.providers = [
+      { name: 'Un proveedor que no existe aquí', kind: 'openai', baseUrl: 'https://un-servidor-con-un-nombre-muy-largo.ejemplo.test/v1', defaultModel: '' },
+    ];
     bundle.tools = [
-      { name: 'herramienta_con_un_nombre_larguisimo_para_movil', description: 'Hace algo en otro sitio', parameters: { type: 'object', properties: {} }, method: 'POST', urlTemplate: 'https://un-servidor-con-un-nombre-muy-largo.ejemplo.test/api/v1/accion', headers: { 'X-Api-Key': '' }, secretHeaders: ['X-Api-Key'], bodyTemplate: '' },
+      {
+        name: 'herramienta_con_un_nombre_larguisimo_para_movil',
+        description: 'Hace algo en otro sitio',
+        parameters: { type: 'object', properties: {} },
+        method: 'POST',
+        urlTemplate: 'https://un-servidor-con-un-nombre-muy-largo.ejemplo.test/api/v1/accion',
+        headers: { 'X-Api-Key': '' },
+        secretHeaders: ['X-Api-Key'],
+        bodyTemplate: '',
+      },
     ];
     await page.goto('/agents');
-    await page.getByLabel('Archivo de agente a importar').setInputFiles({ name: 'movil.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
+    await page
+      .getByLabel('Archivo de agente a importar')
+      .setInputFiles({ name: 'movil.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
     const review = page.getByRole('dialog', { name: `Importar «${name}»` });
     await expect(review.getByRole('listitem')).toHaveCount(3);
     expect(await dialogFits()).toEqual([]);

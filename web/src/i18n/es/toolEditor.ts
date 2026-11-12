@@ -2,7 +2,8 @@
 export default {
   titleEdit: 'Editar herramienta HTTP',
   titleNew: 'Nueva herramienta HTTP',
-  intro: 'Conecta cualquier API {http} como herramienta. Al usarla, cada hueco de la {template} (por ejemplo {example}) se sustituye por el valor que decida el agente.',
+  intro:
+    'Conecta cualquier API {http} como herramienta. Al usarla, cada hueco de la {template} (por ejemplo {example}) se sustituye por el valor que decida el agente.',
   introTemplate: 'plantilla',
   introExample: "{'{{ciudad}}'}",
   name: {
@@ -36,7 +37,8 @@ export default {
     label: 'Cabeceras',
     add: 'Añadir cabecera',
     none: 'Sin cabeceras adicionales.',
-    secretHint: 'Las cabeceras con credenciales (Authorization, Cookie, claves de API…) se guardan {encrypted} y su valor no se vuelve a mostrar ni se incluye al exportar.',
+    secretHint:
+      'Las cabeceras con credenciales (Authorization, Cookie, claves de API…) se guardan {encrypted} y su valor no se vuelve a mostrar ni se incluye al exportar.',
     encrypted: 'cifradas',
     nameAria: 'Nombre de la cabecera {n}',
     valueAria: 'Valor de la cabecera {n}',
@@ -45,12 +47,13 @@ export default {
   },
   body: {
     label: 'Plantilla del cuerpo',
-    placeholder: "{'{ \"consulta\": \"{{texto}}\" }'}",
+    placeholder: '{\'{ "consulta": "{{texto}}" }\'}',
     hint: 'Si se deja vacía, se envían todos los parámetros como {json}.',
   },
   params: {
     legend: 'Parámetros',
-    intro: 'Forman el {schema}: lo que el agente debe rellenar al llamar a la herramienta. Con «valores permitidos» solo puede elegir de esa lista; el «valor por defecto» se usa cuando no envía el parámetro.',
+    intro:
+      'Forman el {schema}: lo que el agente debe rellenar al llamar a la herramienta. Con «valores permitidos» solo puede elegir de esa lista; el «valor por defecto» se usa cuando no envía el parámetro.',
     introSchema: 'esquema de parámetros',
     none: 'Esta herramienta no recibe parámetros.',
     name: 'Nombre',

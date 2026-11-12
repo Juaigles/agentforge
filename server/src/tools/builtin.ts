@@ -114,8 +114,7 @@ const httpRequest: ToolDefinition = {
   name: 'http_request',
   title: 'Petición HTTP',
   category: 'Red',
-  description:
-    'Realiza una petición HTTP(S) a una API y devuelve el estado, las cabeceras y el cuerpo (JSON si es posible). Útil para consultar APIs REST.',
+  description: 'Realiza una petición HTTP(S) a una API y devuelve el estado, las cabeceras y el cuerpo (JSON si es posible). Útil para consultar APIs REST.',
   parameters: {
     type: 'object',
     properties: {
@@ -150,8 +149,7 @@ const webFetch: ToolDefinition = {
   name: 'web_fetch',
   title: 'Leer página web',
   category: 'Red',
-  description:
-    'Descarga una página web y devuelve su contenido como texto legible (sin HTML). Útil para leer artículos o documentación.',
+  description: 'Descarga una página web y devuelve su contenido como texto legible (sin HTML). Útil para leer artículos o documentación.',
   parameters: {
     type: 'object',
     properties: {
@@ -174,8 +172,7 @@ const fileWrite: ToolDefinition = {
   name: 'file_write',
   title: 'Escribir archivo',
   category: 'Archivos',
-  description:
-    'Escribe (o sobrescribe) un archivo de texto en el espacio de trabajo de AgentForge. Útil para guardar informes, datos o código.',
+  description: 'Escribe (o sobrescribe) un archivo de texto en el espacio de trabajo de AgentForge. Útil para guardar informes, datos o código.',
   parameters: {
     type: 'object',
     properties: {
@@ -195,7 +192,9 @@ const fileWrite: ToolDefinition = {
       throw new ToolError(`El archivo superaría el límite de ${MAX_FILE_BYTES / 1_000_000} MB por archivo. Escribe en otro archivo o sobrescribe este.`);
     }
     if ((await workspaceSize(ctx.workspaceDir)) - existing + finalSize > MAX_WORKSPACE_BYTES) {
-      throw new ToolError(`El espacio de trabajo ha alcanzado su límite de ${MAX_WORKSPACE_BYTES / 1_000_000} MB. Borra archivos desde Herramientas → Archivos.`);
+      throw new ToolError(
+        `El espacio de trabajo ha alcanzado su límite de ${MAX_WORKSPACE_BYTES / 1_000_000} MB. Borra archivos desde Herramientas → Archivos.`,
+      );
     }
     await fs.mkdir(path.dirname(target), { recursive: true });
     if (append) await fs.appendFile(target, content, 'utf8');
@@ -254,8 +253,7 @@ const memorySet: ToolDefinition = {
   name: 'memory_set',
   title: 'Guardar en memoria compartida',
   category: 'Coordinación',
-  description:
-    'Guarda un dato en la memoria compartida de la ejecución. Otros agentes del mismo workflow pueden leerlo con memory_get.',
+  description: 'Guarda un dato en la memoria compartida de la ejecución. Otros agentes del mismo workflow pueden leerlo con memory_get.',
   parameters: {
     type: 'object',
     properties: {
@@ -275,8 +273,7 @@ const memoryGet: ToolDefinition = {
   name: 'memory_get',
   title: 'Leer memoria compartida',
   category: 'Coordinación',
-  description:
-    'Lee un dato de la memoria compartida de la ejecución. Sin "key" devuelve la lista de claves disponibles.',
+  description: 'Lee un dato de la memoria compartida de la ejecución. Sin "key" devuelve la lista de claves disponibles.',
   parameters: {
     type: 'object',
     properties: { key: { type: 'string', description: 'Nombre del dato a leer (opcional).' } },

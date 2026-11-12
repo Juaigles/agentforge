@@ -45,7 +45,10 @@ const MIN_TOKEN_CHARS = 16;
 
 /** ¿El servidor escucha solo en este equipo? */
 export function isLoopbackHost(host: string): boolean {
-  const h = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  const h = host
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
   return h === 'localhost' || h === '::1' || /^127(\.\d{1,3}){3}$/.test(h);
 }
 

@@ -74,9 +74,16 @@ export function parseList(text: string): string[] {
     const list = tryJson(block);
     if (list) return list;
   }
-  return (fenced ?? body)
-    .split(/\r?\n/)
-    // Se quitan viñetas y la numeración de lista (uno o dos dígitos): «2024. Informe anual» no es un elemento numerado.
-    .map((line) => line.trim().replace(/^(?:[-*•–]\s+|\d{1,2}[.)]\s+)/, '').trim())
-    .filter((line) => line !== '' && !/^```/.test(line));
+  return (
+    (fenced ?? body)
+      .split(/\r?\n/)
+      // Se quitan viñetas y la numeración de lista (uno o dos dígitos): «2024. Informe anual» no es un elemento numerado.
+      .map((line) =>
+        line
+          .trim()
+          .replace(/^(?:[-*•–]\s+|\d{1,2}[.)]\s+)/, '')
+          .trim(),
+      )
+      .filter((line) => line !== '' && !/^```/.test(line))
+  );
 }

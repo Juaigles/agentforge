@@ -25,9 +25,17 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = Object.fromEntries(
-  process.argv.slice(2).reduce((acc, arg, i, all) => (arg.startsWith('--') ? [...acc, [arg.slice(2), all[i + 1]?.startsWith('--') || all[i + 1] === undefined ? 'true' : all[i + 1]]] : acc), []),
+  process.argv
+    .slice(2)
+    .reduce(
+      (acc, arg, i, all) =>
+        arg.startsWith('--') ? [...acc, [arg.slice(2), all[i + 1]?.startsWith('--') || all[i + 1] === undefined ? 'true' : all[i + 1]]] : acc,
+      [],
+    ),
 );
-const SIZES = String(args.runs ?? '10000').split(',').map(Number);
+const SIZES = String(args.runs ?? '10000')
+  .split(',')
+  .map(Number);
 const SCENARIOS = new Set(String(args.scenarios ?? 'stats,list,search,insert,retention,concurrency,sse').split(','));
 const SERVER_DIR = path.resolve(args['server-dir'] ?? repoRoot);
 const OUT = args.out ? path.resolve(args.out) : null;
@@ -65,20 +73,24 @@ function request(method, url, body) {
   return new Promise((resolve, reject) => {
     const data = body === undefined ? undefined : JSON.stringify(body);
     const started = performance.now();
-    const req = http.request(url, { method, agent, headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {} }, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        let json = null;
-        try {
-          json = JSON.parse(buffer.toString('utf8'));
-        } catch {
-          /* sin cuerpo JSON */
-        }
-        resolve({ status: res.statusCode, ms: performance.now() - started, bytes: buffer.length, json });
-      });
-    });
+    const req = http.request(
+      url,
+      { method, agent, headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {} },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const buffer = Buffer.concat(chunks);
+          let json = null;
+          try {
+            json = JSON.parse(buffer.toString('utf8'));
+          } catch {
+            /* sin cuerpo JSON */
+          }
+          resolve({ status: res.statusCode, ms: performance.now() - started, bytes: buffer.length, json });
+        });
+      },
+    );
     req.on('error', reject);
     req.end(data);
   });
@@ -117,7 +129,10 @@ ALTER TABLE runs ADD COLUMN scheduled INTEGER NOT NULL DEFAULT 0;
 PRAGMA user_version = 3;
 `;
 
-const WORDS = 'informe ventas cliente pedido factura análisis resumen trimestre mercado riesgo plan equipo coste margen producto soporte incidencia contrato proveedor entrega'.split(' ');
+const WORDS =
+  'informe ventas cliente pedido factura análisis resumen trimestre mercado riesgo plan equipo coste margen producto soporte incidencia contrato proveedor entrega'.split(
+    ' ',
+  );
 
 /** Siembra `count` ejecuciones sintéticas con sus pasos y eventos. Determinista. */
 function seed(dbFile, count) {
@@ -135,20 +150,60 @@ function seed(dbFile, count) {
   const iso = (ms) => new Date(ms).toISOString();
   const started = performance.now();
   db.exec('BEGIN');
-  db.prepare('INSERT INTO providers (id, name, kind, base_url, default_model, created_at, updated_at) VALUES (?,?,?,?,?,?,?)').run('prv_load', 'Carga', 'openai', 'http://127.0.0.1:1/v1', 'sim', iso(now), iso(now));
+  db.prepare('INSERT INTO providers (id, name, kind, base_url, default_model, created_at, updated_at) VALUES (?,?,?,?,?,?,?)').run(
+    'prv_load',
+    'Carga',
+    'openai',
+    'http://127.0.0.1:1/v1',
+    'sim',
+    iso(now),
+    iso(now),
+  );
   const agents = Array.from({ length: 5 }, (_, i) => `agt_load${i}`);
   for (const id of agents) {
-    db.prepare('INSERT INTO agents (id, name, provider_id, model, system_prompt, created_at, updated_at) VALUES (?,?,?,?,?,?,?)').run(id, `Agente ${id.slice(-1)}`, 'prv_load', 'sim', text(600), iso(now), iso(now));
+    db.prepare('INSERT INTO agents (id, name, provider_id, model, system_prompt, created_at, updated_at) VALUES (?,?,?,?,?,?,?)').run(
+      id,
+      `Agente ${id.slice(-1)}`,
+      'prv_load',
+      'sim',
+      text(600),
+      iso(now),
+      iso(now),
+    );
   }
   const workflows = Array.from({ length: 20 }, (_, i) => `wf_load${i}`);
   const nodes = ['entrada', 'investigar', 'analizar', 'redactar', 'revisar', 'salida'];
-  const definition = JSON.stringify({ nodes: nodes.map((id, i) => ({ id, type: i === 0 ? 'input' : i === 5 ? 'output' : 'agent', label: id, position: { x: i * 200, y: 0 }, config: { agentId: agents[i % 5], prompt: text(200) } })), edges: [], settings: {} });
-  for (const id of workflows) db.prepare('INSERT INTO workflows (id, name, definition, created_at, updated_at) VALUES (?,?,?,?,?)').run(id, `Flujo ${id.slice(7)}`, definition, iso(now), iso(now));
+  const definition = JSON.stringify({
+    nodes: nodes.map((id, i) => ({
+      id,
+      type: i === 0 ? 'input' : i === 5 ? 'output' : 'agent',
+      label: id,
+      position: { x: i * 200, y: 0 },
+      config: { agentId: agents[i % 5], prompt: text(200) },
+    })),
+    edges: [],
+    settings: {},
+  });
+  for (const id of workflows)
+    db.prepare('INSERT INTO workflows (id, name, definition, created_at, updated_at) VALUES (?,?,?,?,?)').run(
+      id,
+      `Flujo ${id.slice(7)}`,
+      definition,
+      iso(now),
+      iso(now),
+    );
 
-  const insRun = db.prepare('INSERT INTO runs (id, kind, workflow_id, agent_id, name, status, input, output, error, snapshot, usage, created_at, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-  const insStep = db.prepare('INSERT INTO run_steps (run_id, node_id, position, node_type, label, agent_id, status, attempt, input, output, usage, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+  const insRun = db.prepare(
+    'INSERT INTO runs (id, kind, workflow_id, agent_id, name, status, input, output, error, snapshot, usage, created_at, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+  );
+  const insStep = db.prepare(
+    'INSERT INTO run_steps (run_id, node_id, position, node_type, label, agent_id, status, attempt, input, output, usage, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+  );
   const insEvent = db.prepare('INSERT INTO run_events (run_id, seq, ts, type, node_id, data) VALUES (?,?,?,?,?,?)');
-  const snapshot = JSON.stringify({ workflow: JSON.parse(definition), agents: Object.fromEntries(agents.map((a) => [a, { id: a, name: a, systemPrompt: text(500) }])) });
+  const snapshot = JSON.stringify({
+    workflow: JSON.parse(definition),
+    agents: Object.fromEntries(agents.map((a) => [a, { id: a, name: a, systemPrompt: text(500) }])),
+  });
   const tools = ['calculator', 'web_fetch', 'file_write', 'http_request', 'current_datetime'];
   const eventTypes = ['step.started', 'llm.start', 'llm.message', 'tool.call', 'tool.result', 'llm.start', 'llm.message', 'step.finished'];
   for (let i = 0; i < count; i++) {
@@ -157,20 +212,58 @@ function seed(dbFile, count) {
     const r = rand();
     const status = r < 0.9 ? 'completed' : r < 0.98 ? 'failed' : 'cancelled';
     const isAgent = rand() < 0.2;
-    const usage = JSON.stringify({ promptTokens: 400 + Math.floor(rand() * 2000), completionTokens: 100 + Math.floor(rand() * 900), llmCalls: 4, toolCalls: 2 });
-    insRun.run(id, isAgent ? 'agent' : 'workflow', isAgent ? null : pick(workflows), isAgent ? pick(agents) : null, isAgent ? 'Agente de carga' : `Flujo ${i % 20}`, status,
-      text(270), status === 'completed' ? text(2200) : null, status === 'failed' ? 'El nodo "redactar" falló: tiempo de espera agotado.' : null, snapshot, usage,
-      iso(created), iso(created + 50), iso(created + 4000 + Math.floor(rand() * 20_000)));
-    nodes.forEach((node, n) => insStep.run(id, node, n, n === 0 ? 'input' : n === 5 ? 'output' : 'agent', node, n > 0 && n < 5 ? agents[n % 5] : null, 'completed', 1, text(200), text(400),
-      JSON.stringify({ promptTokens: 300, completionTokens: 120, llmCalls: 1, toolCalls: n === 2 ? 1 : 0 }), iso(created + n * 500), iso(created + n * 500 + 400)));
+    const usage = JSON.stringify({
+      promptTokens: 400 + Math.floor(rand() * 2000),
+      completionTokens: 100 + Math.floor(rand() * 900),
+      llmCalls: 4,
+      toolCalls: 2,
+    });
+    insRun.run(
+      id,
+      isAgent ? 'agent' : 'workflow',
+      isAgent ? null : pick(workflows),
+      isAgent ? pick(agents) : null,
+      isAgent ? 'Agente de carga' : `Flujo ${i % 20}`,
+      status,
+      text(270),
+      status === 'completed' ? text(2200) : null,
+      status === 'failed' ? 'El nodo "redactar" falló: tiempo de espera agotado.' : null,
+      snapshot,
+      usage,
+      iso(created),
+      iso(created + 50),
+      iso(created + 4000 + Math.floor(rand() * 20_000)),
+    );
+    nodes.forEach((node, n) =>
+      insStep.run(
+        id,
+        node,
+        n,
+        n === 0 ? 'input' : n === 5 ? 'output' : 'agent',
+        node,
+        n > 0 && n < 5 ? agents[n % 5] : null,
+        'completed',
+        1,
+        text(200),
+        text(400),
+        JSON.stringify({ promptTokens: 300, completionTokens: 120, llmCalls: 1, toolCalls: n === 2 ? 1 : 0 }),
+        iso(created + n * 500),
+        iso(created + n * 500 + 400),
+      ),
+    );
     let seq = 0;
     insEvent.run(id, ++seq, iso(created), 'run.started', null, '{"name":"carga","kind":"workflow"}');
     for (let e = 0; e < 18; e++) {
       const type = eventTypes[e % eventTypes.length];
-      const data = type === 'tool.call' ? { id: `c${e}`, name: pick(tools), arguments: { q: text(40) } } : type === 'llm.message' ? { content: text(300), usage: { promptTokens: 300, completionTokens: 120 } } : { attempt: 1, text: text(60) };
+      const data =
+        type === 'tool.call'
+          ? { id: `c${e}`, name: pick(tools), arguments: { q: text(40) } }
+          : type === 'llm.message'
+            ? { content: text(300), usage: { promptTokens: 300, completionTokens: 120 } }
+            : { attempt: 1, text: text(60) };
       insEvent.run(id, ++seq, iso(created + e * 200), type, nodes[1 + (e % 4)], JSON.stringify(data));
     }
-    insEvent.run(id, ++seq, iso(created + 5000), 'run.finished', null, JSON.stringify({ status }));
+    insEvent.run(id, seq + 1, iso(created + 5000), 'run.finished', null, JSON.stringify({ status }));
   }
   db.exec('COMMIT');
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
@@ -186,7 +279,16 @@ async function startServer(dataDir, extraEnv = {}) {
   const started = performance.now();
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
     cwd: path.join(SERVER_DIR, 'server'),
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', AGENTFORGE_DATA_DIR: dataDir, AGENTFORGE_SEED: '0', AGENTFORGE_LOG: '0', AGENTFORGE_RATE_LIMIT: '0', ...extraEnv },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOST: '127.0.0.1',
+      AGENTFORGE_DATA_DIR: dataDir,
+      AGENTFORGE_SEED: '0',
+      AGENTFORGE_LOG: '0',
+      AGENTFORGE_RATE_LIMIT: '0',
+      ...extraEnv,
+    },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   child.stdout.on('data', (c) => (output += c));
@@ -243,7 +345,9 @@ async function measure(url, label, fn, repeats = 8) {
   probing = false;
   await prober;
   const result = { label, status, ...percentiles(times), kb: round(bytes / 1024), loopBlockMaxMs: probes.length ? round(Math.max(...probes)) : null };
-  console.log(`  ${label.padEnd(44)} p50 ${String(result.p50).padStart(8)} ms  p95 ${String(result.p95).padStart(8)} ms  ${String(result.kb).padStart(8)} KB  bloqueo máx ${result.loopBlockMaxMs} ms`);
+  console.log(
+    `  ${label.padEnd(44)} p50 ${String(result.p50).padStart(8)} ms  p95 ${String(result.p95).padStart(8)} ms  ${String(result.kb).padStart(8)} KB  bloqueo máx ${result.loopBlockMaxMs} ms`,
+  );
   return result;
 }
 
@@ -262,7 +366,9 @@ function startFakeLlm({ tokens = 60, tps = 200 } = {}) {
       const timer = setInterval(() => {
         if (sent >= tokens) {
           clearInterval(timer);
-          res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 50, completion_tokens: tokens } })}\n\n`);
+          res.write(
+            `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 50, completion_tokens: tokens } })}\n\n`,
+          );
           res.end('data: [DONE]\n\n');
           inFlight--;
           return;
@@ -341,13 +447,28 @@ async function scenarioConcurrency(url) {
   const llm = await startFakeLlm({ tokens: 60, tps: 200 });
   try {
     const provider = (await request('POST', `${url}/api/providers`, { name: 'Simulado', kind: 'openai', baseUrl: llm.url, defaultModel: 'sim' })).json;
-    const ag = (await request('POST', `${url}/api/agents`, { name: 'Carga', providerId: provider.id, model: 'sim', systemPrompt: 'Responde.', maxIterations: 2 })).json;
+    const ag = (
+      await request('POST', `${url}/api/agents`, { name: 'Carga', providerId: provider.id, model: 'sim', systemPrompt: 'Responde.', maxIterations: 2 })
+    ).json;
     const node = (id) => ({ id, type: 'agent', label: id, position: { x: 0, y: 0 }, config: { agentId: ag.id, prompt: `Paso ${id}: {{input}}`, retries: 0 } });
-    const wf = (await request('POST', `${url}/api/workflows`, {
-      name: 'Carga lineal',
-      nodes: [{ id: 'entrada', type: 'input', label: 'entrada', position: { x: 0, y: 0 }, config: {} }, node('a'), node('b'), node('c'), { id: 'salida', type: 'output', label: 'salida', position: { x: 0, y: 0 }, config: {} }],
-      edges: [['entrada', 'a'], ['a', 'b'], ['b', 'c'], ['c', 'salida']].map(([source, target], i) => ({ id: `e${i}`, source, target })),
-    })).json;
+    const wf = (
+      await request('POST', `${url}/api/workflows`, {
+        name: 'Carga lineal',
+        nodes: [
+          { id: 'entrada', type: 'input', label: 'entrada', position: { x: 0, y: 0 }, config: {} },
+          node('a'),
+          node('b'),
+          node('c'),
+          { id: 'salida', type: 'output', label: 'salida', position: { x: 0, y: 0 }, config: {} },
+        ],
+        edges: [
+          ['entrada', 'a'],
+          ['a', 'b'],
+          ['b', 'c'],
+          ['c', 'salida'],
+        ].map(([source, target], i) => ({ id: `e${i}`, source, target })),
+      })
+    ).json;
     const results = [];
     for (const concurrent of [3, 10]) {
       await request('PUT', `${url}/api/settings`, { maxConcurrentRuns: concurrent });
@@ -380,7 +501,9 @@ async function scenarioConcurrency(url) {
         loopBlockMaxMs: round(Math.max(...probes)),
         llmMaxInFlight: llm.maxInFlight(),
       };
-      console.log(`  ${total} ejecuciones, ${concurrent} a la vez: ${result.completed} completadas, ${result.runsPerMinute}/min, duración p50 ${result.durationSeconds.p50} s, cola p95 ${result.queue.p95} ms, bloqueo máx ${result.loopBlockMaxMs} ms`);
+      console.log(
+        `  ${total} ejecuciones, ${concurrent} a la vez: ${result.completed} completadas, ${result.runsPerMinute}/min, duración p50 ${result.durationSeconds.p50} s, cola p95 ${result.queue.p95} ms, bloqueo máx ${result.loopBlockMaxMs} ms`,
+      );
       results.push(result);
     }
     return { results, agentId: ag.id };
@@ -393,7 +516,9 @@ async function scenarioSse(url) {
   const llm = await startFakeLlm({ tokens: 600, tps: 100 }); // 6 s de streaming
   try {
     const provider = (await request('POST', `${url}/api/providers`, { name: 'Simulado SSE', kind: 'openai', baseUrl: llm.url, defaultModel: 'sim' })).json;
-    const ag = (await request('POST', `${url}/api/agents`, { name: 'Carga SSE', providerId: provider.id, model: 'sim', systemPrompt: 'Responde.', maxIterations: 1 })).json;
+    const ag = (
+      await request('POST', `${url}/api/agents`, { name: 'Carga SSE', providerId: provider.id, model: 'sim', systemPrompt: 'Responde.', maxIterations: 1 })
+    ).json;
     const results = [];
     for (const clients of [10, 50, 200]) {
       const run = (await request('POST', `${url}/api/agents/${ag.id}/run`, { input: 'cuenta' })).json;
@@ -427,7 +552,9 @@ async function scenarioSse(url) {
       for (const s of sockets) s.destroy();
       const memoryMb = (await request('GET', `${url}/api/stats`)).json?.system?.memoryMb ?? null;
       const result = { clients, deltasPerClient: round(events / clients, 0), delayMs: delays.length ? percentiles(delays) : null, serverMemoryMb: memoryMb };
-      console.log(`  ${String(clients).padStart(3)} clientes SSE: ${result.deltasPerClient} fragmentos por cliente, retraso p50 ${result.delayMs?.p50} ms, p95 ${result.delayMs?.p95} ms, máx ${result.delayMs?.max} ms, memoria ${memoryMb} MB`);
+      console.log(
+        `  ${String(clients).padStart(3)} clientes SSE: ${result.deltasPerClient} fragmentos por cliente, retraso p50 ${result.delayMs?.p50} ms, p95 ${result.delayMs?.p95} ms, máx ${result.delayMs?.max} ms, memoria ${memoryMb} MB`,
+      );
       results.push(result);
     }
     return results;
@@ -445,7 +572,9 @@ async function runSize(count) {
   let server;
   try {
     result.seed = seed(dbFile, count);
-    console.log(`  siembra: ${result.seed.seconds} s, base de datos de ${result.seed.sizeMb} MB (${round((result.seed.sizeMb * 1024) / count)} KB por ejecución)`);
+    console.log(
+      `  siembra: ${result.seed.seconds} s, base de datos de ${result.seed.sizeMb} MB (${round((result.seed.sizeMb * 1024) / count)} KB por ejecución)`,
+    );
     server = await startServer(dataDir);
     result.startupMs = server.startupMs;
     console.log(`  arranque del servidor (incluye migrar el esquema si procede): ${server.startupMs} ms`);
@@ -515,10 +644,20 @@ async function runSize(count) {
       await prober;
       result.retention = {
         noop,
-        prune: { status: res.status, requestMs: round(requestMs, 0), totalMs: round(totalMs, 0), remaining: total, loopBlockMaxMs: round(Math.max(...probes)), dbMbBefore: round(before / 1_048_576), dbMbAfter: round(fs.statSync(dbFile).size / 1_048_576) },
+        prune: {
+          status: res.status,
+          requestMs: round(requestMs, 0),
+          totalMs: round(totalMs, 0),
+          remaining: total,
+          loopBlockMaxMs: round(Math.max(...probes)),
+          dbMbBefore: round(before / 1_048_576),
+          dbMbAfter: round(fs.statSync(dbFile).size / 1_048_576),
+        },
       };
       const p = result.retention.prune;
-      console.log(`  retención que borra la mitad: petición ${p.requestMs} ms, total ${p.totalMs} ms, bloqueo máx ${p.loopBlockMaxMs} ms, archivo ${p.dbMbBefore} → ${p.dbMbAfter} MB`);
+      console.log(
+        `  retención que borra la mitad: petición ${p.requestMs} ms, total ${p.totalMs} ms, bloqueo máx ${p.loopBlockMaxMs} ms, archivo ${p.dbMbBefore} → ${p.dbMbAfter} MB`,
+      );
     }
   } finally {
     await server?.stop();

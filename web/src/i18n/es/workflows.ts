@@ -1,7 +1,8 @@
 // Textos de la lista de workflows (WorkflowsView.vue).
 export default {
   title: 'Workflows',
-  subtitle: 'Un {workflow} conecta {nodes} en un {dag}: los pasos independientes se ejecutan {parallel} y cada {agent} recibe los resultados de los anteriores.',
+  subtitle:
+    'Un {workflow} conecta {nodes} en un {dag}: los pasos independientes se ejecutan {parallel} y cada {agent} recibe los resultados de los anteriores.',
   subtitleWorkflow: 'workflow',
   subtitleNodes: 'nodos',
   subtitleDag: 'DAG',

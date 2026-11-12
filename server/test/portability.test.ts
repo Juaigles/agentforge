@@ -5,7 +5,20 @@ import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Agent, AgentExport, CustomTool, ImportItem, ImportPlan, ImportResult, Provider, Run, Trigger, TriggerWithSecret, Workflow, WorkflowExport } from '../../shared/types';
+import type {
+  Agent,
+  AgentExport,
+  CustomTool,
+  ImportItem,
+  ImportPlan,
+  ImportResult,
+  Provider,
+  Run,
+  Trigger,
+  TriggerWithSecret,
+  Workflow,
+  WorkflowExport,
+} from '../../shared/types';
 import { isSecretHeaderName } from '../../shared/types';
 import { buildApp } from '../src/app';
 import type { AppContext } from '../src/context';
@@ -64,9 +77,26 @@ const node = (id: string, type: string, config: Record<string, unknown> = {}) =>
 
 /** Instalación de origen: proveedor con clave, herramienta HTTP con credenciales, agente, subworkflow, workflow y disparadores. */
 async function seedSource() {
-  const provider = (await post('/api/providers', { name: 'Nube', kind: 'openai', baseUrl: 'https://llm.ejemplo.test/v1', apiKey: 'sk-clave-muy-secreta', defaultModel: 'modelo-nube' })).json() as Provider;
+  const provider = (
+    await post('/api/providers', {
+      name: 'Nube',
+      kind: 'openai',
+      baseUrl: 'https://llm.ejemplo.test/v1',
+      apiKey: 'sk-clave-muy-secreta',
+      defaultModel: 'modelo-nube',
+    })
+  ).json() as Provider;
   const tool = (await post('/api/tools/custom', toolInput())).json() as CustomTool;
-  const agent = (await post('/api/agents', { name: 'Almacenero', role: 'consulta stock', providerId: provider.id, model: 'modelo-nube', systemPrompt: 'Sé breve.', tools: ['consultar_stock', 'calculator'] })).json() as Agent;
+  const agent = (
+    await post('/api/agents', {
+      name: 'Almacenero',
+      role: 'consulta stock',
+      providerId: provider.id,
+      model: 'modelo-nube',
+      systemPrompt: 'Sé breve.',
+      tools: ['consultar_stock', 'calculator'],
+    })
+  ).json() as Agent;
   const helper = (await post('/api/agents', { name: 'Redactor', providerId: provider.id, model: 'modelo-nube' })).json() as Agent;
   const sub = (
     await post('/api/workflows', {
@@ -90,7 +120,14 @@ async function seedSource() {
       ],
     })
   ).json() as Workflow;
-  await post(`/api/workflows/${wf.id}/triggers`, { kind: 'daily', time: '08:00', weekdays: [1, 2, 3, 4, 5], timezone: 'Europe/Madrid', input: 'tornillos', name: 'Laborables' });
+  await post(`/api/workflows/${wf.id}/triggers`, {
+    kind: 'daily',
+    time: '08:00',
+    weekdays: [1, 2, 3, 4, 5],
+    timezone: 'Europe/Madrid',
+    input: 'tornillos',
+    name: 'Laborables',
+  });
   const hook = (await post(`/api/workflows/${wf.id}/triggers`, { kind: 'webhook', name: 'Desde el ERP' })).json() as TriggerWithSecret;
   return { provider, tool, agent, helper, sub, wf, hook };
 }
@@ -100,10 +137,24 @@ const item = (plan: ImportPlan, key: string) => plan.items.find((i) => i.key ===
 
 describe('cabeceras secretas de las herramientas HTTP', () => {
   it('reconoce por el nombre qué cabeceras llevan credenciales', () => {
-    for (const name of ['Authorization', 'authorization', 'Proxy-Authorization', 'Cookie', 'X-API-Key', 'x-api_key', 'apikey', 'X-Auth-Token', 'X-Client-Secret', 'Ocp-Apim-Subscription-Key', 'X-Session-Id', 'X-Hub-Signature']) {
+    for (const name of [
+      'Authorization',
+      'authorization',
+      'Proxy-Authorization',
+      'Cookie',
+      'X-API-Key',
+      'x-api_key',
+      'apikey',
+      'X-Auth-Token',
+      'X-Client-Secret',
+      'Ocp-Apim-Subscription-Key',
+      'X-Session-Id',
+      'X-Hub-Signature',
+    ]) {
       expect(isSecretHeaderName(name), name).toBe(true);
     }
-    for (const name of ['Accept', 'Content-Type', 'X-Origen', 'User-Agent', 'X-Request-Id', 'Accept-Language', 'X-Keyboard']) expect(isSecretHeaderName(name), name).toBe(false);
+    for (const name of ['Accept', 'Content-Type', 'X-Origen', 'User-Agent', 'X-Request-Id', 'Accept-Language', 'X-Keyboard'])
+      expect(isSecretHeaderName(name), name).toBe(false);
   });
 
   it('se guardan cifradas, no se devuelven y siguen llegando a la API al ejecutar la herramienta', async () => {
@@ -113,7 +164,8 @@ describe('cabeceras secretas de las herramientas HTTP', () => {
     const created = (await post('/api/tools/custom', toolInput({ urlTemplate: `${api.url}/stock?p={{producto}}` }))).json() as CustomTool;
     expect(created.headers).toEqual({ 'X-Origen': 'agentforge', Authorization: '' });
     expect(created.secretHeaders).toEqual(['Authorization']);
-    for (const url of ['/api/tools/custom', `/api/tools/custom/${created.id}`, '/api/tools']) expect((await get(url)).body, url).not.toContain('s3creto-de-la-api');
+    for (const url of ['/api/tools/custom', `/api/tools/custom/${created.id}`, '/api/tools'])
+      expect((await get(url)).body, url).not.toContain('s3creto-de-la-api');
     const stored = (ctx.db.prepare('SELECT config FROM custom_tools WHERE id = ?').get(created.id) as { config: string }).config;
     expect(stored).not.toContain('s3creto-de-la-api');
     expect(stored).toContain('v1:');
@@ -123,7 +175,12 @@ describe('cabeceras secretas de las herramientas HTTP', () => {
     expect(api.seen.at(-1)).toMatchObject({ authorization: 'Bearer s3creto-de-la-api', 'x-origen': 'agentforge' });
 
     // Editar sin reescribir el valor (llega vacío) lo conserva; cambiar otra cosa no lo pierde.
-    const edited = (await put(`/api/tools/custom/${created.id}`, toolInput({ urlTemplate: `${api.url}/stock?p={{producto}}`, description: 'Otra descripción', headers: { Authorization: '', 'X-Origen': 'v2' } }))).json() as CustomTool;
+    const edited = (
+      await put(
+        `/api/tools/custom/${created.id}`,
+        toolInput({ urlTemplate: `${api.url}/stock?p={{producto}}`, description: 'Otra descripción', headers: { Authorization: '', 'X-Origen': 'v2' } }),
+      )
+    ).json() as CustomTool;
     expect(edited.secretHeaders).toEqual(['Authorization']);
     await invoke();
     expect(api.seen.at(-1)).toMatchObject({ authorization: 'Bearer s3creto-de-la-api', 'x-origen': 'v2' });
@@ -133,7 +190,9 @@ describe('cabeceras secretas de las herramientas HTTP', () => {
     expect(api.seen.at(-1)!.authorization).toBe('Bearer otro');
     expect(api.seen.at(-1)!['x-origen']).toBeUndefined();
     // Quitar la cabecera la borra.
-    const cleared = (await put(`/api/tools/custom/${created.id}`, toolInput({ urlTemplate: `${api.url}/stock?p={{producto}}`, headers: {} }))).json() as CustomTool;
+    const cleared = (
+      await put(`/api/tools/custom/${created.id}`, toolInput({ urlTemplate: `${api.url}/stock?p={{producto}}`, headers: {} }))
+    ).json() as CustomTool;
     expect(cleared).toMatchObject({ headers: {}, secretHeaders: [] });
     await invoke();
     expect(api.seen.at(-1)!.authorization).toBeUndefined();
@@ -145,7 +204,12 @@ describe('cabeceras secretas de las herramientas HTTP', () => {
     await put('/api/settings', { allowPrivateNetwork: true });
     const tool = (await post('/api/tools/custom', toolInput({ urlTemplate: `${api.url}/x`, headers: {} }))).json() as CustomTool;
     // Así guardaba las cabeceras la versión anterior: todas en claro dentro de la configuración.
-    const legacy = JSON.stringify({ method: 'GET', urlTemplate: `${api.url}/x`, headers: { Authorization: 'Bearer antiguo', 'X-Origen': 'a' }, bodyTemplate: '' });
+    const legacy = JSON.stringify({
+      method: 'GET',
+      urlTemplate: `${api.url}/x`,
+      headers: { Authorization: 'Bearer antiguo', 'X-Origen': 'a' },
+      bodyTemplate: '',
+    });
     ctx.db.prepare('UPDATE custom_tools SET config = ? WHERE id = ?').run(legacy, tool.id);
     // Antes incluso de reiniciar, la API ya no devuelve el valor.
     expect((await get(`/api/tools/custom/${tool.id}`)).body).not.toContain('Bearer antiguo');
@@ -154,7 +218,10 @@ describe('cabeceras secretas de las herramientas HTTP', () => {
     await boot(dataDir);
     const stored = (ctx.db.prepare('SELECT config FROM custom_tools WHERE id = ?').get(tool.id) as { config: string }).config;
     expect(stored).not.toContain('Bearer antiguo');
-    expect((await get(`/api/tools/custom/${tool.id}`)).json()).toMatchObject({ headers: { 'X-Origen': 'a', Authorization: '' }, secretHeaders: ['Authorization'] });
+    expect((await get(`/api/tools/custom/${tool.id}`)).json()).toMatchObject({
+      headers: { 'X-Origen': 'a', Authorization: '' },
+      secretHeaders: ['Authorization'],
+    });
     await post('/api/tools/consultar_stock/invoke', { args: { producto: 'x' } });
     expect(api.seen.at(-1)).toMatchObject({ authorization: 'Bearer antiguo', 'x-origen': 'a' });
   });
@@ -173,14 +240,32 @@ describe('exportación', () => {
     ]);
     expect(bundle.providers).toEqual([{ name: 'Nube', kind: 'openai', baseUrl: 'https://llm.ejemplo.test/v1', defaultModel: 'modelo-nube' }]);
     expect(bundle.tools).toHaveLength(1);
-    expect(bundle.tools![0]).toMatchObject({ name: 'consultar_stock', headers: { 'X-Origen': 'agentforge', Authorization: '' }, secretHeaders: ['Authorization'], urlTemplate: 'https://api.ejemplo.test/stock?p={{producto}}' });
+    expect(bundle.tools![0]).toMatchObject({
+      name: 'consultar_stock',
+      headers: { 'X-Origen': 'agentforge', Authorization: '' },
+      secretHeaders: ['Authorization'],
+      urlTemplate: 'https://api.ejemplo.test/stock?p={{producto}}',
+    });
     expect(bundle.tools![0]).not.toHaveProperty('id');
-    expect(bundle.subworkflows).toEqual([{ id: sub.id, workflow: { name: 'Redactar aviso', description: sub.description, nodes: sub.nodes, edges: sub.edges, settings: sub.settings } }]);
+    expect(bundle.subworkflows).toEqual([
+      { id: sub.id, workflow: { name: 'Redactar aviso', description: sub.description, nodes: sub.nodes, edges: sub.edges, settings: sub.settings } },
+    ]);
     expect(bundle.triggers).toEqual([
-      { kind: 'daily', name: 'Laborables', intervalMinutes: null, time: '08:00', weekdays: [1, 2, 3, 4, 5], cron: null, timezone: 'Europe/Madrid', input: 'tornillos', enabled: true },
+      {
+        kind: 'daily',
+        name: 'Laborables',
+        intervalMinutes: null,
+        time: '08:00',
+        weekdays: [1, 2, 3, 4, 5],
+        cron: null,
+        timezone: 'Europe/Madrid',
+        input: 'tornillos',
+        enabled: true,
+      },
       { kind: 'webhook', name: 'Desde el ERP', intervalMinutes: null, time: null, weekdays: [], cron: null, timezone: null, input: '', enabled: true },
     ]);
-    for (const secret of ['sk-clave-muy-secreta', 's3creto-de-la-api', hook.secret!, 'whsec_', 'providerId', 'apiKey']) expect(res.body, secret).not.toContain(secret);
+    for (const secret of ['sk-clave-muy-secreta', 's3creto-de-la-api', hook.secret!, 'whsec_', 'providerId', 'apiKey'])
+      expect(res.body, secret).not.toContain(secret);
   });
 
   it('el archivo de un agente suelto lleva su herramienta HTTP y su proveedor, sin clave', async () => {
@@ -243,7 +328,11 @@ describe('importación', () => {
     expect(wf.nodes.find((n) => n.id === 'aviso')!.config.workflowId).toBe(result.createdWorkflows[0].id);
     expect(result.createdWorkflows[0].nodes.find((n) => n.id === 'escribir')!.config.agentId).toBe(result.createdAgents[1].id);
     // La herramienta existe con la cabecera secreta pendiente de rellenar.
-    expect((await list<CustomTool>('/api/tools/custom'))[0]).toMatchObject({ name: 'consultar_stock', headers: { 'X-Origen': 'agentforge', Authorization: '' }, secretHeaders: [] });
+    expect((await list<CustomTool>('/api/tools/custom'))[0]).toMatchObject({
+      name: 'consultar_stock',
+      headers: { 'X-Origen': 'agentforge', Authorization: '' },
+      secretHeaders: [],
+    });
     // Los disparadores llegan en pausa.
     const triggers = await list<Trigger>(`/api/workflows/${wf.id}/triggers`);
     expect(triggers.map((t) => [t.kind, t.name, t.enabled, t.nextRunAt])).toEqual([
@@ -289,8 +378,14 @@ describe('importación', () => {
     const bundle = await exportOf(wf.id);
     // Aquí las cosas han cambiado desde que se exportó el archivo.
     await put(`/api/agents/${agent.id}`, { ...agent, systemPrompt: 'Versión local, más larga.' });
-    await put(`/api/tools/custom/${tool.id}`, toolInput({ urlTemplate: 'https://api.ejemplo.test/v2/stock?p={{producto}}', headers: { Authorization: '', 'X-Origen': 'agentforge' } }));
-    await put(`/api/workflows/${sub.id}`, { ...sub, nodes: sub.nodes.map((n) => (n.id === 'escribir' ? { ...n, config: { ...n.config, prompt: 'versión local: {{input}}' } } : n)) });
+    await put(
+      `/api/tools/custom/${tool.id}`,
+      toolInput({ urlTemplate: 'https://api.ejemplo.test/v2/stock?p={{producto}}', headers: { Authorization: '', 'X-Origen': 'agentforge' } }),
+    );
+    await put(`/api/workflows/${sub.id}`, {
+      ...sub,
+      nodes: sub.nodes.map((n) => (n.id === 'escribir' ? { ...n, config: { ...n.config, prompt: 'versión local: {{input}}' } } : n)),
+    });
 
     const plan = await planOf(bundle);
     expect(item(plan, `agent:${agent.id}`)).toMatchObject({ differs: true, actions: ['reuse', 'replace', 'create'], recommended: 'reuse' });
@@ -336,17 +431,25 @@ describe('importación', () => {
     await shutdown();
 
     await boot();
-    const local = (await post('/api/providers', { name: 'Mi OpenAI', kind: 'openai', baseUrl: 'https://otro.ejemplo.test/v1', apiKey: 'sk-local' })).json() as Provider;
+    const local = (
+      await post('/api/providers', { name: 'Mi OpenAI', kind: 'openai', baseUrl: 'https://otro.ejemplo.test/v1', apiKey: 'sk-local' })
+    ).json() as Provider;
     const ollama = (await post('/api/providers', { name: 'Ollama', kind: 'ollama', baseUrl: 'http://localhost:11434' })).json() as Provider;
     const plan = await planOf(bundle);
     expect(item(plan, 'provider:Nube')).toMatchObject({ match: null, actions: ['create', 'reuse'], recommended: 'reuse', recommendedTargetId: local.id });
-    expect(item(plan, 'provider:Nube').targets!.map((t) => t.name).sort()).toEqual(['Mi OpenAI', 'Ollama']);
+    expect(
+      item(plan, 'provider:Nube')
+        .targets!.map((t) => t.name)
+        .sort(),
+    ).toEqual(['Mi OpenAI', 'Ollama']);
 
     const byDefault = (await post('/api/import', { bundle })).json() as ImportResult;
     expect(byDefault.createdProviders).toEqual([]);
     expect(byDefault.createdAgents.every((a) => a.providerId === local.id)).toBe(true);
     // Eligiendo otro proveedor local.
-    const chosen = (await post('/api/import', { bundle, decisions: { 'provider:Nube': { action: 'reuse', targetId: ollama.id }, 'agent:x': { action: 'create' } } })).json() as ImportResult;
+    const chosen = (
+      await post('/api/import', { bundle, decisions: { 'provider:Nube': { action: 'reuse', targetId: ollama.id }, 'agent:x': { action: 'create' } } })
+    ).json() as ImportResult;
     expect(chosen.reusedAgents).toHaveLength(2); // los agentes ya existen de la importación anterior
     // Creándolo.
     const created = (await post('/api/import', { bundle, decisions: { 'provider:Nube': { action: 'create' } } })).json() as ImportResult;
@@ -360,7 +463,13 @@ describe('importación', () => {
     await shutdown();
 
     await boot();
-    const counts = async () => [(await list('/api/providers')).length, (await list('/api/tools/custom')).length, (await list('/api/agents')).length, (await list('/api/workflows')).length, (await list('/api/triggers')).length];
+    const counts = async () => [
+      (await list('/api/providers')).length,
+      (await list('/api/tools/custom')).length,
+      (await list('/api/agents')).length,
+      (await list('/api/workflows')).length,
+      (await list('/api/triggers')).length,
+    ];
     // Acción que el elemento no admite.
     const invalid = await post('/api/import', { bundle, decisions: { 'tool:consultar_stock': { action: 'replace' } } });
     expect(invalid.statusCode).toBe(400);
@@ -400,7 +509,12 @@ describe('importación', () => {
     const result = (await post('/api/import', { bundle })).json() as ImportResult;
     expect(result.workflow).toBeNull();
     expect(result.createdTools).toEqual([]);
-    expect(result.createdAgents[0]).toMatchObject({ name: 'Operador', providerId: provider.id, model: 'm', tools: ['http_request', 'run_javascript', 'calculator'] });
+    expect(result.createdAgents[0]).toMatchObject({
+      name: 'Operador',
+      providerId: provider.id,
+      model: 'm',
+      tools: ['http_request', 'run_javascript', 'calculator'],
+    });
     expect(result.warnings.join(' ')).toMatch(/«Operador» usaba herramientas que no existen aquí: herramienta_fantasma\./);
     expect(await list('/api/tools/custom')).toEqual([]);
   });
@@ -434,7 +548,11 @@ describe('importación', () => {
       format: 'agentforge.workflow',
       version: 1,
       exportedAt: '2026-01-01T00:00:00.000Z',
-      workflow: { name: 'Antiguo', nodes: [node('entrada', 'input'), node('paso', 'agent', { agentId: 'agt_viejo', prompt: '{{input}}' })], edges: [{ id: 'e', source: 'entrada', target: 'paso' }] },
+      workflow: {
+        name: 'Antiguo',
+        nodes: [node('entrada', 'input'), node('paso', 'agent', { agentId: 'agt_viejo', prompt: '{{input}}' })],
+        edges: [{ id: 'e', source: 'entrada', target: 'paso' }],
+      },
       agents: [{ id: 'agt_viejo', name: 'Veterano', tools: ['calculator'] }],
     };
     const plan = await planOf(v1);

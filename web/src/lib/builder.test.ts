@@ -2,7 +2,13 @@ import type { WorkflowEdge, WorkflowNode } from '@shared/types';
 import { describe, expect, it } from 'vitest';
 import { autoLayout, cloneNodes, connectionOptions, LAYOUT, useHistory } from './builder';
 
-const node = (id: string, type: WorkflowNode['type'] = 'agent', x = 0, y = 0, config: Record<string, unknown> = {}): WorkflowNode => ({ id, type, label: id, position: { x, y }, config });
+const node = (id: string, type: WorkflowNode['type'] = 'agent', x = 0, y = 0, config: Record<string, unknown> = {}): WorkflowNode => ({
+  id,
+  type,
+  label: id,
+  position: { x, y },
+  config,
+});
 const edge = (spec: string): WorkflowEdge => {
   const [from, target] = spec.split('>');
   const [source, handle] = from.split(':');
@@ -110,7 +116,11 @@ describe('copiar nodos', () => {
   it('da ids nuevos, desplaza la copia y conserva solo las conexiones entre los copiados', () => {
     const nodes = [node('entrada', 'input'), node('resumir', 'agent', 100, 100, { agentId: 'agt_1', prompt: 'x' }), node('revisar', 'agent', 400, 100)];
     const edges = ['entrada>resumir', 'resumir>revisar'].map(edge);
-    const copy = cloneNodes([nodes[1], nodes[2]], edges, nodes.map((n) => n.id));
+    const copy = cloneNodes(
+      [nodes[1], nodes[2]],
+      edges,
+      nodes.map((n) => n.id),
+    );
     expect(copy.nodes.map((n) => n.id)).toEqual(['resumir_2', 'revisar_2']);
     expect(copy.nodes[0]).toMatchObject({ type: 'agent', label: 'resumir', position: { x: 140, y: 160 }, config: { agentId: 'agt_1', prompt: 'x' } });
     expect(copy.edges).toEqual([{ id: 'resumir_2-out-revisar_2', source: 'resumir_2', target: 'revisar_2', sourceHandle: null }]);

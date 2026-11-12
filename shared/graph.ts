@@ -146,10 +146,7 @@ function subworkflowProblem(workflowId: string, ctx: ValidationContext): Subwork
 const UNARY_OPERATORS = new Set(['is_empty', 'not_empty']);
 
 /** Valida un workflow. Los errores impiden ejecutarlo; los avisos no. */
-export function validateWorkflow(
-  def: { nodes: WorkflowNode[]; edges: WorkflowEdge[] },
-  ctx: ValidationContext,
-): ValidationIssue[] {
+export function validateWorkflow(def: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, ctx: ValidationContext): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   // Cada problema lleva su código y sus parámetros (para traducirlo) además del texto en español.
   const add = (level: ValidationIssue['level'], code: ValidationCode, params: IssueParams, nodeId?: string) =>
@@ -204,7 +201,12 @@ export function validateWorkflow(
     outgoing.get(e.source)!.push(e);
   }
 
-  if (topologicalOrder(nodes, edges.filter((e) => byId.has(e.source) && byId.has(e.target))) === null) {
+  if (
+    topologicalOrder(
+      nodes,
+      edges.filter((e) => byId.has(e.source) && byId.has(e.target)),
+    ) === null
+  ) {
     err('cycle');
   }
 
@@ -279,7 +281,8 @@ export function validateWorkflow(
         if (extractRefs(items).some((r) => FOREACH_REFS.has(r))) {
           err('foreachListUsesItem', { name }, n.id);
         }
-        const inRange = (value: unknown, max: number) => value === undefined || value === null || value === '' || (Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= max);
+        const inRange = (value: unknown, max: number) =>
+          value === undefined || value === null || value === '' || (Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= max);
         if (!inRange(c.concurrency, FOREACH_DEFAULTS.maxConcurrency)) err('foreachConcurrencyRange', { name, max: FOREACH_DEFAULTS.maxConcurrency }, n.id);
         if (!inRange(c.maxItems, FOREACH_DEFAULTS.hardMaxItems)) err('foreachMaxItemsRange', { name, max: FOREACH_DEFAULTS.hardMaxItems }, n.id);
         break;

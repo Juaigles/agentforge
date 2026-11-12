@@ -213,6 +213,8 @@ async function startApp(): Promise<AppHandle> {
 
 export const test = base.extend<{ app: AppHandle }, { workerApp: AppHandle }>({
   workerApp: [
+    // Playwright exige desestructurar el primer argumento aunque no se use ninguna fixture.
+    // eslint-disable-next-line no-empty-pattern
     async ({}, use) => {
       if (!fs.existsSync(path.join(repoRoot, 'web', 'dist', 'index.html'))) {
         throw new Error('Falta web/dist: ejecuta «npm run build» (o «npm run test:e2e», que compila antes).');
@@ -243,12 +245,16 @@ export const test = base.extend<{ app: AppHandle }, { workerApp: AppHandle }>({
   // Cualquier error de JavaScript o de consola en la página hace fallar el test.
   page: async ({ page }, use) => {
     const problems: string[] = [];
-    page.on('pageerror', (err) => problems.push(`pageerror: ${err.message}`));
+    // Ruido esperado: peticiones que el propio test provoca que fallen (4xx/5xx o servidor reiniciándose). Cada
+    // motor lo dice a su manera, y WebKit lo comunica como error de página aunque el código capture el fallo.
+    const networkNoise = /Failed to load resource|net::ERR_|due to access control checks|NetworkError when attempting to fetch|Load failed/;
+    page.on('pageerror', (err) => {
+      if (!networkNoise.test(err.message)) problems.push(`pageerror: ${err.message}`);
+    });
     page.on('console', (msg) => {
       if (msg.type() !== 'error') return;
       const text = msg.text();
-      // Ruido esperado: peticiones que el propio test provoca que fallen (4xx/5xx o servidor reiniciándose).
-      if (/Failed to load resource|net::ERR_/.test(text)) return;
+      if (networkNoise.test(text)) return;
       problems.push(`console.error: ${text}`);
     });
     await use(page);

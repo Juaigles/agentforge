@@ -126,10 +126,20 @@ export function cloneNodes(
     const id = slugifyNodeId(node.label || node.id, taken);
     taken.push(id);
     ids.set(node.id, id);
-    return { ...node, id, position: { x: node.position.x + offset.x, y: node.position.y + offset.y }, config: JSON.parse(JSON.stringify(node.config ?? {})) as WorkflowNode['config'] };
+    return {
+      ...node,
+      id,
+      position: { x: node.position.x + offset.x, y: node.position.y + offset.y },
+      config: JSON.parse(JSON.stringify(node.config ?? {})) as WorkflowNode['config'],
+    };
   });
   const inner = edges
     .filter((e) => ids.has(e.source) && ids.has(e.target))
-    .map((e) => ({ id: `${ids.get(e.source)}-${e.sourceHandle ?? 'out'}-${ids.get(e.target)}`, source: ids.get(e.source)!, target: ids.get(e.target)!, sourceHandle: e.sourceHandle ?? null }));
+    .map((e) => ({
+      id: `${ids.get(e.source)}-${e.sourceHandle ?? 'out'}-${ids.get(e.target)}`,
+      source: ids.get(e.source)!,
+      target: ids.get(e.target)!,
+      sourceHandle: e.sourceHandle ?? null,
+    }));
   return { nodes: copies, edges: inner };
 }

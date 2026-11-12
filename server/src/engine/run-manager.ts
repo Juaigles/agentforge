@@ -128,9 +128,7 @@ export class RunManager {
     }
     // Cualquier otro evento va detrás del texto que ya se había generado: el orden se conserva.
     this.flushDeltas(runId);
-    const event: RunEvent = transient
-      ? { seq: null, runId, ts: nowIso(), type, nodeId, data }
-      : this.deps.store.appendEvent(runId, type, nodeId, data);
+    const event: RunEvent = transient ? { seq: null, runId, ts: nowIso(), type, nodeId, data } : this.deps.store.appendEvent(runId, type, nodeId, data);
     this.emitter.emit(`run:${runId}`, event);
   }
 
@@ -199,9 +197,7 @@ export class RunManager {
   /** Una ejecución de agente individual es un workflow de un solo nodo. */
   startAgentRun(agent: Agent, input: string, limits: Partial<typeof DEFAULT_WORKFLOW_SETTINGS> = {}): Run {
     const definition: WorkflowDefinition = {
-      nodes: [
-        { id: 'agent', type: 'agent', label: agent.name, position: { x: 0, y: 0 }, config: { agentId: agent.id, prompt: '{{input}}' } },
-      ],
+      nodes: [{ id: 'agent', type: 'agent', label: agent.name, position: { x: 0, y: 0 }, config: { agentId: agent.id, prompt: '{{input}}' } }],
       edges: [],
       settings: { ...DEFAULT_WORKFLOW_SETTINGS, maxConcurrency: 1, ...limits },
     };

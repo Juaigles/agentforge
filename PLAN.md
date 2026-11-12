@@ -182,9 +182,13 @@ reales y un commit local.
   (unas 1 330 claves en 32 ámbitos), con el glosario y la validación de workflows. **Siguen solo en español** los
   textos que escribe el servidor: mensajes concretos de error y de validación de formularios, errores de las
   ejecuciones, títulos y descripciones de las herramientas integradas, datos de ejemplo y la documentación.*
-- [ ] **F8 · Calidad y pruebas.** ESLint y Prettier limpios; cobertura con umbrales; tests de componentes para
+- [x] **F8 · Calidad y pruebas.** ESLint y Prettier limpios; cobertura con umbrales; tests de componentes para
   `ProviderModal`, `ToolEditorModal`, `ScheduleModal` y el constructor; tests de migraciones, de saneado de
   Markdown y de los huecos altos de la auditoría; suite e2e en Firefox y WebKit; archivo de CI listo, sin publicar.
+  *Hecho el 2026-11-12 (detalle en `PROGRESS.md`, «Hito 5 · Fase 8»). `ScheduleModal` ya no existe (lo sustituyó
+  `TriggersModal`, que sí tiene tests). **No se ha hecho**: tests de componente del constructor y de las vistas
+  grandes (Panel, Ajustes, Herramientas, monitor), que siguen cubiertas solo por la suite e2e —de ahí que la
+  cobertura medida del frontend sea del 40 %—; y el archivo de CI no se ha ejecutado nunca.*
 - [ ] **F9 · Operación y documentación.** Métricas, `Dockerfile` local, OpenAPI, guía de usuario, guía de
   arquitectura, solución de problemas, `CHANGELOG.md`, licencia y política de seguridad.
 - [ ] **F10 · Segunda auditoría e iteración** hasta que no quede nada crítico, alto ni medio, o lo que quede sea

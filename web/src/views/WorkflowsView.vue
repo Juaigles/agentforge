@@ -78,7 +78,10 @@ async function onImported(result: ImportResult): Promise<void> {
     ui.error(errorText(err));
   }
   const summary = importSummary(result);
-  if (result.workflow) ui.success(summary ? t('workflows.toast.importedWith', { name: result.workflow.name, summary }) : t('workflows.toast.imported', { name: result.workflow.name }));
+  if (result.workflow)
+    ui.success(
+      summary ? t('workflows.toast.importedWith', { name: result.workflow.name, summary }) : t('workflows.toast.imported', { name: result.workflow.name }),
+    );
   else ui.success(summary ? t('workflows.toast.importDone', { summary }) : t('workflows.toast.importNothingNew'));
   for (const warning of result.warnings) ui.info(warning);
   await router.push(result.workflow ? `/workflows/${result.workflow.id}` : '/agents');
@@ -154,15 +157,33 @@ async function remove(wf: Workflow): Promise<void> {
       <div>
         <h1>Workflows</h1>
         <i18n-t keypath="workflows.subtitle" tag="p" class="subtitle" scope="global">
-          <template #workflow><Term id="workflow">{{ t('workflows.subtitleWorkflow') }}</Term></template>
-          <template #nodes><Term id="nodo">{{ t('workflows.subtitleNodes') }}</Term></template>
-          <template #dag><Term id="dag">{{ t('workflows.subtitleDag') }}</Term></template>
-          <template #parallel><Term id="paralelo">{{ t('workflows.subtitleParallel') }}</Term></template>
-          <template #agent><Term id="agente">{{ t('workflows.subtitleAgent') }}</Term></template>
+          <template #workflow
+            ><Term id="workflow">{{ t('workflows.subtitleWorkflow') }}</Term></template
+          >
+          <template #nodes
+            ><Term id="nodo">{{ t('workflows.subtitleNodes') }}</Term></template
+          >
+          <template #dag
+            ><Term id="dag">{{ t('workflows.subtitleDag') }}</Term></template
+          >
+          <template #parallel
+            ><Term id="paralelo">{{ t('workflows.subtitleParallel') }}</Term></template
+          >
+          <template #agent
+            ><Term id="agente">{{ t('workflows.subtitleAgent') }}</Term></template
+          >
         </i18n-t>
       </div>
       <div class="row wrap">
-        <input ref="fileInput" class="sr-only" type="file" accept=".json,application/json" :aria-label="t('workflows.importFileLabel')" tabindex="-1" @change="onImportFile" />
+        <input
+          ref="fileInput"
+          class="sr-only"
+          type="file"
+          accept=".json,application/json"
+          :aria-label="t('workflows.importFileLabel')"
+          tabindex="-1"
+          @change="onImportFile"
+        />
         <button class="btn" type="button" :title="t('workflows.importTitle')" @click="fileInput?.click()"><Upload /> {{ t('common.actions.import') }}</button>
         <RouterLink class="btn btn-primary" to="/workflows/new"><Plus /> {{ t('workflows.newWorkflow') }}</RouterLink>
       </div>
@@ -185,7 +206,12 @@ async function remove(wf: Workflow): Promise<void> {
           <div class="row wrap" style="gap: 6px">
             <span class="badge">{{ tn('workflows.nodeCount', wf.nodes.length) }}</span>
             <span class="badge"><Bot /> {{ tn('workflows.agentStepCount', wf.nodes.filter(nodeUsesAgent).length) }}</span>
-            <span v-if="triggerSummary(wf)" class="badge" :class="triggerSummary(wf)!.active ? 'info' : ''" :title="triggerSummary(wf)!.active ? t('workflows.triggersActive') : t('workflows.triggersOff')">
+            <span
+              v-if="triggerSummary(wf)"
+              class="badge"
+              :class="triggerSummary(wf)!.active ? 'info' : ''"
+              :title="triggerSummary(wf)!.active ? t('workflows.triggersActive') : t('workflows.triggersOff')"
+            >
               <CalendarClock /> {{ triggerSummary(wf)!.text }}
             </span>
             <span class="avatars">
@@ -193,15 +219,53 @@ async function remove(wf: Workflow): Promise<void> {
             </span>
           </div>
           <footer class="row" @click.stop>
-            <button class="btn btn-primary btn-sm" type="button" :disabled="errors > 0" :title="errors ? t('workflows.fixErrors') : undefined" @click="openRun(wf)">
+            <button
+              class="btn btn-primary btn-sm"
+              type="button"
+              :disabled="errors > 0"
+              :title="errors ? t('workflows.fixErrors') : undefined"
+              @click="openRun(wf)"
+            >
               <Play /> {{ t('common.actions.run') }}
             </button>
             <RouterLink class="btn btn-sm" :to="`/workflows/${wf.id}`"><Pencil /> {{ t('common.actions.edit') }}</RouterLink>
             <span class="grow" />
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('workflows.triggersAria', { name: wf.name })" :title="t('workflows.triggersTitle')" @click="scheduling = wf"><CalendarClock /></button>
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('workflows.exportAria', { name: wf.name })" :title="t('workflows.exportTitle')" @click="exportWorkflow(wf)"><Download /></button>
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('workflows.duplicateAria', { name: wf.name })" :title="t('common.actions.duplicate')" @click="duplicate(wf)"><Copy /></button>
-            <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('workflows.deleteAria', { name: wf.name })" :title="t('common.actions.delete')" @click="remove(wf)"><Trash2 /></button>
+            <button
+              class="btn btn-ghost btn-icon btn-sm"
+              type="button"
+              :aria-label="t('workflows.triggersAria', { name: wf.name })"
+              :title="t('workflows.triggersTitle')"
+              @click="scheduling = wf"
+            >
+              <CalendarClock />
+            </button>
+            <button
+              class="btn btn-ghost btn-icon btn-sm"
+              type="button"
+              :aria-label="t('workflows.exportAria', { name: wf.name })"
+              :title="t('workflows.exportTitle')"
+              @click="exportWorkflow(wf)"
+            >
+              <Download />
+            </button>
+            <button
+              class="btn btn-ghost btn-icon btn-sm"
+              type="button"
+              :aria-label="t('workflows.duplicateAria', { name: wf.name })"
+              :title="t('common.actions.duplicate')"
+              @click="duplicate(wf)"
+            >
+              <Copy />
+            </button>
+            <button
+              class="btn btn-ghost btn-icon btn-sm"
+              type="button"
+              :aria-label="t('workflows.deleteAria', { name: wf.name })"
+              :title="t('common.actions.delete')"
+              @click="remove(wf)"
+            >
+              <Trash2 />
+            </button>
           </footer>
         </article>
       </div>
@@ -233,7 +297,9 @@ async function remove(wf: Workflow): Promise<void> {
       </div>
       <template #footer>
         <button class="btn" type="button" @click="target = null">{{ t('common.actions.cancel') }}</button>
-        <button class="btn btn-primary" type="button" :disabled="launching" @click="launch"><Play /> {{ launching ? t('workflows.run.launching') : t('common.actions.run') }}</button>
+        <button class="btn btn-primary" type="button" :disabled="launching" @click="launch">
+          <Play /> {{ launching ? t('workflows.run.launching') : t('common.actions.run') }}
+        </button>
       </template>
     </AppModal>
   </div>

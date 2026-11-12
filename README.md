@@ -30,12 +30,16 @@ herramientas que tengas instalado).
 npm run dev        # API (recarga con tsx watch) + Vite en http://localhost:5173
 npm test           # tests del servidor y del frontend (unidad, API y componentes)
 npm run test:e2e   # tests end-to-end en Chromium (Playwright) contra el servidor real
+npm run test:e2e:all   # los mismos en Chromium, Firefox y WebKit
+npm run check      # lint + formato + tipos + tests de servidor y frontend
+npm run test:coverage  # tests con cobertura; falla si baja de los umbrales
+npm run lint       # ESLint            ·  npm run format  aplica Prettier
 npm run typecheck  # tsc + vue-tsc + tipos de la suite e2e
 npm run loadtest -- --runs 10000,50000   # prueba de carga con el servidor real (no toca data/)
 ```
 
-La suite end-to-end necesita el navegador de Playwright (`npx playwright install chromium`, solo la primera
-vez). Arranca su propio servidor en un puerto libre con datos temporales y un modelo simulado determinista,
+La suite end-to-end necesita los navegadores de Playwright (`npx playwright install`, solo la primera vez;
+`npx playwright install chromium` si solo vas a usar `npm run test:e2e`). Arranca su propio servidor en un puerto libre con datos temporales y un modelo simulado determinista,
 así que no toca `data/` ni necesita Ollama. Detalles en [e2e/README.md](e2e/README.md).
 
 ### Configuración (variables de entorno)

@@ -90,8 +90,7 @@ export function makeContext(llm: LlmFactory, opts: { dataDir?: string; inMemory?
 }
 
 export function addAgent(ctx: AppContext, overrides: Partial<AgentInput> = {}): Agent {
-  const provider =
-    ctx.store.listProviders()[0] ?? ctx.store.createProvider({ name: 'Test', kind: 'ollama', baseUrl: 'http://127.0.0.1:1' });
+  const provider = ctx.store.listProviders()[0] ?? ctx.store.createProvider({ name: 'Test', kind: 'ollama', baseUrl: 'http://127.0.0.1:1' });
   return ctx.store.createAgent({
     name: 'Agente',
     role: '',

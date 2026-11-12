@@ -7,20 +7,7 @@ import type { AppContext } from '../src/context';
 import { LlmError } from '../src/errors';
 import { evaluateCondition } from '../src/engine/workflow-engine';
 import { sleep } from '../src/util';
-import {
-  addAgent,
-  delay,
-  edges,
-  lastMessage,
-  makeContext,
-  node,
-  runWorkflow,
-  ScriptedLlm,
-  stepStatus,
-  systemText,
-  userText,
-  workflow,
-} from './helpers';
+import { addAgent, delay, edges, lastMessage, makeContext, node, runWorkflow, ScriptedLlm, stepStatus, systemText, userText, workflow } from './helpers';
 
 let ctx: AppContext;
 afterEach(async () => {
@@ -401,9 +388,7 @@ describe('cancelación', () => {
     });
     ctx = makeContext(llm);
     const a = addAgent(ctx);
-    const wf = ctx.store.createWorkflow(
-      workflow([node('n', 'agent', { agentId: a.id, prompt: 'x', retries: 3 }), node('out', 'output')], edges('n>out')),
-    );
+    const wf = ctx.store.createWorkflow(workflow([node('n', 'agent', { agentId: a.id, prompt: 'x', retries: 3 }), node('out', 'output')], edges('n>out')));
     const run = ctx.runs.startWorkflowRun(wf, '');
     await delay(50);
     expect(ctx.store.getRunSummary(run.id)!.status).toBe('running');
@@ -447,7 +432,15 @@ describe('agentes y herramientas', () => {
       return { content: `El resultado es ${JSON.parse(lastMessage(req).content).result}` };
     });
     ctx = makeContext(llm);
-    const a = addAgent(ctx, { name: 'Mates', role: 'calculista', systemPrompt: 'Sé preciso.', tools: ['calculator'], temperature: 0.1, maxTokens: 99, thinking: true });
+    const a = addAgent(ctx, {
+      name: 'Mates',
+      role: 'calculista',
+      systemPrompt: 'Sé preciso.',
+      tools: ['calculator'],
+      temperature: 0.1,
+      maxTokens: 99,
+      thinking: true,
+    });
     const run = await runWorkflow(ctx, workflow([node('n', 'agent', { agentId: a.id, prompt: '¿6 por 7?' })], []));
     expect(run).toMatchObject({ status: 'completed', output: 'El resultado es 42' });
     expect(run.usage).toMatchObject({ llmCalls: 2, toolCalls: 1 });
@@ -488,7 +481,10 @@ describe('agentes y herramientas', () => {
     const a = addAgent(ctx, { tools: ['calculator'], maxIterations: 6 });
     const run = await runWorkflow(ctx, workflow([node('n', 'agent', { agentId: a.id, prompt: 'x' })], []));
     expect(run.status).toBe('completed');
-    const results = ctx.store.listEvents(run.id).filter((e) => e.type === 'tool.result').map((e) => e.data);
+    const results = ctx.store
+      .listEvents(run.id)
+      .filter((e) => e.type === 'tool.result')
+      .map((e) => e.data);
     expect(results.map((r) => r.ok)).toEqual([false, false, false]);
     expect(results[0].result).toMatch(/División entre cero/);
     expect(results[1].result).toMatch(/Ya hiciste esta misma llamada/);
@@ -542,10 +538,7 @@ describe('agentes y herramientas', () => {
     const a = addAgent(ctx, { tools: ['memory_set', 'memory_get'] });
     const run = await runWorkflow(
       ctx,
-      workflow(
-        [node('w', 'agent', { agentId: a.id, prompt: 'guarda' }), node('r', 'agent', { agentId: a.id, prompt: 'lee {{w}}' })],
-        edges('w>r'),
-      ),
+      workflow([node('w', 'agent', { agentId: a.id, prompt: 'guarda' }), node('r', 'agent', { agentId: a.id, prompt: 'lee {{w}}' })], edges('w>r')),
     );
     expect(JSON.parse(run.output!)).toMatchObject({ found: true, value: '42' });
   });

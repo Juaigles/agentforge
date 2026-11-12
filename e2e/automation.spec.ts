@@ -91,7 +91,9 @@ test.describe('Exportar e importar workflows', () => {
 
     await input.setInputFiles({ name: 'otro.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ nombre: 'cualquier cosa' })) });
     const review = page.getByRole('dialog', { name: 'Importar' });
-    await expect(review.getByRole('alert')).toContainText('No se puede importar «otro.json». El archivo no es un workflow ni un agente exportado de AgentForge.');
+    await expect(review.getByRole('alert')).toContainText(
+      'No se puede importar «otro.json». El archivo no es un workflow ni un agente exportado de AgentForge.',
+    );
     await expect(review.getByRole('button', { name: 'Importar' })).toBeDisabled();
     await review.getByRole('button', { name: 'Cancelar' }).click();
 
@@ -122,8 +124,13 @@ test.describe('Exportar e importar workflows', () => {
       agents: [{ id: 'agt_ajeno', name: unique('Ajeno'), tools: ['buscador_interno', 'calculator'] }],
     };
     await page.goto('/workflows');
-    await page.getByLabel('Archivo de workflow a importar').setInputFiles({ name: 'ajeno.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
-    await page.getByRole('dialog', { name: `Importar «${name}»` }).getByRole('button', { name: 'Importar' }).click();
+    await page
+      .getByLabel('Archivo de workflow a importar')
+      .setInputFiles({ name: 'ajeno.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
+    await page
+      .getByRole('dialog', { name: `Importar «${name}»` })
+      .getByRole('button', { name: 'Importar' })
+      .click();
     await expect(toast(page, `«${name}» importado con 1 agente nuevo.`)).toBeVisible();
     await expect(toast(page, 'usaba herramientas que no existen aquí: buscador_interno.')).toBeVisible();
     // El agente se enlazó; el nodo de herramienta desconocida queda como error de validación.
@@ -146,7 +153,14 @@ test.describe('Importar con conflictos y agentes sueltos', () => {
     });
     const agent = await app.createAgent({ name: unique('Consultor'), systemPrompt: 'Versión del archivo.', tools: [toolName, 'http_request'] });
     const name = unique('Con conflictos');
-    const wf = await app.createWorkflow(name, [{ id: 'entrada', type: 'input' }, { id: 'paso', type: 'agent', config: { agentId: agent.id, prompt: '{{input}}' } }], ['entrada>paso']);
+    const wf = await app.createWorkflow(
+      name,
+      [
+        { id: 'entrada', type: 'input' },
+        { id: 'paso', type: 'agent', config: { agentId: agent.id, prompt: '{{input}}' } },
+      ],
+      ['entrada>paso'],
+    );
     await app.api('POST', `/api/workflows/${wf.id}/triggers`, { kind: 'interval', intervalMinutes: 60 });
     const bundle = await app.api('GET', `/api/workflows/${wf.id}/export`);
     // El archivo no lleva la credencial de la herramienta.
@@ -157,7 +171,9 @@ test.describe('Importar con conflictos y agentes sueltos', () => {
     await app.api('PUT', `/api/agents/${agent.id}`, { ...current, systemPrompt: 'Versión de aquí, retocada.' });
 
     await page.goto('/workflows');
-    await page.getByLabel('Archivo de workflow a importar').setInputFiles({ name: 'conflictos.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
+    await page
+      .getByLabel('Archivo de workflow a importar')
+      .setInputFiles({ name: 'conflictos.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
     const review = page.getByRole('dialog', { name: `Importar «${name}»` });
     await expect(review.getByText('herramientas que actúan fuera de la conversación (http_request)')).toBeVisible();
     await expect(review.getByText('Trae un disparador, que se creará en pausa.')).toBeVisible();
@@ -340,7 +356,10 @@ test.describe('Disparadores', () => {
     await expect(card.getByText('disparadores en pausa')).toBeVisible();
 
     for (let left = 3; left > 0; left--) {
-      await items.first().getByRole('button', { name: /^Eliminar el disparador/ }).click();
+      await items
+        .first()
+        .getByRole('button', { name: /^Eliminar el disparador/ })
+        .click();
       await page.getByRole('dialog', { name: 'Eliminar disparador' }).getByRole('button', { name: 'Eliminar disparador' }).click();
       await expect(items).toHaveCount(left - 1);
     }

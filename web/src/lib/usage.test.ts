@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { agentDeleteMessage, workflowsUsingAgent } from './usage';
 
 const workflow = (name: string, nodes: Array<{ type: string; agentId?: string }>): Workflow =>
-  ({ id: `wf_${name}`, name, nodes: nodes.map((n, i) => ({ id: `n${i}`, type: n.type, label: '', position: { x: 0, y: 0 }, config: { agentId: n.agentId } })), edges: [] }) as unknown as Workflow;
+  ({
+    id: `wf_${name}`,
+    name,
+    nodes: nodes.map((n, i) => ({ id: `n${i}`, type: n.type, label: '', position: { x: 0, y: 0 }, config: { agentId: n.agentId } })),
+    edges: [],
+  }) as unknown as Workflow;
 
 describe('workflowsUsingAgent', () => {
   it('cuenta los nodos de agente y los «para cada», y nada más', () => {

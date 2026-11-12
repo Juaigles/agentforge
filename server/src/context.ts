@@ -169,7 +169,8 @@ export function createContext(config: AppConfig, overrides: ContextOverrides = {
   const scheduler = new Scheduler({
     store,
     runs,
-    validate: (wf) => validateWorkflow(wf, { agentIds: store.listAgents().map((a) => a.id), toolNames: tools.names(), workflows: store.listWorkflows(), selfId: wf.id }),
+    validate: (wf) =>
+      validateWorkflow(wf, { agentIds: store.listAgents().map((a) => a.id), toolNames: tools.names(), workflows: store.listWorkflows(), selfId: wf.id }),
     log: () => ctx.log,
   });
   const ctx: AppContext = {

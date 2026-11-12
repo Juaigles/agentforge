@@ -1,16 +1,26 @@
 # Tests end-to-end (Playwright)
 
-Suite repetible que conduce la interfaz real en Chromium contra el servidor real de AgentForge. Los tests buscan
+Suite repetible que conduce la interfaz real en **Chromium, Firefox y WebKit** contra el servidor real de AgentForge. Los tests buscan
 los textos en español (el navegador de la suite pide `es-ES`); `i18n.spec.ts` cubre el inglés.
 
 ```bash
-npm run test:e2e           # compila el frontend y ejecuta la suite
+npm run test:e2e           # compila el frontend y ejecuta la suite en Chromium
+npm run test:e2e:all       # lo mismo en Chromium, Firefox y WebKit (uno detrás de otro)
+npx playwright test --project=firefox e2e/runs.spec.ts   # un motor y un archivo (requiere web/dist)
 npm run test:e2e:ui        # lo mismo, con la interfaz interactiva de Playwright
 npx playwright test e2e/runs.spec.ts -g "cancelar"   # un archivo o un test concreto (requiere web/dist)
 npx playwright show-report e2e/.report               # informe HTML de la última ejecución
 ```
 
-La primera vez hay que descargar el navegador: `npx playwright install chromium`.
+La primera vez hay que descargar los navegadores: `npx playwright install` (o `npx playwright install chromium`).
+
+Diferencias entre motores que la suite tiene en cuenta:
+
+- **WebKit no detiene el tabulador en los enlaces** (ajuste de Safari): el test del enlace «Saltar al contenido»
+  lo enfoca directamente en ese motor.
+- **WebKit en Windows no conserva `SameSite` en su almacén de cookies**: se comprueba en la cabecera de la respuesta.
+- Cada motor describe a su manera un fallo de red (`net::ERR_`, «NetworkError», «due to access control checks»):
+  los tres textos se tratan como ruido esperado cuando el propio test para el servidor.
 
 ## Cómo está montada
 

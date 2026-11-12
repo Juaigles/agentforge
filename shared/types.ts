@@ -129,16 +129,7 @@ export function isSecretHeaderName(name: string): boolean {
 // ---------- Workflows ----------
 export type NodeType = 'input' | 'agent' | 'tool' | 'condition' | 'transform' | 'foreach' | 'subworkflow' | 'approval' | 'output';
 
-export type ConditionOperator =
-  | 'contains'
-  | 'not_contains'
-  | 'equals'
-  | 'not_equals'
-  | 'matches'
-  | 'gt'
-  | 'lt'
-  | 'is_empty'
-  | 'not_empty';
+export type ConditionOperator = 'contains' | 'not_contains' | 'equals' | 'not_equals' | 'matches' | 'gt' | 'lt' | 'is_empty' | 'not_empty';
 
 export interface InputNodeConfig {
   description?: string;

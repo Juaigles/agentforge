@@ -198,9 +198,7 @@ export const api = {
   workspace: {
     files: () => get<WorkspaceFile[]>('/api/workspace/files'),
     read: (path: string) =>
-      get<{ path: string; sizeBytes: number; content: string; truncated: boolean }>(
-        `/api/workspace/file?path=${encodeURIComponent(path)}`,
-      ),
+      get<{ path: string; sizeBytes: number; content: string; truncated: boolean }>(`/api/workspace/file?path=${encodeURIComponent(path)}`),
     remove: (path: string) => del(`/api/workspace/file?path=${encodeURIComponent(path)}`),
   },
   workflows: {

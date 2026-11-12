@@ -16,8 +16,7 @@ export default {
   providers: {
     title: 'Proveedores de modelos',
     add: 'Añadir proveedor',
-    intro:
-      'Un {provider} es el servicio que ejecuta los modelos: {ollama} en tu equipo o una API remota {openai}. Cada {agent} usa uno.',
+    intro: 'Un {provider} es el servicio que ejecuta los modelos: {ollama} en tu equipo o una API remota {openai}. Cada {agent} usa uno.',
     introProvider: 'proveedor',
     introOpenai: 'compatible con OpenAI',
     introAgent: 'agente',

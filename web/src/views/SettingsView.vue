@@ -75,7 +75,11 @@ function statusOf(p: Provider): { tone: string; text: string; error?: string; pu
   if (testing.has(p.id)) return { tone: 'info', text: t('settings.providers.status.testing'), pulse: true };
   const r = testResults.get(p.id) ?? catalog.healthById.get(p.id);
   if (!r) return { tone: '', text: t('settings.providers.status.checking'), pulse: true };
-  if (r.ok) return { tone: 'success', text: t('settings.providers.status.available', { models: tn('settings.counts.models', r.modelCount ?? 0), latency: formatDuration(r.latencyMs) }) };
+  if (r.ok)
+    return {
+      tone: 'success',
+      text: t('settings.providers.status.available', { models: tn('settings.counts.models', r.modelCount ?? 0), latency: formatDuration(r.latencyMs) }),
+    };
   return { tone: 'danger', text: t('settings.providers.status.unavailable'), error: r.error ?? t('settings.providers.status.connectFailed') };
 }
 
@@ -84,7 +88,14 @@ async function testProvider(p: Provider): Promise<void> {
   try {
     const result = await api.providers.test(p.id);
     testResults.set(p.id, result);
-    if (result.ok) ui.success(t('settings.providers.toast.responds', { name: p.name, models: tn('settings.counts.models', result.modelCount ?? 0), latency: formatDuration(result.latencyMs) }));
+    if (result.ok)
+      ui.success(
+        t('settings.providers.toast.responds', {
+          name: p.name,
+          models: tn('settings.counts.models', result.modelCount ?? 0),
+          latency: formatDuration(result.latencyMs),
+        }),
+      );
     else ui.error(t('settings.providers.toast.noResponse', { name: p.name, error: result.error ?? t('settings.providers.toast.unknownError') }));
     await catalog.refreshHealth(true);
   } catch (err) {
@@ -241,11 +252,7 @@ async function toggleCodeExecution(ev: Event): Promise<void> {
 
 async function toggleAutoResume(ev: Event): Promise<void> {
   const input = ev.target as HTMLInputElement;
-  await updateSetting(
-    'autoResume',
-    input.checked,
-    input.checked ? t('settings.exec.autoResume.on') : t('settings.exec.autoResume.off'),
-  );
+  await updateSetting('autoResume', input.checked, input.checked ? t('settings.exec.autoResume.on') : t('settings.exec.autoResume.off'));
   input.checked = settings.value?.autoResume ?? false;
 }
 
@@ -425,7 +432,9 @@ async function clearFinished(): Promise<void> {
       <div>
         <h1>{{ t('settings.title') }}</h1>
         <i18n-t keypath="settings.subtitle" tag="p" class="subtitle" scope="global">
-          <template #models><Term id="modelo">{{ t('settings.subtitleModels') }}</Term></template>
+          <template #models
+            ><Term id="modelo">{{ t('settings.subtitleModels') }}</Term></template
+          >
         </i18n-t>
       </div>
     </header>
@@ -433,7 +442,9 @@ async function clearFinished(): Promise<void> {
     <div v-if="loadError" class="callout danger" role="alert" style="margin-bottom: 16px">
       <CircleAlert />
       <span class="grow">{{ loadError }}</span>
-      <button class="btn btn-sm" type="button" :disabled="loading" @click="load"><RefreshCw :class="{ spin: loading }" /> {{ t('common.actions.retry') }}</button>
+      <button class="btn btn-sm" type="button" :disabled="loading" @click="load">
+        <RefreshCw :class="{ spin: loading }" /> {{ t('common.actions.retry') }}
+      </button>
     </div>
 
     <div class="sections">
@@ -444,10 +455,16 @@ async function clearFinished(): Promise<void> {
           <button class="btn btn-primary btn-sm" type="button" @click="modal = { provider: null }"><Plus /> {{ t('settings.providers.add') }}</button>
         </div>
         <i18n-t keypath="settings.providers.intro" tag="p" class="intro muted small" scope="global">
-          <template #provider><Term id="proveedor">{{ t('settings.providers.introProvider') }}</Term></template>
+          <template #provider
+            ><Term id="proveedor">{{ t('settings.providers.introProvider') }}</Term></template
+          >
           <template #ollama><Term id="ollama" /></template>
-          <template #openai><Term id="openai-compatible">{{ t('settings.providers.introOpenai') }}</Term></template>
-          <template #agent><Term id="agente">{{ t('settings.providers.introAgent') }}</Term></template>
+          <template #openai
+            ><Term id="openai-compatible">{{ t('settings.providers.introOpenai') }}</Term></template
+          >
+          <template #agent
+            ><Term id="agente">{{ t('settings.providers.introAgent') }}</Term></template
+          >
         </i18n-t>
 
         <div v-if="loading && !catalog.loaded" class="card-pad col">
@@ -466,7 +483,9 @@ async function clearFinished(): Promise<void> {
               <div class="row wrap" style="gap: 8px">
                 <strong class="p-name">{{ p.name }}</strong>
                 <span class="badge" :class="p.kind === 'ollama' ? 'accent' : 'info'">{{ kindLabel(p.kind) }}</span>
-                <span v-if="p.hasApiKey" class="badge" :title="t('settings.providers.keyStoredTitle')"><KeyRound /> {{ t('settings.providers.keyStored') }}</span>
+                <span v-if="p.hasApiKey" class="badge" :title="t('settings.providers.keyStoredTitle')"
+                  ><KeyRound /> {{ t('settings.providers.keyStored') }}</span
+                >
               </div>
               <div class="p-url mono truncate" :title="p.baseUrl">{{ p.baseUrl }}</div>
               <div class="row wrap small muted" style="gap: 4px 14px">
@@ -474,7 +493,11 @@ async function clearFinished(): Promise<void> {
                   <span class="dot" :class="[statusOf(p).tone, { pulse: statusOf(p).pulse }]" />
                   {{ statusOf(p).text }}
                 </span>
-                <span>{{ t('settings.providers.defaultModel') }} <code v-if="p.defaultModel">{{ p.defaultModel }}</code><span v-else class="faint">{{ t('settings.providers.noDefaultModel') }}</span></span>
+                <span
+                  >{{ t('settings.providers.defaultModel') }} <code v-if="p.defaultModel">{{ p.defaultModel }}</code><span v-else class="faint">{{
+                    t('settings.providers.noDefaultModel')
+                  }}</span></span
+                >
                 <span>{{ tn('settings.counts.agentsUse', agentCount.get(p.id) ?? 0) }}</span>
               </div>
               <p v-if="statusOf(p).error" class="p-error small">{{ statusOf(p).error }}</p>
@@ -493,7 +516,13 @@ async function clearFinished(): Promise<void> {
               <button class="btn btn-sm" type="button" :disabled="testing.has(p.id) || !p.enabled" @click="testProvider(p)">
                 <LoaderCircle v-if="testing.has(p.id)" class="spin" /><PlugZap v-else /> {{ t('settings.providers.test') }}
               </button>
-              <button class="btn btn-sm btn-icon" type="button" :aria-label="t('settings.providers.editNamed', { name: p.name })" :title="t('common.actions.edit')" @click="modal = { provider: p }">
+              <button
+                class="btn btn-sm btn-icon"
+                type="button"
+                :aria-label="t('settings.providers.editNamed', { name: p.name })"
+                :title="t('common.actions.edit')"
+                @click="modal = { provider: p }"
+              >
                 <Pencil />
               </button>
               <button
@@ -515,7 +544,9 @@ async function clearFinished(): Promise<void> {
       <section class="card" aria-labelledby="sec-exec">
         <div class="card-head">
           <h2 id="sec-exec"><ShieldAlert style="width: 16px; height: 16px" /> {{ t('settings.exec.title') }}</h2>
-          <span v-if="savingSetting" class="small muted row"><LoaderCircle class="spin" style="width: 14px; height: 14px" /> {{ t('common.actions.saving') }}</span>
+          <span v-if="savingSetting" class="small muted row"
+            ><LoaderCircle class="spin" style="width: 14px; height: 14px" /> {{ t('common.actions.saving') }}</span
+          >
         </div>
         <div v-if="!settings" class="card-pad col">
           <div class="skeleton" style="height: 44px" />
@@ -527,9 +558,15 @@ async function clearFinished(): Promise<void> {
             <div class="grow">
               <label class="o-title" for="set-concurrent">{{ t('settings.exec.concurrent.label') }}</label>
               <i18n-t keypath="settings.exec.concurrent.description" tag="p" class="muted small" scope="global">
-                <template #concurrency><Term id="concurrencia">{{ t('settings.exec.concurrent.concurrency') }}</Term></template>
-                <template #runs><Term id="ejecucion">{{ t('settings.exec.concurrent.runs') }}</Term></template>
-                <template #queue><Term id="cola">{{ t('settings.exec.concurrent.queue') }}</Term></template>
+                <template #concurrency
+                  ><Term id="concurrencia">{{ t('settings.exec.concurrent.concurrency') }}</Term></template
+                >
+                <template #runs
+                  ><Term id="ejecucion">{{ t('settings.exec.concurrent.runs') }}</Term></template
+                >
+                <template #queue
+                  ><Term id="cola">{{ t('settings.exec.concurrent.queue') }}</Term></template
+                >
               </i18n-t>
             </div>
             <input
@@ -550,19 +587,34 @@ async function clearFinished(): Promise<void> {
             <div class="grow">
               <label class="o-title" for="set-autoresume">{{ t('settings.exec.autoResume.label') }}</label>
               <i18n-t keypath="settings.exec.autoResume.description" tag="p" class="muted small" scope="global">
-                <template #runs><Term id="ejecucion">{{ t('settings.exec.autoResume.runs') }}</Term></template>
-                <template #approval><Term id="aprobacion">{{ t('settings.exec.autoResume.approval') }}</Term></template>
+                <template #runs
+                  ><Term id="ejecucion">{{ t('settings.exec.autoResume.runs') }}</Term></template
+                >
+                <template #approval
+                  ><Term id="aprobacion">{{ t('settings.exec.autoResume.approval') }}</Term></template
+                >
               </i18n-t>
             </div>
-            <input id="set-autoresume" type="checkbox" class="switch" :checked="settings.autoResume" :disabled="savingSetting === 'autoResume'" @change="toggleAutoResume" />
+            <input
+              id="set-autoresume"
+              type="checkbox"
+              class="switch"
+              :checked="settings.autoResume"
+              :disabled="savingSetting === 'autoResume'"
+              @change="toggleAutoResume"
+            />
           </div>
 
           <div class="option">
             <div class="grow">
               <label class="o-title" for="set-private">{{ t('settings.exec.privateNetwork.label') }}</label>
               <i18n-t keypath="settings.exec.privateNetwork.description" tag="p" class="muted small" scope="global">
-                <template #privateNetwork><Term id="red-privada">{{ t('settings.exec.privateNetwork.privateNetworkTerm') }}</Term></template>
-                <template #apis><Term id="api">{{ t('settings.exec.privateNetwork.apis') }}</Term></template>
+                <template #privateNetwork
+                  ><Term id="red-privada">{{ t('settings.exec.privateNetwork.privateNetworkTerm') }}</Term></template
+                >
+                <template #apis
+                  ><Term id="api">{{ t('settings.exec.privateNetwork.apis') }}</Term></template
+                >
               </i18n-t>
             </div>
             <input
@@ -580,7 +632,9 @@ async function clearFinished(): Promise<void> {
               <label class="o-title" for="set-code">{{ t('settings.exec.code.label') }}</label>
               <i18n-t keypath="settings.exec.code.description" tag="p" class="muted small" scope="global">
                 <template #tool><code>run_javascript</code></template>
-                <template #sandbox><Term id="sandbox">{{ t('settings.exec.code.sandboxTerm') }}</Term></template>
+                <template #sandbox
+                  ><Term id="sandbox">{{ t('settings.exec.code.sandboxTerm') }}</Term></template
+                >
               </i18n-t>
               <div v-if="settings.allowCodeExecution" class="sandbox" data-testid="sandbox-options">
                 <div class="sandbox-head">
@@ -591,7 +645,14 @@ async function clearFinished(): Promise<void> {
                 </div>
                 <div class="sandbox-choices" role="radiogroup" aria-labelledby="sandbox-label">
                   <label class="sandbox-choice" :class="{ active: settings.codeSandbox === 'process' }">
-                    <input type="radio" name="code-sandbox" value="process" :checked="settings.codeSandbox === 'process'" :disabled="savingSetting === 'codeSandbox'" @change="chooseSandbox('process')" />
+                    <input
+                      type="radio"
+                      name="code-sandbox"
+                      value="process"
+                      :checked="settings.codeSandbox === 'process'"
+                      :disabled="savingSetting === 'codeSandbox'"
+                      @change="chooseSandbox('process')"
+                    />
                     <span class="grow">
                       <strong>{{ t('settings.exec.sandbox.processTitle') }}</strong>
                       <i18n-t keypath="settings.exec.sandbox.processText" tag="span" class="muted small" scope="global">
@@ -601,9 +662,7 @@ async function clearFinished(): Promise<void> {
                         <template v-if="sandbox.process.networkBlocked">
                           <span class="dot success" aria-hidden="true" /> {{ t('settings.exec.sandbox.processNoNetwork') }}
                         </template>
-                        <template v-else>
-                          <span class="dot danger" aria-hidden="true" /> {{ t('settings.exec.sandbox.processNetworkOpen') }}
-                        </template>
+                        <template v-else> <span class="dot danger" aria-hidden="true" /> {{ t('settings.exec.sandbox.processNetworkOpen') }} </template>
                       </span>
                     </span>
                   </label>
@@ -619,13 +678,21 @@ async function clearFinished(): Promise<void> {
                     <span class="grow">
                       <strong>{{ t('settings.exec.sandbox.containerTitle') }}</strong>
                       <i18n-t keypath="settings.exec.sandbox.containerText" tag="span" class="muted small" scope="global">
-                        <template #container><Term id="contenedor">{{ t('settings.exec.sandbox.containerTerm') }}</Term></template>
+                        <template #container
+                          ><Term id="contenedor">{{ t('settings.exec.sandbox.containerTerm') }}</Term></template
+                        >
                       </i18n-t>
                       <span v-if="sandbox" class="sandbox-status small" role="status">
                         <template v-if="sandbox.container.available">
-                          <span class="dot success" aria-hidden="true" /> {{ t('settings.exec.sandbox.engineAvailable', { engine: ENGINE_LABEL[sandbox.container.engine!], version: sandbox.container.version }) }}
+                          <span class="dot success" aria-hidden="true" />
+                          {{
+                            t('settings.exec.sandbox.engineAvailable', { engine: ENGINE_LABEL[sandbox.container.engine!], version: sandbox.container.version })
+                          }}
                         </template>
-                        <template v-else><span class="dot" aria-hidden="true" /> {{ t('settings.exec.sandbox.containerUnavailable', { error: sandbox.container.error }) }}</template>
+                        <template v-else
+                          ><span class="dot" aria-hidden="true" />
+                          {{ t('settings.exec.sandbox.containerUnavailable', { error: sandbox.container.error }) }}</template
+                        >
                       </span>
                       <span v-else class="sandbox-status small muted">{{ t('settings.providers.status.checking') }}</span>
                     </span>
@@ -654,7 +721,15 @@ async function clearFinished(): Promise<void> {
         <div class="card-head backups-head">
           <h2 id="sec-backups"><Archive style="width: 16px; height: 16px" /> {{ t('settings.backups.title') }}</h2>
           <div class="row" style="gap: 8px; flex-wrap: wrap">
-            <input ref="uploadInput" type="file" accept=".afbackup" class="sr-only" :aria-label="t('settings.backups.fileInputLabel')" tabindex="-1" @change="uploadBackup" />
+            <input
+              ref="uploadInput"
+              type="file"
+              accept=".afbackup"
+              class="sr-only"
+              :aria-label="t('settings.backups.fileInputLabel')"
+              tabindex="-1"
+              @change="uploadBackup"
+            />
             <button class="btn btn-sm" type="button" :disabled="backupBusy !== null" @click="uploadInput?.click()">
               <LoaderCircle v-if="backupBusy === 'upload'" class="spin" /><Upload v-else /> {{ t('settings.backups.addFromFile') }}
             </button>
@@ -665,13 +740,19 @@ async function clearFinished(): Promise<void> {
         </div>
         <div class="card-pad col" style="gap: 12px">
           <i18n-t keypath="settings.backups.description" tag="p" class="muted small" style="margin: 0" scope="global">
-            <template #backup><Term id="copia-seguridad">{{ t('settings.backups.descriptionBackup') }}</Term></template>
-            <template #database><Term id="base-datos">{{ t('settings.backups.descriptionDatabase') }}</Term></template>
+            <template #backup
+              ><Term id="copia-seguridad">{{ t('settings.backups.descriptionBackup') }}</Term></template
+            >
+            <template #database
+              ><Term id="base-datos">{{ t('settings.backups.descriptionDatabase') }}</Term></template
+            >
           </i18n-t>
           <div v-if="backups?.pending" class="callout warning" role="status">
             <History />
             <i18n-t keypath="settings.backups.pending" tag="span" class="grow" scope="global">
-              <template #title><strong>{{ t('settings.backups.pendingTitle') }}</strong></template>
+              <template #title
+                ><strong>{{ t('settings.backups.pendingTitle') }}</strong></template
+              >
               <template #date>{{ formatDateTime(backups.pending.manifest.createdAt) }}</template>
             </i18n-t>
             <button class="btn btn-sm" type="button" :disabled="backupBusy !== null" @click="cancelRestore">{{ t('settings.backups.cancelRestore') }}</button>
@@ -681,7 +762,9 @@ async function clearFinished(): Promise<void> {
             <i18n-t keypath="settings.backups.lastRestore" tag="span" class="restore-note" scope="global">
               <template #created>{{ formatDateTime(backups.lastRestore.manifest.createdAt) }}</template>
               <template #applied>{{ formatDateTime(backups.lastRestore.appliedAt) }}</template>
-              <template #dir><code>{{ backups.lastRestore.replacedDir }}</code></template>
+              <template #dir
+                ><code>{{ backups.lastRestore.replacedDir }}</code></template
+              >
             </i18n-t>
           </div>
           <div v-if="!backups" class="skeleton" style="height: 44px" />
@@ -722,7 +805,14 @@ async function clearFinished(): Promise<void> {
         <section class="card" aria-labelledby="sec-data">
           <div class="card-head">
             <h2 id="sec-data"><Database style="width: 16px; height: 16px" /> {{ t('settings.data.title') }}</h2>
-            <button class="btn btn-ghost btn-sm btn-icon" type="button" :aria-label="t('settings.data.refreshLabel')" :title="t('common.actions.refresh')" :disabled="refreshingStats" @click="refreshStats">
+            <button
+              class="btn btn-ghost btn-sm btn-icon"
+              type="button"
+              :aria-label="t('settings.data.refreshLabel')"
+              :title="t('common.actions.refresh')"
+              :disabled="refreshingStats"
+              @click="refreshStats"
+            >
               <RefreshCw :class="{ spin: refreshingStats }" />
             </button>
           </div>
@@ -733,17 +823,33 @@ async function clearFinished(): Promise<void> {
           </div>
           <template v-else>
             <dl class="facts">
-              <div><dt><Term id="base-datos">{{ t('settings.data.database') }}</Term></dt><dd class="num">{{ formatBytes(stats.system.dbSizeBytes) }}</dd></div>
-              <div><dt>{{ t('settings.data.savedRuns') }}</dt><dd class="num">{{ formatNumber(stats.counts.runs) }}</dd></div>
-              <div><dt>{{ t('settings.data.finished') }}</dt><dd class="num">{{ formatNumber(finishedRuns) }}</dd></div>
-              <div class="wide"><dt>{{ t('settings.data.dataDir') }}</dt><dd class="mono path" :title="stats.system.dataDir">{{ stats.system.dataDir }}</dd></div>
+              <div>
+                <dt>
+                  <Term id="base-datos">{{ t('settings.data.database') }}</Term>
+                </dt>
+                <dd class="num">{{ formatBytes(stats.system.dbSizeBytes) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('settings.data.savedRuns') }}</dt>
+                <dd class="num">{{ formatNumber(stats.counts.runs) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('settings.data.finished') }}</dt>
+                <dd class="num">{{ formatNumber(finishedRuns) }}</dd>
+              </div>
+              <div class="wide">
+                <dt>{{ t('settings.data.dataDir') }}</dt>
+                <dd class="mono path" :title="stats.system.dataDir">{{ stats.system.dataDir }}</dd>
+              </div>
             </dl>
             <div class="options retention">
               <div class="option">
                 <div class="grow">
                   <label class="o-title" for="set-retention-days">{{ t('settings.data.retentionDays.label') }}</label>
                   <i18n-t keypath="settings.data.retentionDays.description" tag="p" class="muted small" scope="global">
-                    <template #runs><Term id="ejecucion">{{ t('settings.data.retentionDays.runs') }}</Term></template>
+                    <template #runs
+                      ><Term id="ejecucion">{{ t('settings.data.retentionDays.runs') }}</Term></template
+                    >
                   </i18n-t>
                 </div>
                 <input
@@ -798,11 +904,26 @@ async function clearFinished(): Promise<void> {
             <div class="skeleton" style="height: 18px" />
           </div>
           <dl v-else class="facts">
-            <div><dt>{{ t('settings.system.version') }}</dt><dd class="num">{{ stats.system.version }}</dd></div>
-            <div><dt><Term id="nodejs">Node.js</Term></dt><dd class="num">{{ stats.system.nodeVersion }}</dd></div>
-            <div><dt>{{ t('settings.system.uptime') }}</dt><dd class="num">{{ formatUptime(stats.system.uptimeSec) }}</dd></div>
-            <div><dt>{{ t('settings.system.memory') }}</dt><dd class="num">{{ formatNumber(stats.system.memoryMb) }} MB</dd></div>
-            <div class="wide"><dt>{{ t('settings.system.platform') }}</dt><dd>{{ stats.system.platform }}</dd></div>
+            <div>
+              <dt>{{ t('settings.system.version') }}</dt>
+              <dd class="num">{{ stats.system.version }}</dd>
+            </div>
+            <div>
+              <dt><Term id="nodejs">Node.js</Term></dt>
+              <dd class="num">{{ stats.system.nodeVersion }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('settings.system.uptime') }}</dt>
+              <dd class="num">{{ formatUptime(stats.system.uptimeSec) }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('settings.system.memory') }}</dt>
+              <dd class="num">{{ formatNumber(stats.system.memoryMb) }} MB</dd>
+            </div>
+            <div class="wide">
+              <dt>{{ t('settings.system.platform') }}</dt>
+              <dd>{{ stats.system.platform }}</dd>
+            </div>
           </dl>
         </section>
       </div>

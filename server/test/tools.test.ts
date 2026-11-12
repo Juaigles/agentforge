@@ -51,12 +51,9 @@ describe('calculadora', () => {
     expect(evaluateExpression(expr)).toBeCloseTo(expected, 10);
   });
 
-  it.each(['', '1 +', '(1 + 2', '1 / 0', 'foo(1)', 'x + 1', '1 2', 'process.exit(1)', 'constructor', '2 $ 3'])(
-    'rechaza %j',
-    (expr) => {
-      expect(() => evaluateExpression(expr)).toThrow();
-    },
-  );
+  it.each(['', '1 +', '(1 + 2', '1 / 0', 'foo(1)', 'x + 1', '1 2', 'process.exit(1)', 'constructor', '2 $ 3'])('rechaza %j', (expr) => {
+    expect(() => evaluateExpression(expr)).toThrow();
+  });
 });
 
 describe('validación de argumentos', () => {
@@ -88,13 +85,20 @@ describe('validación de argumentos', () => {
 });
 
 describe('protección de red', () => {
-  it.each(['127.0.0.1', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.1', '169.254.169.254', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:127.0.0.1'])(
-    '%s es privada',
-    (ip) => expect(isPrivateAddress(ip)).toBe(true),
-  );
-  it.each(['8.8.8.8', '172.32.0.1', '1.1.1.1', '2606:4700:4700::1111'])('%s es pública', (ip) =>
-    expect(isPrivateAddress(ip)).toBe(false),
-  );
+  it.each([
+    '127.0.0.1',
+    '10.1.2.3',
+    '172.16.0.1',
+    '172.31.255.255',
+    '192.168.1.1',
+    '169.254.169.254',
+    '0.0.0.0',
+    '::1',
+    'fd00::1',
+    'fe80::1',
+    '::ffff:127.0.0.1',
+  ])('%s es privada', (ip) => expect(isPrivateAddress(ip)).toBe(true));
+  it.each(['8.8.8.8', '172.32.0.1', '1.1.1.1', '2606:4700:4700::1111'])('%s es pública', (ip) => expect(isPrivateAddress(ip)).toBe(false));
 
   it('bloquea localhost, IPs privadas y protocolos no http', async () => {
     await expect(assertUrlAllowed('http://127.0.0.1:11434/api/tags', false)).rejects.toThrow(/red privada/);
@@ -106,7 +110,9 @@ describe('protección de red', () => {
   });
 
   it('convierte HTML en texto sin scripts ni etiquetas', () => {
-    const text = htmlToText('<html><head><title>T</title><style>p{}</style></head><body><h1>Hola</h1><script>alert(1)</script><p>Uno &amp;   dos</p><div></div><div></div><p>Tres</p></body></html>');
+    const text = htmlToText(
+      '<html><head><title>T</title><style>p{}</style></head><body><h1>Hola</h1><script>alert(1)</script><p>Uno &amp;   dos</p><div></div><div></div><p>Tres</p></body></html>',
+    );
     expect(text).toBe('Hola\nUno & dos\n\nTres');
   });
 });

@@ -60,7 +60,12 @@ describe('apagado ordenado', () => {
     const agent = addAgent(ctx);
     const wf = ctx.store.createWorkflow(
       workflow(
-        [node('entrada', 'input'), node('rapido', 'agent', { agentId: agent.id, prompt: 'rapido {{input}}' }), node('lento', 'agent', { agentId: agent.id, prompt: 'lento {{rapido}}' }), node('salida', 'output')],
+        [
+          node('entrada', 'input'),
+          node('rapido', 'agent', { agentId: agent.id, prompt: 'rapido {{input}}' }),
+          node('lento', 'agent', { agentId: agent.id, prompt: 'lento {{rapido}}' }),
+          node('salida', 'output'),
+        ],
         edges('entrada>rapido', 'rapido>lento', 'lento>salida'),
       ),
     );
@@ -234,7 +239,10 @@ describe('configuración de nodos fuera de rango', () => {
     const run = await runWorkflow(
       ctx,
       workflow(
-        [node('a', 'agent', { agentId: agent.id, prompt: 'a', timeoutMs: 5e9 }), node('b', 'agent', { agentId: agent.id, prompt: 'b', timeoutMs: 2 ** 31 + 5 })],
+        [
+          node('a', 'agent', { agentId: agent.id, prompt: 'a', timeoutMs: 5e9 }),
+          node('b', 'agent', { agentId: agent.id, prompt: 'b', timeoutMs: 2 ** 31 + 5 }),
+        ],
         [],
         { onError: 'continue' },
       ),
@@ -317,7 +325,11 @@ describe('expresiones regulares en condiciones', () => {
     const run = await runWorkflow(
       ctx,
       workflow(
-        [node('entrada', 'input'), node('cond', 'condition', { left: '{{input}}', operator: 'matches', right: '(a+)+$' }), node('si', 'transform', { template: 'sí' })],
+        [
+          node('entrada', 'input'),
+          node('cond', 'condition', { left: '{{input}}', operator: 'matches', right: '(a+)+$' }),
+          node('si', 'transform', { template: 'sí' }),
+        ],
         edges('entrada>cond', 'cond:true>si'),
       ),
       `${'a'.repeat(40)}!`,
@@ -435,13 +447,23 @@ describe('validación de la configuración', () => {
   const load = (env: Record<string, string>) => loadConfig(env as NodeJS.ProcessEnv);
 
   it('acepta los valores por defecto y los valores válidos', () => {
-    expect(load({})).toMatchObject({ port: 4310, host: '127.0.0.1', seed: true, logLevel: 'info', authToken: null, allowedHosts: [], rateLimitPerMinute: 1200 });
-    expect(load({ PORT: '8080', AGENTFORGE_SEED: 'false', AGENTFORGE_LOG_LEVEL: 'DEBUG', AGENTFORGE_ALLOWED_HOSTS: 'Forge.Example, otro.test' })).toMatchObject({
-      port: 8080,
-      seed: false,
-      logLevel: 'debug',
-      allowedHosts: ['forge.example', 'otro.test'],
+    expect(load({})).toMatchObject({
+      port: 4310,
+      host: '127.0.0.1',
+      seed: true,
+      logLevel: 'info',
+      authToken: null,
+      allowedHosts: [],
+      rateLimitPerMinute: 1200,
     });
+    expect(load({ PORT: '8080', AGENTFORGE_SEED: 'false', AGENTFORGE_LOG_LEVEL: 'DEBUG', AGENTFORGE_ALLOWED_HOSTS: 'Forge.Example, otro.test' })).toMatchObject(
+      {
+        port: 8080,
+        seed: false,
+        logLevel: 'debug',
+        allowedHosts: ['forge.example', 'otro.test'],
+      },
+    );
     // Compatibilidad con la variable antigua.
     expect(load({ AGENTFORGE_LOG: '0' }).logLevel).toBe('silent');
     expect(load({ AGENTFORGE_LOG: '1' }).logLevel).toBe('debug');

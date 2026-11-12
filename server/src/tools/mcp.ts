@@ -66,9 +66,11 @@ export function mcpResultText(result: { content?: unknown; structuredContent?: u
   const parts: string[] = [];
   for (const block of Array.isArray(result.content) ? (result.content as Array<Record<string, unknown>>) : []) {
     if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text);
-    else if (block.type === 'resource' && block.resource && typeof (block.resource as { text?: unknown }).text === 'string') parts.push((block.resource as { text: string }).text);
+    else if (block.type === 'resource' && block.resource && typeof (block.resource as { text?: unknown }).text === 'string')
+      parts.push((block.resource as { text: string }).text);
     else if (block.type === 'resource_link' && typeof block.uri === 'string') parts.push(`[recurso: ${block.uri}]`);
-    else if (typeof block.type === 'string') parts.push(`[${block.type}${typeof block.mimeType === 'string' ? ` ${block.mimeType}` : ''}: contenido no textual omitido]`);
+    else if (typeof block.type === 'string')
+      parts.push(`[${block.type}${typeof block.mimeType === 'string' ? ` ${block.mimeType}` : ''}: contenido no textual omitido]`);
   }
   if (!parts.length && result.structuredContent !== undefined) parts.push(JSON.stringify(result.structuredContent));
   return truncate(parts.join('\n'), MAX_RESULT_CHARS);
@@ -183,7 +185,12 @@ export class McpManager {
     );
     let transport: StdioClientTransport | StreamableHTTPClientTransport;
     if (server.transport === 'stdio') {
-      const stdio = new StdioClientTransport({ command: server.command, args: server.args, env: { ...getDefaultEnvironment(), ...server.env }, stderr: 'pipe' });
+      const stdio = new StdioClientTransport({
+        command: server.command,
+        args: server.args,
+        env: { ...getDefaultEnvironment(), ...server.env },
+        stderr: 'pipe',
+      });
       stdio.stderr?.on('data', (chunk: Buffer) => {
         connection.stderr = (connection.stderr + chunk.toString('utf8')).slice(-2000);
       });
@@ -282,7 +289,8 @@ export class McpManager {
     const out: Array<{ tool: ToolDefinition; serverId: string; serverName: string }> = [];
     for (const connection of this.connections.values()) {
       if (!connection.server.enabled) continue;
-      for (const snapshot of connection.tools) out.push({ tool: this.definition(connection, snapshot), serverId: connection.server.id, serverName: connection.server.name });
+      for (const snapshot of connection.tools)
+        out.push({ tool: this.definition(connection, snapshot), serverId: connection.server.id, serverName: connection.server.name });
     }
     return out;
   }
@@ -320,7 +328,10 @@ export class McpManager {
         }
         let result: { content?: unknown; structuredContent?: unknown; isError?: boolean };
         try {
-          result = await current.client!.callTool({ name: snapshot.remoteName, arguments: args }, { signal: ctx.signal, timeout: this.opts.callTimeoutMs ?? 120_000 });
+          result = await current.client!.callTool(
+            { name: snapshot.remoteName, arguments: args },
+            { signal: ctx.signal, timeout: this.opts.callTimeoutMs ?? 120_000 },
+          );
         } catch (err) {
           if (ctx.signal.aborted) throw ctx.signal.reason;
           throw new ToolError(`El servidor MCP «${current.server.name}» falló: ${errorMessage(err)}`);

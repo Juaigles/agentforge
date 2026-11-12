@@ -14,10 +14,12 @@ export default {
   },
   loadError: 'No se pudieron cargar las herramientas',
   callout: {
-    codeDisabled: 'La ejecución de código está desactivada: {code} devolverá un error hasta que la habilites en {settings}. Cuando se activa, el código corre en un {sandbox}.',
+    codeDisabled:
+      'La ejecución de código está desactivada: {code} devolverá un error hasta que la habilites en {settings}. Cuando se activa, el código corre en un {sandbox}.',
     settings: 'Ajustes',
     sandbox: 'entorno aislado',
-    network: 'Las herramientas de red ({fetch}, {http} y las personalizadas) no pueden acceder a tu {privateNetwork} ni a localhost. Puedes permitirlo en {settings}.',
+    network:
+      'Las herramientas de red ({fetch}, {http} y las personalizadas) no pueden acceder a tu {privateNetwork} ni a localhost. Puedes permitirlo en {settings}.',
     privateNetwork: 'red privada',
   },
   search: {
@@ -79,7 +81,8 @@ export default {
   },
   confirm: {
     removeTitle: 'Eliminar «{name}»',
-    usedBy: 'La usan {n} agente ({users}). Dejará de estar disponible para ellos. Esta acción no se puede deshacer. | La usan {n} agentes ({users}). Dejará de estar disponible para ellos. Esta acción no se puede deshacer.',
+    usedBy:
+      'La usan {n} agente ({users}). Dejará de estar disponible para ellos. Esta acción no se puede deshacer. | La usan {n} agentes ({users}). Dejará de estar disponible para ellos. Esta acción no se puede deshacer.',
     unused: 'La herramienta se eliminará definitivamente. Esta acción no se puede deshacer.',
     removeFileTitle: 'Eliminar archivo',
     removeFileMessage: 'Se eliminará «{path}» del espacio de trabajo. Esta acción no se puede deshacer.',
@@ -91,7 +94,8 @@ export default {
     summary: '{count}, {size} en total.',
     loadError: 'No se pudieron listar los archivos',
     emptyTitle: 'El espacio de trabajo está vacío',
-    emptyText: 'Aquí aparecerán los archivos que generen tus agentes. Da a un agente la herramienta {write} o ejecuta el workflow de ejemplo «Cálculo con herramientas y archivo».',
+    emptyText:
+      'Aquí aparecerán los archivos que generen tus agentes. Da a un agente la herramienta {write} o ejecuta el workflow de ejemplo «Cálculo con herramientas y archivo».',
     goWorkflows: 'Ir a workflows',
     colFile: 'Archivo',
     colSize: 'Tamaño',

@@ -177,7 +177,16 @@ test.describe('Persistencia tras reiniciar el servidor', () => {
 
     // Sin recargar: el canal de eventos se reconecta y la nueva ejecución aparece en la lista.
     await expect
-      .poll(async () => page.evaluate(() => fetch('/api/health').then((r) => r.ok, () => false)), { timeout: 15_000 })
+      .poll(
+        async () =>
+          page.evaluate(() =>
+            fetch('/api/health').then(
+              (r) => r.ok,
+              () => false,
+            ),
+          ),
+        { timeout: 15_000 },
+      )
       .toBe(true);
     await expect(async () => {
       await app.runToEnd('agents', agent.id, 'tras reconectar');

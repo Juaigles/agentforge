@@ -105,13 +105,63 @@ export async function seedIfEmpty(ctx: AppContext): Promise<boolean> {
       'Dos agentes investigan y analizan el tema en paralelo, un redactor sintetiza el informe, un revisor lo evalúa y, si pide cambios, el redactor lo corrige.',
     settings: { ...DEFAULT_WORKFLOW_SETTINGS, maxConcurrency: 2, maxLlmCalls: 30 },
     nodes: [
-      { id: 'tema', type: 'input', label: 'Tema', position: { x: 0, y: 160 }, config: { description: 'Tema sobre el que elaborar el informe', defaultValue: 'El impacto de los agentes de IA en las pequeñas empresas' } },
-      { id: 'investigar', type: 'agent', label: 'Investigar hechos', position: { x: 250, y: 40 }, config: { agentId: investigador.id, prompt: 'Reúne los hechos y el contexto clave sobre este tema:\n\n{{input}}' } },
-      { id: 'analizar', type: 'agent', label: 'Analizar riesgos', position: { x: 250, y: 280 }, config: { agentId: analista.id, prompt: 'Analiza las oportunidades y los riesgos de este tema:\n\n{{input}}' } },
-      { id: 'redactar', type: 'agent', label: 'Redactar informe', position: { x: 500, y: 160 }, config: { agentId: redactor.id, prompt: 'Escribe un informe ejecutivo sobre "{{input}}" usando este material. Estructura: título, resumen (2-3 frases), hallazgos clave, riesgos y oportunidades, y recomendación final. Máximo 350 palabras.\n\n## Hechos\n{{investigar}}\n\n## Análisis\n{{analizar}}' } },
-      { id: 'revisar', type: 'agent', label: 'Revisar calidad', position: { x: 750, y: 160 }, config: { agentId: revisor.id, prompt: 'Revisa este borrador de informe:\n\n{{redactar}}' } },
-      { id: 'aprobado', type: 'condition', label: '¿Aprobado?', position: { x: 1000, y: 160 }, config: { left: '{{revisar}}', operator: 'contains', right: 'APROBADO' } },
-      { id: 'corregir', type: 'agent', label: 'Aplicar correcciones', position: { x: 1250, y: 290 }, config: { agentId: redactor.id, prompt: 'Reescribe el siguiente informe aplicando los cambios que pide el revisor. Devuelve solo el informe final.\n\n## Informe\n{{redactar}}\n\n## Comentarios del revisor\n{{revisar}}' } },
+      {
+        id: 'tema',
+        type: 'input',
+        label: 'Tema',
+        position: { x: 0, y: 160 },
+        config: { description: 'Tema sobre el que elaborar el informe', defaultValue: 'El impacto de los agentes de IA en las pequeñas empresas' },
+      },
+      {
+        id: 'investigar',
+        type: 'agent',
+        label: 'Investigar hechos',
+        position: { x: 250, y: 40 },
+        config: { agentId: investigador.id, prompt: 'Reúne los hechos y el contexto clave sobre este tema:\n\n{{input}}' },
+      },
+      {
+        id: 'analizar',
+        type: 'agent',
+        label: 'Analizar riesgos',
+        position: { x: 250, y: 280 },
+        config: { agentId: analista.id, prompt: 'Analiza las oportunidades y los riesgos de este tema:\n\n{{input}}' },
+      },
+      {
+        id: 'redactar',
+        type: 'agent',
+        label: 'Redactar informe',
+        position: { x: 500, y: 160 },
+        config: {
+          agentId: redactor.id,
+          prompt:
+            'Escribe un informe ejecutivo sobre "{{input}}" usando este material. Estructura: título, resumen (2-3 frases), hallazgos clave, riesgos y oportunidades, y recomendación final. Máximo 350 palabras.\n\n## Hechos\n{{investigar}}\n\n## Análisis\n{{analizar}}',
+        },
+      },
+      {
+        id: 'revisar',
+        type: 'agent',
+        label: 'Revisar calidad',
+        position: { x: 750, y: 160 },
+        config: { agentId: revisor.id, prompt: 'Revisa este borrador de informe:\n\n{{redactar}}' },
+      },
+      {
+        id: 'aprobado',
+        type: 'condition',
+        label: '¿Aprobado?',
+        position: { x: 1000, y: 160 },
+        config: { left: '{{revisar}}', operator: 'contains', right: 'APROBADO' },
+      },
+      {
+        id: 'corregir',
+        type: 'agent',
+        label: 'Aplicar correcciones',
+        position: { x: 1250, y: 290 },
+        config: {
+          agentId: redactor.id,
+          prompt:
+            'Reescribe el siguiente informe aplicando los cambios que pide el revisor. Devuelve solo el informe final.\n\n## Informe\n{{redactar}}\n\n## Comentarios del revisor\n{{revisar}}',
+        },
+      },
       { id: 'informe_aprobado', type: 'output', label: 'Informe aprobado', position: { x: 1250, y: 50 }, config: { template: '{{redactar}}' } },
       { id: 'informe_corregido', type: 'output', label: 'Informe corregido', position: { x: 1500, y: 290 }, config: { template: '{{corregir}}' } },
     ],
@@ -130,13 +180,37 @@ export async function seedIfEmpty(ctx: AppContext): Promise<boolean> {
 
   store.createWorkflow({
     name: 'Cálculo con herramientas y archivo',
-    description:
-      'Un agente resuelve un problema numérico con la calculadora y un nodo de herramienta guarda el resultado en el espacio de trabajo.',
+    description: 'Un agente resuelve un problema numérico con la calculadora y un nodo de herramienta guarda el resultado en el espacio de trabajo.',
     settings: { ...DEFAULT_WORKFLOW_SETTINGS, maxLlmCalls: 12 },
     nodes: [
-      { id: 'problema', type: 'input', label: 'Problema', position: { x: 0, y: 80 }, config: { description: 'Problema numérico a resolver', defaultValue: 'Una factura tiene una base imponible de 1.284,50 € y un IVA del 21 %. ¿Cuál es el total? ¿Y cuánto paga cada socio si se reparte entre 3?' } },
-      { id: 'resolver', type: 'agent', label: 'Resolver con calculadora', position: { x: 260, y: 80 }, config: { agentId: calculista.id, prompt: 'Resuelve este problema paso a paso. Usa SIEMPRE la herramienta calculator para cada operación y explica el resultado:\n\n{{input}}' } },
-      { id: 'guardar', type: 'tool', label: 'Guardar resultado', position: { x: 540, y: 180 }, config: { tool: 'file_write', args: { path: 'resultados/calculo.md', content: '# Problema\n{{input}}\n\n# Solución\n{{resolver}}\n' } } },
+      {
+        id: 'problema',
+        type: 'input',
+        label: 'Problema',
+        position: { x: 0, y: 80 },
+        config: {
+          description: 'Problema numérico a resolver',
+          defaultValue:
+            'Una factura tiene una base imponible de 1.284,50 € y un IVA del 21 %. ¿Cuál es el total? ¿Y cuánto paga cada socio si se reparte entre 3?',
+        },
+      },
+      {
+        id: 'resolver',
+        type: 'agent',
+        label: 'Resolver con calculadora',
+        position: { x: 260, y: 80 },
+        config: {
+          agentId: calculista.id,
+          prompt: 'Resuelve este problema paso a paso. Usa SIEMPRE la herramienta calculator para cada operación y explica el resultado:\n\n{{input}}',
+        },
+      },
+      {
+        id: 'guardar',
+        type: 'tool',
+        label: 'Guardar resultado',
+        position: { x: 540, y: 180 },
+        config: { tool: 'file_write', args: { path: 'resultados/calculo.md', content: '# Problema\n{{input}}\n\n# Solución\n{{resolver}}\n' } },
+      },
       { id: 'resultado', type: 'output', label: 'Resultado', position: { x: 540, y: 0 }, config: { template: '{{resolver}}' } },
     ],
     edges: [

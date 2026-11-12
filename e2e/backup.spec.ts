@@ -66,19 +66,26 @@ test.describe('Ajustes · copias de seguridad', () => {
     // Las copias no forman parte de lo que se restaura: la lista sigue teniendo las de antes.
     const total = existing + 1;
     await expect(copies).toHaveCount(total);
-    await section.getByLabel('Archivo de copia de seguridad').setInputFiles({ name: 'mi-copia.afbackup', mimeType: 'application/octet-stream', buffer: fs.readFileSync(file) });
+    await section
+      .getByLabel('Archivo de copia de seguridad')
+      .setInputFiles({ name: 'mi-copia.afbackup', mimeType: 'application/octet-stream', buffer: fs.readFileSync(file) });
     await expect(toast(page, 'Copia de seguridad añadida. Ya puedes restaurarla.')).toBeVisible();
     await expect(copies).toHaveCount(total + 1);
     await expect(copies.filter({ hasText: 'añadida' })).toHaveCount(1);
 
     // Un archivo que no es una copia se rechaza con un mensaje y no se guarda.
-    await section.getByLabel('Archivo de copia de seguridad').setInputFiles({ name: 'falsa.afbackup', mimeType: 'application/octet-stream', buffer: Buffer.from('no soy una copia') });
+    await section
+      .getByLabel('Archivo de copia de seguridad')
+      .setInputFiles({ name: 'falsa.afbackup', mimeType: 'application/octet-stream', buffer: Buffer.from('no soy una copia') });
     await expect(toast(page, /no es una copia de seguridad|está dañado/)).toBeVisible();
     await expect(copies).toHaveCount(total + 1);
 
     // Borrar pide confirmación.
     for (let left = total + 1; left > 0; left--) {
-      await copies.first().getByRole('button', { name: /^Eliminar la copia del / }).click();
+      await copies
+        .first()
+        .getByRole('button', { name: /^Eliminar la copia del / })
+        .click();
       await page.getByRole('dialog', { name: 'Eliminar copia de seguridad' }).getByRole('button', { name: 'Eliminar copia' }).click();
       await expect(copies).toHaveCount(left - 1);
     }

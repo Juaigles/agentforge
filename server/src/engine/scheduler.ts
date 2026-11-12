@@ -97,7 +97,7 @@ export class Scheduler {
       if (trigger.kind === 'webhook' || !trigger.enabled || !trigger.nextRunAt) continue;
       const due = Date.parse(trigger.nextRunAt);
       if (due > now) continue;
-      let next: string | null = null;
+      let next: string | null;
       try {
         next = nextOccurrence(trigger, new Date(now), new Date(due))?.toISOString() ?? null;
       } catch (err) {
@@ -107,7 +107,10 @@ export class Scheduler {
       }
       // Una hora fija que llega muy tarde (el servidor estaba apagado) no se ejecuta a deshora.
       if (trigger.kind !== 'interval' && now - due > LATE_GRACE_MS) {
-        this.deps.store.updateTriggerState(trigger.id, { nextRunAt: next, lastError: 'Se omitió una ejecución porque AgentForge no estaba en marcha a su hora.' });
+        this.deps.store.updateTriggerState(trigger.id, {
+          nextRunAt: next,
+          lastError: 'Se omitió una ejecución porque AgentForge no estaba en marcha a su hora.',
+        });
         continue;
       }
       // Sin solapes: si la ejecución anterior de este disparador sigue viva, esta ocasión se omite.

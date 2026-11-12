@@ -325,7 +325,9 @@ export function openDatabase(file: string, migrations: Migration[] = MIGRATIONS)
   }
   if (file !== ':memory:' && current > 0 && current < migrations.length) {
     // Con un historial grande puede tardar (copia previa, índices nuevos y compactación): que no parezca un cuelgue.
-    console.log(`[agentforge] Actualizando la base de datos del esquema v${current} al v${migrations.length}. Con un historial grande puede tardar unos segundos…`);
+    console.log(
+      `[agentforge] Actualizando la base de datos del esquema v${current} al v${migrations.length}. Con un historial grande puede tardar unos segundos…`,
+    );
     const backup = `${file}.v${current}.bak`;
     fs.rmSync(backup, { force: true });
     db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);

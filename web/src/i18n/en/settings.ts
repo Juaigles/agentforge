@@ -79,7 +79,7 @@ export default {
     privateNetwork: {
       label: 'Allow private networks',
       description:
-        "By default, network tools cannot call a {privateNetwork} or localhost. That way, a malicious web page read by an agent cannot trick it into querying your router or other internal services and leaking what it finds. Turn it on only if you need agents to use {apis} on your local network.",
+        'By default, network tools cannot call a {privateNetwork} or localhost. That way, a malicious web page read by an agent cannot trick it into querying your router or other internal services and leaking what it finds. Turn it on only if you need agents to use {apis} on your local network.',
       privateNetworkTerm: 'private network',
       apis: 'APIs',
       confirmTitle: 'Allow private networks',

@@ -57,7 +57,7 @@ watch(
 
 const activeRuns = computed<RunSummary[]>(() => [...runs.active].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
 const chartMax = computed(() => Math.max(1, ...(stats.value?.daily.map((d) => d.completed + d.failed + d.cancelled) ?? [0])));
-const hasHistory = computed(() => (stats.value?.daily.some((d) => d.completed + d.failed + d.cancelled > 0) ?? false));
+const hasHistory = computed(() => stats.value?.daily.some((d) => d.completed + d.failed + d.cancelled > 0) ?? false);
 const totalTokens = computed(() => (stats.value ? stats.value.tokens.prompt + stats.value.tokens.completion : 0));
 const exampleWorkflow = computed(() => catalog.workflows[0] ?? null);
 const maxAgentSteps = computed(() => Math.max(1, ...(stats.value?.topAgents.map((a) => a.steps) ?? [1])));
@@ -83,8 +83,12 @@ async function cancel(run: RunSummary): Promise<void> {
       <div>
         <h1>{{ t('dashboard.title') }}</h1>
         <i18n-t keypath="dashboard.subtitle" tag="p" class="subtitle" scope="global">
-          <template #agents><Term id="agente">{{ t('dashboard.subtitleAgents') }}</Term></template>
-          <template #workflows><Term id="workflow">{{ t('dashboard.subtitleWorkflows') }}</Term></template>
+          <template #agents
+            ><Term id="agente">{{ t('dashboard.subtitleAgents') }}</Term></template
+          >
+          <template #workflows
+            ><Term id="workflow">{{ t('dashboard.subtitleWorkflows') }}</Term></template
+          >
         </i18n-t>
       </div>
       <div class="row wrap">
@@ -102,8 +106,12 @@ async function cancel(run: RunSummary): Promise<void> {
     <div v-if="catalog.loaded && !catalog.providers.length" class="callout warning" style="margin-bottom: 16px">
       <CircleAlert />
       <i18n-t keypath="dashboard.noProvider" tag="div" scope="global">
-        <template #provider><Term id="proveedor">{{ t('dashboard.noProviderWord') }}</Term></template>
-        <template #add><RouterLink to="/settings">{{ t('dashboard.noProviderAdd') }}</RouterLink></template>
+        <template #provider
+          ><Term id="proveedor">{{ t('dashboard.noProviderWord') }}</Term></template
+        >
+        <template #add
+          ><RouterLink to="/settings">{{ t('dashboard.noProviderAdd') }}</RouterLink></template
+        >
       </i18n-t>
     </div>
 
@@ -112,11 +120,19 @@ async function cancel(run: RunSummary): Promise<void> {
     <template v-if="stats">
       <section class="kpis" :aria-label="t('dashboard.kpi.label')">
         <article class="card kpi">
-          <div class="kpi-head"><Activity /> <Term id="ejecucion">{{ t('dashboard.kpi.runs') }}</Term></div>
+          <div class="kpi-head">
+            <Activity /> <Term id="ejecucion">{{ t('dashboard.kpi.runs') }}</Term>
+          </div>
           <div class="kpi-value num">{{ formatNumber(stats.counts.runs) }}</div>
           <div class="kpi-foot">
             <span v-if="stats.activeRuns || stats.queuedRuns" class="row" style="gap: 6px">
-              <span class="dot info pulse" /> {{ t('dashboard.kpi.running', { n: stats.activeRuns }) }}<i18n-t v-if="stats.queuedRuns" keypath="dashboard.kpi.queued" scope="global"><template #n>{{ stats.queuedRuns }}</template><template #queue><Term id="cola">{{ t('dashboard.kpi.queue') }}</Term></template></i18n-t>
+              <span class="dot info pulse" /> {{ t('dashboard.kpi.running', { n: stats.activeRuns })
+              }}<i18n-t v-if="stats.queuedRuns" keypath="dashboard.kpi.queued" scope="global"
+                ><template #n>{{ stats.queuedRuns }}</template
+                ><template #queue
+                  ><Term id="cola">{{ t('dashboard.kpi.queue') }}</Term></template
+                ></i18n-t
+              >
             </span>
             <span v-else>{{ t('dashboard.kpi.idle') }}</span>
           </div>
@@ -132,7 +148,9 @@ async function cancel(run: RunSummary): Promise<void> {
           <div class="kpi-foot">{{ t('dashboard.kpi.avgDurationFoot') }}</div>
         </article>
         <article class="card kpi">
-          <div class="kpi-head"><Coins /> <Term id="tokens">{{ t('dashboard.kpi.tokens') }}</Term></div>
+          <div class="kpi-head">
+            <Coins /> <Term id="tokens">{{ t('dashboard.kpi.tokens') }}</Term>
+          </div>
           <div class="kpi-value num">{{ formatCompact(totalTokens) }}</div>
           <div class="kpi-foot">{{ tn('dashboard.kpi.llmCalls', stats.llmCalls) }} · {{ tn('dashboard.kpi.toolCalls', stats.toolCalls) }}</div>
         </article>
@@ -150,7 +168,9 @@ async function cancel(run: RunSummary): Promise<void> {
           </div>
           <div class="card-pad">
             <div v-if="hasHistory" class="chart" role="img" :aria-label="t('dashboard.chart.label', { max: chartMax })">
-              <div class="y-axis tiny faint num"><span>{{ chartMax }}</span><span>0</span></div>
+              <div class="y-axis tiny faint num">
+                <span>{{ chartMax }}</span><span>0</span>
+              </div>
               <div class="bars">
                 <div
                   v-for="(d, i) in stats.daily"
@@ -171,7 +191,9 @@ async function cancel(run: RunSummary): Promise<void> {
               <Activity />
               <h3>{{ t('dashboard.chart.emptyTitle') }}</h3>
               <p>{{ t('dashboard.chart.emptyText') }}</p>
-              <RouterLink v-if="exampleWorkflow" class="btn btn-primary" :to="`/workflows/${exampleWorkflow.id}`"><Play /> {{ t('dashboard.chart.open', { name: exampleWorkflow.name }) }}</RouterLink>
+              <RouterLink v-if="exampleWorkflow" class="btn btn-primary" :to="`/workflows/${exampleWorkflow.id}`"
+                ><Play /> {{ t('dashboard.chart.open', { name: exampleWorkflow.name }) }}</RouterLink
+              >
             </div>
           </div>
         </section>
@@ -191,19 +213,35 @@ async function cancel(run: RunSummary): Promise<void> {
                 <span class="tiny muted truncate">{{ run.input || t('dashboard.live.noInput') }}</span>
               </RouterLink>
               <span class="tiny num muted">{{ formatDuration(elapsedMs(run.startedAt, null, now)) }}</span>
-              <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('dashboard.live.cancelLabel', { name: run.name })" :title="t('common.actions.cancel')" @click="cancel(run)"><Square /></button>
+              <button
+                class="btn btn-ghost btn-icon btn-sm"
+                type="button"
+                :aria-label="t('dashboard.live.cancelLabel', { name: run.name })"
+                :title="t('common.actions.cancel')"
+                @click="cancel(run)"
+              >
+                <Square />
+              </button>
             </li>
           </ul>
           <div v-else class="empty" style="padding: 26px 16px">
             <p>{{ t('dashboard.live.none') }}</p>
           </div>
           <div class="providers">
-            <div class="eyebrow"><Term id="proveedor">{{ t('dashboard.providers.title') }}</Term></div>
-            <p v-if="!catalog.health.length" class="small faint">{{ catalog.providers.length ? t('dashboard.providers.checking') : t('dashboard.providers.none') }}</p>
+            <div class="eyebrow">
+              <Term id="proveedor">{{ t('dashboard.providers.title') }}</Term>
+            </div>
+            <p v-if="!catalog.health.length" class="small faint">
+              {{ catalog.providers.length ? t('dashboard.providers.checking') : t('dashboard.providers.none') }}
+            </p>
             <div v-for="h in catalog.health" :key="h.providerId" class="row small" :title="h.error">
               <span class="dot" :class="h.ok ? 'success' : 'danger'" />
               <span class="grow truncate">{{ h.name }}</span>
-              <span class="faint num">{{ h.ok ? t('dashboard.providers.latency', { models: tn('dashboard.providers.models', h.modelCount), ms: h.latencyMs }) : t('dashboard.providers.offline') }}</span>
+              <span class="faint num">{{
+                h.ok
+                  ? t('dashboard.providers.latency', { models: tn('dashboard.providers.models', h.modelCount), ms: h.latencyMs })
+                  : t('dashboard.providers.offline')
+              }}</span>
             </div>
           </div>
         </section>
@@ -218,19 +256,32 @@ async function cancel(run: RunSummary): Promise<void> {
           <table class="table">
             <thead>
               <tr>
-                <th>{{ t('dashboard.recent.name') }}</th><th>{{ t('dashboard.recent.status') }}</th><th>{{ t('dashboard.recent.input') }}</th><th class="right">{{ t('dashboard.recent.duration') }}</th><th class="right"><Term id="tokens">{{ t('dashboard.recent.tokens') }}</Term></th><th class="right">{{ t('dashboard.recent.start') }}</th>
+                <th>{{ t('dashboard.recent.name') }}</th>
+                <th>{{ t('dashboard.recent.status') }}</th>
+                <th>{{ t('dashboard.recent.input') }}</th>
+                <th class="right">{{ t('dashboard.recent.duration') }}</th>
+                <th class="right">
+                  <Term id="tokens">{{ t('dashboard.recent.tokens') }}</Term>
+                </th>
+                <th class="right">{{ t('dashboard.recent.start') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="run in stats.recentRuns" :key="run.id" class="clickable" @click="router.push(`/runs/${run.id}`)">
                 <td>
                   <RouterLink :to="`/runs/${run.id}`" class="row name" @click.stop>
-                    <component :is="run.kind === 'workflow' ? Workflow : Bot" class="kind" :aria-label="run.kind === 'workflow' ? t('dashboard.recent.kindWorkflow') : t('common.node.agent')" />
+                    <component
+                      :is="run.kind === 'workflow' ? Workflow : Bot"
+                      class="kind"
+                      :aria-label="run.kind === 'workflow' ? t('dashboard.recent.kindWorkflow') : t('common.node.agent')"
+                    />
                     <strong>{{ run.name }}</strong>
                   </RouterLink>
                 </td>
                 <td><StatusBadge :status="run.status" /></td>
-                <td class="muted"><div class="truncate" style="max-width: 320px">{{ run.input || '—' }}</div></td>
+                <td class="muted">
+                  <div class="truncate" style="max-width: 320px">{{ run.input || '—' }}</div>
+                </td>
                 <td class="right num">{{ formatDuration(elapsedMs(run.startedAt, run.finishedAt, now)) }}</td>
                 <td class="right num">{{ formatCompact(run.usage.promptTokens + run.usage.completionTokens) }}</td>
                 <td class="right muted" style="white-space: nowrap">{{ relativeTime(run.createdAt, now) }}</td>
@@ -238,7 +289,9 @@ async function cancel(run: RunSummary): Promise<void> {
             </tbody>
           </table>
         </div>
-        <div v-else class="empty" style="padding: 26px"><p>{{ t('dashboard.recent.empty') }}</p></div>
+        <div v-else class="empty" style="padding: 26px">
+          <p>{{ t('dashboard.recent.empty') }}</p>
+        </div>
       </section>
 
       <div class="grid-three">
@@ -248,7 +301,9 @@ async function cancel(run: RunSummary): Promise<void> {
             <div v-for="a in stats.topAgents" :key="a.agentId" class="rank">
               <AgentAvatar :name="a.name" :color="agentColor(a.agentId)" :size="26" />
               <div class="grow">
-                <div class="row between small"><span class="truncate">{{ a.name }}</span><span class="num muted">{{ tn('dashboard.topAgents.steps', a.steps) }}</span></div>
+                <div class="row between small">
+                  <span class="truncate">{{ a.name }}</span><span class="num muted">{{ tn('dashboard.topAgents.steps', a.steps) }}</span>
+                </div>
                 <div class="meter"><span :style="{ width: pct(a.steps, maxAgentSteps), background: agentColor(a.agentId) ?? 'var(--accent)' }" /></div>
               </div>
             </div>
@@ -260,27 +315,43 @@ async function cancel(run: RunSummary): Promise<void> {
           <h2 style="margin-bottom: 12px">{{ t('dashboard.topTools.title') }}</h2>
           <div v-if="stats.topTools.length" class="col" style="gap: 10px">
             <div v-for="tool in stats.topTools" :key="tool.name">
-              <div class="row between small"><code>{{ tool.name }}</code><span class="num muted">{{ tn('dashboard.topTools.calls', tool.calls) }}</span></div>
+              <div class="row between small">
+                <code>{{ tool.name }}</code><span class="num muted">{{ tn('dashboard.topTools.calls', tool.calls) }}</span>
+              </div>
               <div class="meter"><span :style="{ width: pct(tool.calls, maxToolCalls) }" /></div>
             </div>
           </div>
           <i18n-t v-else keypath="dashboard.topTools.empty" tag="p" class="small faint" scope="global">
-            <template #tools><Term id="herramienta">{{ t('dashboard.topTools.toolsWord') }}</Term></template>
+            <template #tools
+              ><Term id="herramienta">{{ t('dashboard.topTools.toolsWord') }}</Term></template
+            >
           </i18n-t>
         </section>
 
         <section class="card card-pad">
           <h2 style="margin-bottom: 12px">{{ t('dashboard.system.title') }}</h2>
           <div class="inventory">
-            <RouterLink to="/agents"><Bot /> <strong class="num">{{ stats.counts.agents }}</strong> {{ t('dashboard.system.agents') }}</RouterLink>
-            <RouterLink to="/workflows"><Workflow /> <strong class="num">{{ stats.counts.workflows }}</strong> {{ t('dashboard.system.workflows') }}</RouterLink>
-            <RouterLink to="/tools"><Wrench /> <strong class="num">{{ stats.counts.tools }}</strong> {{ t('dashboard.system.tools') }}</RouterLink>
+            <RouterLink to="/agents"
+              ><Bot /> <strong class="num">{{ stats.counts.agents }}</strong> {{ t('dashboard.system.agents') }}</RouterLink
+            >
+            <RouterLink to="/workflows"
+              ><Workflow /> <strong class="num">{{ stats.counts.workflows }}</strong> {{ t('dashboard.system.workflows') }}</RouterLink
+            >
+            <RouterLink to="/tools"
+              ><Wrench /> <strong class="num">{{ stats.counts.tools }}</strong> {{ t('dashboard.system.tools') }}</RouterLink
+            >
           </div>
           <dl class="sys small">
-            <dt>{{ t('dashboard.system.version') }}</dt><dd>{{ stats.system.version }} · Node {{ stats.system.nodeVersion }}</dd>
-            <dt>{{ t('dashboard.system.uptime') }}</dt><dd>{{ formatUptime(stats.system.uptimeSec) }}</dd>
-            <dt>{{ t('dashboard.system.memory') }}</dt><dd>{{ stats.system.memoryMb }} MB</dd>
-            <dt><Term id="base-datos">{{ t('dashboard.system.database') }}</Term></dt><dd>{{ formatBytes(stats.system.dbSizeBytes) }}</dd>
+            <dt>{{ t('dashboard.system.version') }}</dt>
+            <dd>{{ stats.system.version }} · Node {{ stats.system.nodeVersion }}</dd>
+            <dt>{{ t('dashboard.system.uptime') }}</dt>
+            <dd>{{ formatUptime(stats.system.uptimeSec) }}</dd>
+            <dt>{{ t('dashboard.system.memory') }}</dt>
+            <dd>{{ stats.system.memoryMb }} MB</dd>
+            <dt>
+              <Term id="base-datos">{{ t('dashboard.system.database') }}</Term>
+            </dt>
+            <dd>{{ formatBytes(stats.system.dbSizeBytes) }}</dd>
           </dl>
         </section>
       </div>

@@ -162,7 +162,8 @@ export class ToolRegistry {
     if (!tool) throw new ToolError(`Herramienta desconocida o desactivada: ${name}`);
     let args: Record<string, any>;
     if (tool.passthroughArgs) {
-      if (rawArgs !== null && rawArgs !== undefined && (typeof rawArgs !== 'object' || Array.isArray(rawArgs))) throw new ToolError('Los argumentos deben ser un objeto JSON.');
+      if (rawArgs !== null && rawArgs !== undefined && (typeof rawArgs !== 'object' || Array.isArray(rawArgs)))
+        throw new ToolError('Los argumentos deben ser un objeto JSON.');
       args = (rawArgs ?? {}) as Record<string, any>;
     } else args = validateArgs(tool.parameters, rawArgs);
     if (ctx.signal.aborted) throw ctx.signal.reason;

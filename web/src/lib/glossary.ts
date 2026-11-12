@@ -18,7 +18,8 @@ export const GLOSSARY = {
   },
   aprobacion: {
     term: 'Aprobación',
-    definition: 'Punto de un workflow en el que la ejecución se detiene hasta que una persona aprueba o rechaza. Según lo que decida, sigue por una rama u otra.',
+    definition:
+      'Punto de un workflow en el que la ejecución se detiene hasta que una persona aprueba o rechaza. Según lo que decida, sigue por una rama u otra.',
   },
   'api-key': {
     term: 'API key',
@@ -54,11 +55,13 @@ export const GLOSSARY = {
   },
   'copia-seguridad': {
     term: 'Copia de seguridad',
-    definition: 'Un único archivo con todo lo que AgentForge guarda: agentes, workflows, historial, claves cifradas y archivos. Sirve para volver atrás o mudarse de equipo.',
+    definition:
+      'Un único archivo con todo lo que AgentForge guarda: agentes, workflows, historial, claves cifradas y archivos. Sirve para volver atrás o mudarse de equipo.',
   },
   contenedor: {
     term: 'Contenedor',
-    definition: 'Caja cerrada que crea Docker o Podman para ejecutar un programa separado del resto del equipo: sin red, sin tus archivos y con memoria limitada.',
+    definition:
+      'Caja cerrada que crea Docker o Podman para ejecutar un programa separado del resto del equipo: sin red, sin tus archivos y con memoria limitada.',
   },
   condicion: {
     term: 'Condición',
@@ -70,7 +73,8 @@ export const GLOSSARY = {
   },
   cron: {
     term: 'Cron',
-    definition: 'Forma compacta de escribir un horario con cinco campos: minuto, hora, día del mes, mes y día de la semana. «0 9 * * 1-5» significa de lunes a viernes a las 9:00.',
+    definition:
+      'Forma compacta de escribir un horario con cinco campos: minuto, hora, día del mes, mes y día de la semana. «0 9 * * 1-5» significa de lunes a viernes a las 9:00.',
   },
   dag: {
     term: 'DAG',
@@ -82,7 +86,8 @@ export const GLOSSARY = {
   },
   disparador: {
     term: 'Disparador',
-    definition: 'Lo que lanza un workflow sin que nadie pulse «Ejecutar»: un horario (cada cierto tiempo, ciertos días a una hora, un cron) o la llamada de otro programa (webhook).',
+    definition:
+      'Lo que lanza un workflow sin que nadie pulse «Ejecutar»: un horario (cada cierto tiempo, ciertos días a una hora, un cron) o la llamada de otro programa (webhook).',
   },
   ejecucion: {
     term: 'Ejecución',
@@ -118,7 +123,8 @@ export const GLOSSARY = {
   },
   mcp: {
     term: 'MCP',
-    definition: 'Model Context Protocol: un estándar para que un programa externo ofrezca herramientas a los agentes. Conectas un servidor MCP y sus herramientas aparecen junto a las demás.',
+    definition:
+      'Model Context Protocol: un estándar para que un programa externo ofrezca herramientas a los agentes. Conectas un servidor MCP y sus herramientas aparecen junto a las demás.',
   },
   'memoria-compartida': {
     term: 'Memoria compartida',
@@ -194,7 +200,8 @@ export const GLOSSARY = {
   },
   subworkflow: {
     term: 'Subworkflow',
-    definition: 'Un workflow que otro usa como si fuera un solo paso: se le pasa una entrada y devuelve su resultado. Sirve para reutilizar flujos de varios nodos.',
+    definition:
+      'Un workflow que otro usa como si fuera un solo paso: se le pasa una entrada y devuelve su resultado. Sirve para reutilizar flujos de varios nodos.',
   },
   temperatura: {
     term: 'Temperatura',
@@ -214,7 +221,8 @@ export const GLOSSARY = {
   },
   webhook: {
     term: 'Webhook',
-    definition: 'Dirección web a la que otro programa envía una petición para avisar de algo. Aquí, cada llamada con el secreto correcto lanza el workflow con el cuerpo de la petición como entrada.',
+    definition:
+      'Dirección web a la que otro programa envía una petición para avisar de algo. Aquí, cada llamada con el secreto correcto lanza el workflow con el cuerpo de la petición como entrada.',
   },
   workflow: {
     term: 'Workflow',
@@ -222,7 +230,8 @@ export const GLOSSARY = {
   },
   'zona-horaria': {
     term: 'Zona horaria',
-    definition: 'Región con la misma hora oficial, escrita como «Europe/Madrid». Sirve para que «a las 9:00» signifique las 9:00 de ese lugar, también cuando cambia la hora en verano.',
+    definition:
+      'Región con la misma hora oficial, escrita como «Europe/Madrid». Sirve para que «a las 9:00» signifique las 9:00 de ese lugar, también cuando cambia la hora en verano.',
   },
   workspace: {
     term: 'Espacio de trabajo',
@@ -244,7 +253,8 @@ export const GLOSSARY_EN: Record<GlossaryId, GlossaryEntry> = {
   },
   aprobacion: {
     term: 'Approval',
-    definition: 'A point in a workflow where the run stops until a person approves or rejects. Depending on the decision, it continues down one branch or the other.',
+    definition:
+      'A point in a workflow where the run stops until a person approves or rejects. Depending on the decision, it continues down one branch or the other.',
   },
   'api-key': {
     term: 'API key',
@@ -280,11 +290,13 @@ export const GLOSSARY_EN: Record<GlossaryId, GlossaryEntry> = {
   },
   'copia-seguridad': {
     term: 'Backup',
-    definition: 'A single file with everything AgentForge stores: agents, workflows, history, encrypted keys and files. Use it to roll back or move to another machine.',
+    definition:
+      'A single file with everything AgentForge stores: agents, workflows, history, encrypted keys and files. Use it to roll back or move to another machine.',
   },
   contenedor: {
     term: 'Container',
-    definition: 'A sealed box created by Docker or Podman to run a program apart from the rest of the machine: no network, none of your files and limited memory.',
+    definition:
+      'A sealed box created by Docker or Podman to run a program apart from the rest of the machine: no network, none of your files and limited memory.',
   },
   condicion: {
     term: 'Condition',
@@ -296,7 +308,8 @@ export const GLOSSARY_EN: Record<GlossaryId, GlossaryEntry> = {
   },
   cron: {
     term: 'Cron',
-    definition: 'A compact way to write a schedule with five fields: minute, hour, day of month, month and day of week. “0 9 * * 1-5” means Monday to Friday at 9:00.',
+    definition:
+      'A compact way to write a schedule with five fields: minute, hour, day of month, month and day of week. “0 9 * * 1-5” means Monday to Friday at 9:00.',
   },
   dag: {
     term: 'DAG',
@@ -308,7 +321,8 @@ export const GLOSSARY_EN: Record<GlossaryId, GlossaryEntry> = {
   },
   disparador: {
     term: 'Trigger',
-    definition: 'What launches a workflow without anyone pressing “Run”: a schedule (at intervals, certain days at a time, a cron) or a call from another program (webhook).',
+    definition:
+      'What launches a workflow without anyone pressing “Run”: a schedule (at intervals, certain days at a time, a cron) or a call from another program (webhook).',
   },
   ejecucion: {
     term: 'Run',
@@ -344,7 +358,8 @@ export const GLOSSARY_EN: Record<GlossaryId, GlossaryEntry> = {
   },
   mcp: {
     term: 'MCP',
-    definition: 'Model Context Protocol: a standard for an external program to offer tools to agents. Connect an MCP server and its tools appear alongside the others.',
+    definition:
+      'Model Context Protocol: a standard for an external program to offer tools to agents. Connect an MCP server and its tools appear alongside the others.',
   },
   'memoria-compartida': {
     term: 'Shared memory',
@@ -440,7 +455,8 @@ export const GLOSSARY_EN: Record<GlossaryId, GlossaryEntry> = {
   },
   webhook: {
     term: 'Webhook',
-    definition: 'A web address that another program sends a request to, to signal something. Here, each call with the right secret launches the workflow with the request body as input.',
+    definition:
+      'A web address that another program sends a request to, to signal something. Here, each call with the right secret launches the workflow with the request body as input.',
   },
   workflow: {
     term: 'Workflow',
@@ -448,7 +464,8 @@ export const GLOSSARY_EN: Record<GlossaryId, GlossaryEntry> = {
   },
   'zona-horaria': {
     term: 'Time zone',
-    definition: 'A region with the same official time, written like “Europe/Madrid”. It makes “at 9:00” mean 9:00 in that place, even when daylight saving time changes.',
+    definition:
+      'A region with the same official time, written like “Europe/Madrid”. It makes “at 9:00” mean 9:00 in that place, even when daylight saving time changes.',
   },
   workspace: {
     term: 'Workspace',

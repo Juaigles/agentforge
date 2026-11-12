@@ -82,6 +82,11 @@ export function useRunStream(runId: Ref<string | null>) {
       }
       live.value = state;
       source = new EventSource(`/api/runs/${id}/stream?after=0`);
+      // Si el flujo se corta (el servidor cae o la red falla) el navegador lo reintenta solo, pero una ejecución que
+      // termine mientras tanto no enviaría ya ningún evento: se consulta su estado para no quedarse «en curso».
+      source.onerror = () => {
+        if (gen === generation) scheduleRefresh(id, 500);
+      };
       source.addEventListener('run-event', (msg) => {
         if (gen !== generation) return;
         const ev = JSON.parse((msg as MessageEvent).data) as RunEvent;

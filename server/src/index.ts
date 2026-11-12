@@ -11,8 +11,13 @@ async function main(): Promise<void> {
     ctx = createContext(config);
     const app = await buildApp(ctx);
     const { log } = app;
-    if (ctx.restored) log.warn({ backup: ctx.restored.name, replaced: ctx.restored.replacedDir }, 'Se ha restaurado una copia de seguridad; los datos anteriores se han conservado aparte');
-    if (ctx.interruptedRuns) log.warn({ interrupted: ctx.interruptedRuns }, 'Hay ejecuciones interrumpidas por el cierre anterior; la interfaz ofrece reanudarlas');
+    if (ctx.restored)
+      log.warn(
+        { backup: ctx.restored.name, replaced: ctx.restored.replacedDir },
+        'Se ha restaurado una copia de seguridad; los datos anteriores se han conservado aparte',
+      );
+    if (ctx.interruptedRuns)
+      log.warn({ interrupted: ctx.interruptedRuns }, 'Hay ejecuciones interrumpidas por el cierre anterior; la interfaz ofrece reanudarlas');
     if (config.seed && (await seedIfEmpty(ctx))) log.info('Base de datos vacía: se han creado los datos de ejemplo');
 
     await app.listen({ port: config.port, host: config.host });
@@ -72,7 +77,10 @@ async function main(): Promise<void> {
 main().catch((err) => {
   const code = (err as NodeJS.ErrnoException).code;
   if (err instanceof ConfigurationError) console.error(`[agentforge] ${err.message}`);
-  else if (code === 'EADDRINUSE') console.error(`[agentforge] El puerto ya está ocupado por otro programa. Ciérralo o arranca con otro puerto (variable PORT). Detalle: ${errorMessage(err)}`);
+  else if (code === 'EADDRINUSE')
+    console.error(
+      `[agentforge] El puerto ya está ocupado por otro programa. Ciérralo o arranca con otro puerto (variable PORT). Detalle: ${errorMessage(err)}`,
+    );
   else if (code === 'EACCES') console.error(`[agentforge] No hay permiso para escuchar en esa dirección o puerto. Detalle: ${errorMessage(err)}`);
   else console.error('[agentforge] Error fatal al arrancar:', err);
   process.exit(1);

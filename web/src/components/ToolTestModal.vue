@@ -124,8 +124,12 @@ const TYPE_KEY: Record<JsonSchemaProp['type'], string> = {
   <AppModal :title="t('toolTest.title', { title: tool.title })" :width="640" @close="emit('close')">
     <form class="col" style="gap: 14px" @submit.prevent="run">
       <i18n-t keypath="toolTest.intro" tag="p" class="muted small" scope="global">
-        <template #tool><Term id="herramienta">{{ t('toolTest.introTool') }}</Term></template>
-        <template #name><code>{{ tool.name }}</code></template>
+        <template #tool
+          ><Term id="herramienta">{{ t('toolTest.introTool') }}</Term></template
+        >
+        <template #name
+          ><code>{{ tool.name }}</code></template
+        >
       </i18n-t>
 
       <p v-if="!fields.length" class="faint small">{{ t('toolTest.noParams') }}</p>
@@ -174,7 +178,9 @@ const TYPE_KEY: Record<JsonSchemaProp['type'], string> = {
         <span v-if="fieldErrors[f.name]" class="error" role="alert">{{ fieldErrors[f.name] }}</span>
       </div>
 
-      <div v-if="requestError" class="callout danger" role="alert"><CircleAlert /><span>{{ requestError }}</span></div>
+      <div v-if="requestError" class="callout danger" role="alert">
+        <CircleAlert /><span>{{ requestError }}</span>
+      </div>
 
       <section v-if="result" class="col" style="gap: 6px" aria-live="polite">
         <div class="row between wrap">

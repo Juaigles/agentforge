@@ -2,7 +2,8 @@
 export default {
   title: 'Import “{name}”',
   cannotImport: "Can't import “{fileName}”.",
-  introWithItems: 'The {workflow} {name} will be created along with what it needs. Review what to do with each item: nothing is created until you press “Import”.',
+  introWithItems:
+    'The {workflow} {name} will be created along with what it needs. Review what to do with each item: nothing is created until you press “Import”.',
   introAlone: 'The {workflow} {name} will be created. It does not depend on anything else.',
   introWorkflow: 'workflow',
   introFile: 'Review what to do with each item in the file: nothing is created until you press “Import”.',

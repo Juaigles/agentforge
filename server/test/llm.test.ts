@@ -85,8 +85,15 @@ describe('OllamaClient', () => {
       expect(res.toolCalls).toEqual([{ id: 'call_1', name: 'calculator', arguments: { expression: '1+1' } }]);
       expect(res.finishReason).toBe('tool_calls');
       const body = JSON.parse(server.requests[0].body);
-      expect(body.tools[0]).toEqual({ type: 'function', function: { name: 'calculator', description: 'calc', parameters: { type: 'object', properties: {} } } });
-      expect(body.messages[1]).toEqual({ role: 'assistant', content: '', tool_calls: [{ function: { name: 'calculator', arguments: { expression: '2+2' } } }] });
+      expect(body.tools[0]).toEqual({
+        type: 'function',
+        function: { name: 'calculator', description: 'calc', parameters: { type: 'object', properties: {} } },
+      });
+      expect(body.messages[1]).toEqual({
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ function: { name: 'calculator', arguments: { expression: '2+2' } } }],
+      });
       expect(body.messages[2]).toEqual({ role: 'tool', content: '4', tool_name: 'calculator' });
       expect(body.think).toBeUndefined();
     } finally {
@@ -173,7 +180,11 @@ describe('OllamaClient', () => {
   it('lista modelos con sus capacidades', async () => {
     const server = await startServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ models: [{ name: 'a:1b', size: 100, details: { parameter_size: '1B', context_length: 4096 }, capabilities: ['completion', 'tools'] }] }));
+      res.end(
+        JSON.stringify({
+          models: [{ name: 'a:1b', size: 100, details: { parameter_size: '1B', context_length: 4096 }, capabilities: ['completion', 'tools'] }],
+        }),
+      );
     });
     try {
       expect(await new OllamaClient(server.url).listModels()).toEqual([

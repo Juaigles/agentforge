@@ -53,7 +53,8 @@ export default {
     formatted: 'Formato',
     plain: 'Texto',
     copyLabel: 'Copiar resultado',
-    waitingApproval: 'La ejecución está detenida en «{steps}» a la espera de que alguien apruebe o rechace. Decide en el aviso de la parte superior de la página.',
+    waitingApproval:
+      'La ejecución está detenida en «{steps}» a la espera de que alguien apruebe o rechace. Decide en el aviso de la parte superior de la página.',
     waitingJoin: '», «',
     queued: 'En cola, esperando turno…',
     preparing: 'Preparando el siguiente paso…',

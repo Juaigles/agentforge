@@ -2,6 +2,25 @@
 // Pila de diálogos abiertos (un diálogo de confirmación puede abrirse encima de otro): solo el de arriba es
 // interactivo; la aplicación de detrás y los diálogos de debajo quedan inertes.
 const stack: HTMLElement[] = [];
+// En Safari, pulsar un botón con el ratón no le da el foco: al abrirse un diálogo el foco estaría en <body> o en
+// el contenedor de la página, y al cerrarlo no volvería al botón. Se recuerda el último control pulsado.
+let lastPressed: HTMLElement | null = null;
+if (typeof document !== 'undefined') {
+  document.addEventListener(
+    'pointerdown',
+    (ev) => {
+      lastPressed = (ev.target as Element | null)?.closest?.<HTMLElement>('button, a[href], [role="button"], [tabindex]') ?? null;
+    },
+    true,
+  );
+}
+/** Control al que se devolverá el foco al cerrar el diálogo que se está abriendo. */
+function focusOrigin(): HTMLElement | null {
+  const active = document.activeElement as HTMLElement | null;
+  // Sin foco en un control (en <body>, o en un contenedor que envuelve al botón pulsado, como <main>): el pulsado.
+  if (lastPressed?.isConnected && (!active || active === document.body || active.contains(lastPressed))) return lastPressed;
+  return active && active !== document.body ? active : null;
+}
 function syncInert(): void {
   const app = document.getElementById('app');
   if (app) app.inert = stack.length > 0;
@@ -22,7 +41,7 @@ withDefaults(defineProps<{ title: string; width?: number }>(), { width: 560 });
 const emit = defineEmits<{ close: [] }>();
 const backdrop = ref<HTMLElement | null>(null);
 const panel = ref<HTMLElement | null>(null);
-const previous = document.activeElement as HTMLElement | null;
+const previous = focusOrigin();
 /** El usuario ha escrito o cambiado algo dentro: pulsar fuera ya no cierra (se perdería lo escrito). */
 const touched = ref(false);
 
@@ -62,7 +81,9 @@ onMounted(async () => {
   if (backdrop.value) stack.push(backdrop.value);
   syncInert();
   await nextTick();
-  const first = panel.value?.querySelector<HTMLElement>('[autofocus], .body input:not([type=hidden]):not([disabled]), .body textarea:not([disabled]), .body select:not([disabled])');
+  const first = panel.value?.querySelector<HTMLElement>(
+    '[autofocus], .body input:not([type=hidden]):not([disabled]), .body textarea:not([disabled]), .body select:not([disabled])',
+  );
   (first ?? panel.value)?.focus();
 });
 onBeforeUnmount(() => {
@@ -70,14 +91,24 @@ onBeforeUnmount(() => {
   const at = backdrop.value ? stack.indexOf(backdrop.value) : -1;
   if (at >= 0) stack.splice(at, 1);
   syncInert();
-  previous?.focus?.();
+  if (previous?.isConnected) previous.focus();
 });
 </script>
 
 <template>
   <Teleport to="body">
     <div ref="backdrop" class="backdrop" @mousedown.self="onBackdrop">
-      <div ref="panel" class="modal" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1" :style="{ maxWidth: `${width}px` }" @input="touched = true" @change="touched = true">
+      <div
+        ref="panel"
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="title"
+        tabindex="-1"
+        :style="{ maxWidth: `${width}px` }"
+        @input="touched = true"
+        @change="touched = true"
+      >
         <header>
           <h2>{{ title }}</h2>
           <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('common.actions.close')" @click="emit('close')"><X /></button>

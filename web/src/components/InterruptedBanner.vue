@@ -74,7 +74,9 @@ async function dismiss(): Promise<void> {
         {{ tn('interrupted.title', pending.length) }}
       </strong>
       <i18n-t keypath="interrupted.body" tag="p" class="small" scope="global">
-        <template #run><Term id="ejecucion">{{ t('interrupted.bodyRun') }}</Term></template>
+        <template #run
+          ><Term id="ejecucion">{{ t('interrupted.bodyRun') }}</Term></template
+        >
       </i18n-t>
       <ul class="small">
         <li v-for="run in pending.slice(0, 3)" :key="run.id">

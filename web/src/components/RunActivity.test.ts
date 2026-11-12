@@ -99,7 +99,9 @@ describe('RunActivity', () => {
 
   it('explica los mensajes sin texto ni razonamiento (solo piden herramientas)', async () => {
     seq = 0;
-    const wrapper = mount(RunActivity, { props: { events: [ev('llm.message', 'n', { agent: 'A', content: '', toolCalls: [{ id: 'x', name: 'calculator', arguments: {} }] })] } });
+    const wrapper = mount(RunActivity, {
+      props: { events: [ev('llm.message', 'n', { agent: 'A', content: '', toolCalls: [{ id: 'x', name: 'calculator', arguments: {} }] })] },
+    });
     await wrapper.get('li.message button.head').trigger('click');
     expect(wrapper.get('li.message .content').text()).toBe('Sin texto: el modelo solo ha pedido herramientas.');
   });
@@ -116,10 +118,7 @@ describe('RunActivity', () => {
     seq = 0;
     const wrapper = mount(RunActivity, {
       props: {
-        events: [
-          ev('llm.message', 'n', { agent: 'Jefe', content: 'delego' }),
-          ev('llm.message', 'n', { agent: 'Ayudante', content: 'hecho', depth: 1 }),
-        ],
+        events: [ev('llm.message', 'n', { agent: 'Jefe', content: 'delego' }), ev('llm.message', 'n', { agent: 'Ayudante', content: 'hecho', depth: 1 })],
       },
     });
     const entries = wrapper.findAll('li.message .entry');

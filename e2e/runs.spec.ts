@@ -25,7 +25,10 @@ test.describe('Ejecuciones', () => {
     await page.goto('/workflows');
     const card = page.locator('.card').filter({ hasText: wf.name });
     await card.getByRole('button', { name: 'Ejecutar' }).click();
-    await page.getByRole('dialog', { name: `Ejecutar «${wf.name}»` }).getByRole('button', { name: 'Ejecutar' }).click();
+    await page
+      .getByRole('dialog', { name: `Ejecutar «${wf.name}»` })
+      .getByRole('button', { name: 'Ejecutar' })
+      .click();
     await expect(page).toHaveURL(/\/runs\/run_/);
     const runId = page.url().split('/').pop()!;
 

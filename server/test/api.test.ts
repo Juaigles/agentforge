@@ -95,7 +95,12 @@ describe('proveedores', () => {
     await boot();
     const bad = await post('/api/providers', { name: '', kind: 'otro', baseUrl: 'ftp://x' });
     expect(bad.statusCode).toBe(400);
-    expect(bad.json().issues.map((i: { path: string }) => i.path).sort()).toEqual(['baseUrl', 'kind', 'name']);
+    expect(
+      bad
+        .json()
+        .issues.map((i: { path: string }) => i.path)
+        .sort(),
+    ).toEqual(['baseUrl', 'kind', 'name']);
 
     const agent = await createAgent();
     const inUse = await del(`/api/providers/${agent.providerId}`);
@@ -111,7 +116,14 @@ describe('proveedores', () => {
     const fake = await startServer((req, res) => {
       if (req.url === '/api/tags') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ models: [{ name: 'modelo-a', size: 5 }, { name: 'modelo-b', size: 9 }] }));
+        return res.end(
+          JSON.stringify({
+            models: [
+              { name: 'modelo-a', size: 5 },
+              { name: 'modelo-b', size: 9 },
+            ],
+          }),
+        );
       }
       res.writeHead(404);
       res.end();
@@ -197,7 +209,12 @@ describe('agentes', () => {
     expect((await post('/api/agents', agentBody(agent.providerId, { tools: ['volar'] }))).json().error).toMatch(/Herramientas desconocidas: volar/);
     const invalid = await post('/api/agents', agentBody(agent.providerId, { name: ' ', temperature: 9, model: '' }));
     expect(invalid.statusCode).toBe(400);
-    expect(invalid.json().issues.map((i: { path: string }) => i.path).sort()).toEqual(['model', 'name', 'temperature']);
+    expect(
+      invalid
+        .json()
+        .issues.map((i: { path: string }) => i.path)
+        .sort(),
+    ).toEqual(['model', 'name', 'temperature']);
   });
 
   it('ejecuta una tarea y deja el resultado y los eventos consultables', async () => {
@@ -371,7 +388,19 @@ describe('herramientas, ajustes y espacio de trabajo', () => {
     await boot();
     const builtin = (await get('/api/tools')).json() as Array<{ name: string; source: string }>;
     expect(builtin.map((t) => t.name)).toEqual(
-      expect.arrayContaining(['calculator', 'current_datetime', 'web_fetch', 'http_request', 'file_write', 'file_read', 'file_list', 'memory_set', 'memory_get', 'delegate_task', 'run_javascript']),
+      expect.arrayContaining([
+        'calculator',
+        'current_datetime',
+        'web_fetch',
+        'http_request',
+        'file_write',
+        'file_read',
+        'file_list',
+        'memory_set',
+        'memory_get',
+        'delegate_task',
+        'run_javascript',
+      ]),
     );
     const body = {
       name: 'clima',
@@ -448,13 +477,23 @@ describe('herramientas, ajustes y espacio de trabajo', () => {
 
   it('ejecuta herramientas desde el banco de pruebas y devuelve los errores sin romper', async () => {
     await boot();
-    expect((await post('/api/tools/calculator/invoke', { args: { expression: '3 * (4 + 5)' } })).json()).toMatchObject({ ok: true, result: expect.stringContaining('27') });
+    expect((await post('/api/tools/calculator/invoke', { args: { expression: '3 * (4 + 5)' } })).json()).toMatchObject({
+      ok: true,
+      result: expect.stringContaining('27'),
+    });
     expect((await post('/api/tools/calculator/invoke', { args: {} })).json()).toMatchObject({ ok: false, error: expect.stringMatching(/expression/) });
     expect((await post('/api/tools/nada/invoke', { args: {} })).statusCode).toBe(404);
     // Los ajustes de seguridad se aplican de inmediato.
     expect((await post('/api/tools/run_javascript/invoke', { args: { code: '2 ** 8' } })).json().ok).toBe(false);
-    expect((await put('/api/settings', { allowCodeExecution: true })).json()).toMatchObject({ allowCodeExecution: true, allowPrivateNetwork: false, maxConcurrentRuns: 3 });
-    expect((await post('/api/tools/run_javascript/invoke', { args: { code: '2 ** 8' } })).json()).toMatchObject({ ok: true, result: expect.stringContaining('256') });
+    expect((await put('/api/settings', { allowCodeExecution: true })).json()).toMatchObject({
+      allowCodeExecution: true,
+      allowPrivateNetwork: false,
+      maxConcurrentRuns: 3,
+    });
+    expect((await post('/api/tools/run_javascript/invoke', { args: { code: '2 ** 8' } })).json()).toMatchObject({
+      ok: true,
+      result: expect.stringContaining('256'),
+    });
     expect((await put('/api/settings', { maxConcurrentRuns: 0 })).statusCode).toBe(400);
   });
 
@@ -521,7 +560,12 @@ describe('persistencia entre reinicios', () => {
     const run = await waitRun((await post(`/api/workflows/${wf.id}/run`, { input: 'recuerda esto' })).json().id);
     const events = (await get(`/api/runs/${run.id}/events`)).json();
     await put('/api/settings', { allowPrivateNetwork: true, maxConcurrentRuns: 5 });
-    await post('/api/tools/custom', { name: 'mi_api', description: 'Mi API de pruebas', parameters: { type: 'object', properties: {} }, urlTemplate: 'https://example.com' });
+    await post('/api/tools/custom', {
+      name: 'mi_api',
+      description: 'Mi API de pruebas',
+      parameters: { type: 'object', properties: {} },
+      urlTemplate: 'https://example.com',
+    });
 
     // "Reinicio": se cierra todo y se vuelve a abrir sobre el mismo directorio de datos.
     await shutdown();
@@ -533,7 +577,15 @@ describe('persistencia entre reinicios', () => {
     expect((await get(`/api/workflows/${wf.id}`)).json()).toEqual(wf);
     expect((await get(`/api/runs/${run.id}`)).json()).toEqual(run);
     expect((await get(`/api/runs/${run.id}/events`)).json()).toEqual(events);
-    expect((await get('/api/settings')).json()).toEqual({ allowPrivateNetwork: true, allowCodeExecution: false, codeSandbox: 'process', autoResume: false, maxConcurrentRuns: 5, retentionDays: 0, retentionMaxRuns: 0 });
+    expect((await get('/api/settings')).json()).toEqual({
+      allowPrivateNetwork: true,
+      allowCodeExecution: false,
+      codeSandbox: 'process',
+      autoResume: false,
+      maxConcurrentRuns: 5,
+      retentionDays: 0,
+      retentionMaxRuns: 0,
+    });
     expect((await get('/api/tools')).json().some((t: { name: string }) => t.name === 'mi_api')).toBe(true);
 
     // Y sigue funcionando: se puede ejecutar de nuevo y la numeración de eventos no choca.
@@ -758,7 +810,14 @@ describe('datos de ejemplo', () => {
     expect(run.status).toBe('completed');
     // El revisor pidió cambios: se toma la rama de corrección y se salta la de aprobado.
     const status = Object.fromEntries(run.steps.map((s) => [s.nodeId, s.status]));
-    expect(status).toMatchObject({ investigar: 'completed', analizar: 'completed', redactar: 'completed', corregir: 'completed', informe_corregido: 'completed', informe_aprobado: 'skipped' });
+    expect(status).toMatchObject({
+      investigar: 'completed',
+      analizar: 'completed',
+      redactar: 'completed',
+      corregir: 'completed',
+      informe_corregido: 'completed',
+      informe_aprobado: 'skipped',
+    });
     expect(run.output).toMatch(/^salida de: Reescribe el siguiente/);
     expect(llm.maxInFlight).toBe(2);
   });

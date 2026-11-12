@@ -111,7 +111,17 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   // Además del texto en español, cada error lleva un `code` estable: la interfaz lo usa para mostrar los errores
   // genéricos en el idioma del usuario (los textos concretos de validación y de proveedores van en español).
   const codeFor = (status: number): string =>
-    status === 401 ? 'auth_required' : status === 404 ? 'not_found' : status === 413 ? 'payload_too_large' : status === 429 ? 'rate_limited' : status >= 500 ? 'internal' : 'bad_request';
+    status === 401
+      ? 'auth_required'
+      : status === 404
+        ? 'not_found'
+        : status === 413
+          ? 'payload_too_large'
+          : status === 429
+            ? 'rate_limited'
+            : status >= 500
+              ? 'internal'
+              : 'bad_request';
   app.setErrorHandler((err: unknown, req, reply) => {
     if (err instanceof ZodError) {
       const issues = err.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
@@ -146,11 +156,17 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
       app.log.warn({ ip: req.ip }, 'Intento de acceso con una clave incorrecta');
       throw new HttpError(401, 'La clave de acceso no es correcta.');
     }
-    return reply.header('Set-Cookie', sessionCookieHeader(config.authToken, req.protocol === 'https')).status(204).send();
+    return reply
+      .header('Set-Cookie', sessionCookieHeader(config.authToken, req.protocol === 'https'))
+      .status(204)
+      .send();
   });
 
   app.post('/api/auth/logout', async (req, reply) =>
-    reply.header('Set-Cookie', sessionCookieHeader(null, req.protocol === 'https')).status(204).send(),
+    reply
+      .header('Set-Cookie', sessionCookieHeader(null, req.protocol === 'https'))
+      .status(204)
+      .send(),
   );
 
   registerApi(app, ctx);
@@ -181,7 +197,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
         .type('text/plain; charset=utf-8')
         .send('La interfaz no está compilada. Ejecuta "npm run build" y recarga esta página. La API sí está disponible en /api.');
     }
-    return reply.status(404).send({ error: 'Ruta no encontrada.' });
+    return reply.status(404).send({ error: 'Ruta no encontrada.', code: 'not_found' });
   });
 
   return app;

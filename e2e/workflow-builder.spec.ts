@@ -252,11 +252,12 @@ test.describe('Constructor de workflows', () => {
     await expect(output.getByRole('heading', { name: '3. uva' })).toBeVisible();
     await expect(output.getByRole('heading', { name: '2. pera' })).toBeVisible();
     await expect(output).toContainText('palabra-12');
-    expect(app.fake.chats.slice(before).map((c) => c.user).sort()).toEqual([
-      'Describe la fruta número 1: manzana',
-      'Describe la fruta número 2: pera',
-      'Describe la fruta número 3: uva',
-    ]);
+    expect(
+      app.fake.chats
+        .slice(before)
+        .map((c) => c.user)
+        .sort(),
+    ).toEqual(['Describe la fruta número 1: manzana', 'Describe la fruta número 2: pera', 'Describe la fruta número 3: uva']);
 
     // El paso muestra la lista que recibió y la actividad de cada elemento.
     await page.getByLabel('Pasos').locator('.step').filter({ hasText: 'Para cada' }).click();

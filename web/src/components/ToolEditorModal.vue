@@ -76,7 +76,12 @@ onMounted(async () => {
     form.urlTemplate = tool.urlTemplate;
     form.bodyTemplate = tool.bodyTemplate;
     form.enabled = tool.enabled;
-    form.headers = Object.entries(tool.headers ?? {}).map(([name, value]) => ({ key: nextKey++, name, value, saved: (tool.secretHeaders ?? []).includes(name) }));
+    form.headers = Object.entries(tool.headers ?? {}).map(([name, value]) => ({
+      key: nextKey++,
+      name,
+      value,
+      saved: (tool.secretHeaders ?? []).includes(name),
+    }));
     const required = new Set(tool.parameters.required ?? []);
     form.params = Object.entries(tool.parameters.properties ?? {}).map(([name, p]) => {
       const { type, description, enum: values, default: def, ...extra } = p;
@@ -171,9 +176,7 @@ const nameError = computed(() => {
   if (!form.name) return submitted.value ? t('toolEditor.name.required') : '';
   return NAME_RE.test(form.name) ? '' : t('toolEditor.name.invalid');
 });
-const descriptionError = computed(() =>
-  submitted.value && form.description.trim().length < 5 ? t('toolEditor.description.required') : '',
-);
+const descriptionError = computed(() => (submitted.value && form.description.trim().length < 5 ? t('toolEditor.description.required') : ''));
 const urlError = computed(() => {
   const url = form.urlTemplate.trim();
   if (!url) return submitted.value ? t('toolEditor.request.urlRequired') : '';
@@ -193,9 +196,7 @@ const undeclared = computed(() => {
   return [...new Set(sources.flatMap(extractRefs))].filter((ref) => !declared.has(ref));
 });
 const issueFor = (path: string) => serverIssues.value.find((i) => i.path === path)?.message ?? '';
-const valid = computed(
-  () => !nameError.value && !descriptionError.value && !urlError.value && form.params.every((p) => !paramError(p)) && form.name !== '',
-);
+const valid = computed(() => !nameError.value && !descriptionError.value && !urlError.value && form.params.every((p) => !paramError(p)) && form.name !== '');
 
 async function save(): Promise<void> {
   submitted.value = true;
@@ -245,13 +246,19 @@ async function save(): Promise<void> {
       <div class="skeleton" style="height: 84px" />
       <div class="skeleton" style="height: 34px" />
     </div>
-    <div v-else-if="loadError" class="callout danger" role="alert"><CircleAlert /><span>{{ loadError }}</span></div>
+    <div v-else-if="loadError" class="callout danger" role="alert">
+      <CircleAlert /><span>{{ loadError }}</span>
+    </div>
 
     <form v-else class="col" style="gap: 18px" novalidate @submit.prevent="save">
       <i18n-t keypath="toolEditor.intro" tag="p" class="muted small" scope="global">
         <template #http><Term id="http">HTTP</Term></template>
-        <template #template><Term id="plantilla">{{ t('toolEditor.introTemplate') }}</Term></template>
-        <template #example><code>{{ t('toolEditor.introExample') }}</code></template>
+        <template #template
+          ><Term id="plantilla">{{ t('toolEditor.introTemplate') }}</Term></template
+        >
+        <template #example
+          ><code>{{ t('toolEditor.introExample') }}</code></template
+        >
       </i18n-t>
 
       <div class="form-grid">
@@ -269,7 +276,9 @@ async function save(): Promise<void> {
           />
           <span v-if="nameError || issueFor('name')" class="error" role="alert">{{ nameError || issueFor('name') }}</span>
           <i18n-t v-else keypath="toolEditor.name.hint" tag="span" class="hint" scope="global">
-            <template #model><Term id="modelo">{{ t('toolEditor.name.hintModel') }}</Term></template>
+            <template #model
+              ><Term id="modelo">{{ t('toolEditor.name.hintModel') }}</Term></template
+            >
           </i18n-t>
         </div>
         <div class="field">
@@ -299,7 +308,9 @@ async function save(): Promise<void> {
         <legend>{{ t('toolEditor.request.legend') }}</legend>
         <div class="request">
           <div class="field">
-            <label for="te-method"><Term id="metodo-http">{{ t('toolEditor.request.method') }}</Term></label>
+            <label for="te-method"
+              ><Term id="metodo-http">{{ t('toolEditor.request.method') }}</Term></label
+            >
             <select id="te-method" v-model="form.method" class="select">
               <option v-for="m in METHODS" :key="m" :value="m">{{ m }}</option>
             </select>
@@ -323,15 +334,26 @@ async function save(): Promise<void> {
 
         <div class="col" style="gap: 6px">
           <div class="row between">
-            <span class="label"><Term id="cabecera">{{ t('toolEditor.headers.label') }}</Term></span>
+            <span class="label"
+              ><Term id="cabecera">{{ t('toolEditor.headers.label') }}</Term></span
+            >
             <button class="btn btn-ghost btn-sm" type="button" @click="addHeader"><Plus /> {{ t('toolEditor.headers.add') }}</button>
           </div>
           <p v-if="!form.headers.length" class="faint small">{{ t('toolEditor.headers.none') }}</p>
           <i18n-t v-else-if="form.headers.some((h) => isSecretHeaderName(h.name))" keypath="toolEditor.headers.secretHint" tag="p" class="hint" scope="global">
-            <template #encrypted><Term id="cifrado">{{ t('toolEditor.headers.encrypted') }}</Term></template>
+            <template #encrypted
+              ><Term id="cifrado">{{ t('toolEditor.headers.encrypted') }}</Term></template
+            >
           </i18n-t>
           <div v-for="(h, i) in form.headers" :key="h.key" class="header-row">
-            <input v-model="h.name" class="input mono" type="text" placeholder="Authorization" :aria-label="t('toolEditor.headers.nameAria', { n: i + 1 })" autocomplete="off" />
+            <input
+              v-model="h.name"
+              class="input mono"
+              type="text"
+              placeholder="Authorization"
+              :aria-label="t('toolEditor.headers.nameAria', { n: i + 1 })"
+              autocomplete="off"
+            />
             <input
               v-model="h.value"
               class="input mono"
@@ -340,13 +362,27 @@ async function save(): Promise<void> {
               :aria-label="t('toolEditor.headers.valueAria', { n: i + 1 })"
               autocomplete="off"
             />
-            <button class="btn btn-ghost btn-icon" type="button" :aria-label="t('toolEditor.headers.removeAria', { n: i + 1 })" @click="form.headers.splice(i, 1)"><Trash2 /></button>
+            <button
+              class="btn btn-ghost btn-icon"
+              type="button"
+              :aria-label="t('toolEditor.headers.removeAria', { n: i + 1 })"
+              @click="form.headers.splice(i, 1)"
+            >
+              <Trash2 />
+            </button>
           </div>
         </div>
 
         <div v-if="hasBody" class="field">
           <label for="te-body">{{ t('toolEditor.body.label') }}</label>
-          <textarea id="te-body" v-model="form.bodyTemplate" class="textarea mono" rows="3" :placeholder="t('toolEditor.body.placeholder')" spellcheck="false" />
+          <textarea
+            id="te-body"
+            v-model="form.bodyTemplate"
+            class="textarea mono"
+            rows="3"
+            :placeholder="t('toolEditor.body.placeholder')"
+            spellcheck="false"
+          />
           <i18n-t keypath="toolEditor.body.hint" tag="span" class="hint" scope="global">
             <template #json><Term id="json">JSON</Term></template>
           </i18n-t>
@@ -356,13 +392,24 @@ async function save(): Promise<void> {
       <fieldset class="group">
         <legend>{{ t('toolEditor.params.legend') }}</legend>
         <i18n-t keypath="toolEditor.params.intro" tag="p" class="muted small" scope="global">
-          <template #schema><Term id="json-schema">{{ t('toolEditor.params.introSchema') }}</Term></template>
+          <template #schema
+            ><Term id="json-schema">{{ t('toolEditor.params.introSchema') }}</Term></template
+          >
         </i18n-t>
         <p v-if="!form.params.length" class="faint small">{{ t('toolEditor.params.none') }}</p>
         <div v-for="(p, i) in form.params" :key="p.key" class="param-row">
           <div class="field">
             <label :for="`te-pn-${p.key}`" class="tiny">{{ t('toolEditor.params.name') }}</label>
-            <input :id="`te-pn-${p.key}`" v-model.trim="p.name" class="input mono" type="text" :placeholder="t('toolEditor.params.namePlaceholder')" autocomplete="off" spellcheck="false" :aria-invalid="!!paramError(p)" />
+            <input
+              :id="`te-pn-${p.key}`"
+              v-model.trim="p.name"
+              class="input mono"
+              type="text"
+              :placeholder="t('toolEditor.params.namePlaceholder')"
+              autocomplete="off"
+              spellcheck="false"
+              :aria-invalid="!!paramError(p)"
+            />
           </div>
           <div class="field">
             <label :for="`te-pt-${p.key}`" class="tiny">{{ t('toolEditor.params.type') }}</label>
@@ -372,10 +419,26 @@ async function save(): Promise<void> {
           </div>
           <div class="field desc">
             <label :for="`te-pd-${p.key}`" class="tiny">{{ t('toolEditor.params.description') }}</label>
-            <input :id="`te-pd-${p.key}`" v-model="p.description" class="input" type="text" :placeholder="t('toolEditor.params.descriptionPlaceholder')" autocomplete="off" />
+            <input
+              :id="`te-pd-${p.key}`"
+              v-model="p.description"
+              class="input"
+              type="text"
+              :placeholder="t('toolEditor.params.descriptionPlaceholder')"
+              autocomplete="off"
+            />
           </div>
-          <label class="check req"><input v-model="p.required" type="checkbox" /><span class="small">{{ t('toolEditor.params.required') }}</span></label>
-          <button class="btn btn-ghost btn-icon" type="button" :aria-label="t('toolEditor.params.removeAria', { name: p.name || i + 1 })" @click="form.params.splice(i, 1)"><Trash2 /></button>
+          <label class="check req"
+            ><input v-model="p.required" type="checkbox" /><span class="small">{{ t('toolEditor.params.required') }}</span></label
+          >
+          <button
+            class="btn btn-ghost btn-icon"
+            type="button"
+            :aria-label="t('toolEditor.params.removeAria', { name: p.name || i + 1 })"
+            @click="form.params.splice(i, 1)"
+          >
+            <Trash2 />
+          </button>
           <div class="field penum">
             <label :for="`te-pe-${p.key}`" class="tiny">{{ t('toolEditor.params.allowed') }}</label>
             <input
@@ -412,7 +475,9 @@ async function save(): Promise<void> {
           </div>
           <span v-if="paramError(p)" class="error small perr" role="alert">{{ paramError(p) }}</span>
         </div>
-        <div><button class="btn btn-sm" type="button" @click="addParam"><Plus /> {{ t('toolEditor.params.add') }}</button></div>
+        <div>
+          <button class="btn btn-sm" type="button" @click="addParam"><Plus /> {{ t('toolEditor.params.add') }}</button>
+        </div>
         <div v-if="undeclared.length" class="callout warning">
           <CircleAlert />
           <i18n-t keypath="toolEditor.params.undeclared" tag="span" scope="global">
@@ -423,7 +488,9 @@ async function save(): Promise<void> {
         </div>
       </fieldset>
 
-      <div v-if="saveError" class="callout danger" role="alert"><CircleAlert /><span>{{ saveError }}</span></div>
+      <div v-if="saveError" class="callout danger" role="alert">
+        <CircleAlert /><span>{{ saveError }}</span>
+      </div>
     </form>
 
     <template #footer>

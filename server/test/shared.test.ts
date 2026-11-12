@@ -60,11 +60,7 @@ describe('validación de workflows', () => {
 
   it('acepta un workflow correcto', () => {
     const wf = {
-      nodes: [
-        node('in', 'input'),
-        node('ag', 'agent', { agentId: 'agt_1', prompt: 'Haz {{input}}' }),
-        node('out', 'output', { template: '{{ag}}' }),
-      ],
+      nodes: [node('in', 'input'), node('ag', 'agent', { agentId: 'agt_1', prompt: 'Haz {{input}}' }), node('out', 'output', { template: '{{ag}}' })],
       edges: edges('in>ag', 'ag>out'),
     };
     expect(errors(wf)).toEqual([]);
@@ -91,10 +87,7 @@ describe('validación de workflows', () => {
 
   it('rechaza referencias a nodos que no se ejecutan antes', () => {
     const wf = {
-      nodes: [
-        node('a', 'agent', { agentId: 'agt_1', prompt: 'usa {{b}}' }),
-        node('b', 'agent', { agentId: 'agt_1', prompt: 'usa {{fantasma}}' }),
-      ],
+      nodes: [node('a', 'agent', { agentId: 'agt_1', prompt: 'usa {{b}}' }), node('b', 'agent', { agentId: 'agt_1', prompt: 'usa {{fantasma}}' })],
       edges: [],
     };
     const e = errors(wf).join('\n');
@@ -104,11 +97,7 @@ describe('validación de workflows', () => {
 
   it('exige que las ramas de una condición salgan de sí/no', () => {
     const wf = {
-      nodes: [
-        node('in', 'input'),
-        node('c', 'condition', { left: '{{input}}', operator: 'contains', right: 'x' }),
-        node('o', 'output'),
-      ],
+      nodes: [node('in', 'input'), node('c', 'condition', { left: '{{input}}', operator: 'contains', right: 'x' }), node('o', 'output')],
       edges: edges('in>c', 'c>o'),
     };
     expect(errors(wf).join(' ')).toMatch(/deben partir de "sí" o "no"/);

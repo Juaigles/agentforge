@@ -185,7 +185,15 @@ const viewing = ref<OpenFile | null>(null);
 const isMarkdown = (path: string) => /\.(md|markdown)$/i.test(path);
 
 async function openFile(file: WorkspaceFile): Promise<void> {
-  const state: OpenFile = { path: file.path, loading: true, error: null, content: '', sizeBytes: file.sizeBytes, truncated: false, rendered: isMarkdown(file.path) };
+  const state: OpenFile = {
+    path: file.path,
+    loading: true,
+    error: null,
+    content: '',
+    sizeBytes: file.sizeBytes,
+    truncated: false,
+    rendered: isMarkdown(file.path),
+  };
   viewing.value = state;
   try {
     const res = await api.workspace.read(file.path);
@@ -221,9 +229,15 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
       <div>
         <h1>{{ t('tools.title') }}</h1>
         <i18n-t keypath="tools.subtitle" tag="p" class="subtitle" scope="global">
-          <template #tool><Term id="herramienta">{{ t('tools.subtitleTool') }}</Term></template>
-          <template #agent><Term id="agente">{{ t('tools.subtitleAgent') }}</Term></template>
-          <template #api><Term id="api">{{ t('tools.subtitleApi') }}</Term></template>
+          <template #tool
+            ><Term id="herramienta">{{ t('tools.subtitleTool') }}</Term></template
+          >
+          <template #agent
+            ><Term id="agente">{{ t('tools.subtitleAgent') }}</Term></template
+          >
+          <template #api
+            ><Term id="api">{{ t('tools.subtitleApi') }}</Term></template
+          >
         </i18n-t>
       </div>
       <button class="btn btn-primary" type="button" :disabled="loading || !!loadError" @click="editor = {}"><Plus /> {{ t('tools.newHttp') }}</button>
@@ -266,8 +280,12 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
           <ShieldAlert />
           <i18n-t keypath="tools.callout.codeDisabled" tag="span" scope="global">
             <template #code><code>run_javascript</code></template>
-            <template #settings><RouterLink to="/settings">{{ t('tools.callout.settings') }}</RouterLink></template>
-            <template #sandbox><Term id="sandbox">{{ t('tools.callout.sandbox') }}</Term></template>
+            <template #settings
+              ><RouterLink to="/settings">{{ t('tools.callout.settings') }}</RouterLink></template
+            >
+            <template #sandbox
+              ><Term id="sandbox">{{ t('tools.callout.sandbox') }}</Term></template
+            >
           </i18n-t>
         </div>
         <div v-if="settings && !settings.allowPrivateNetwork" class="callout">
@@ -275,8 +293,12 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
           <i18n-t keypath="tools.callout.network" tag="span" scope="global">
             <template #fetch><code>web_fetch</code></template>
             <template #http><code>http_request</code></template>
-            <template #privateNetwork><Term id="red-privada">{{ t('tools.callout.privateNetwork') }}</Term></template>
-            <template #settings><RouterLink to="/settings">{{ t('tools.callout.settings') }}</RouterLink></template>
+            <template #privateNetwork
+              ><Term id="red-privada">{{ t('tools.callout.privateNetwork') }}</Term></template
+            >
+            <template #settings
+              ><RouterLink to="/settings">{{ t('tools.callout.settings') }}</RouterLink></template
+            >
           </i18n-t>
         </div>
 
@@ -308,14 +330,33 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
                   <code class="faint">{{ tool.name }}</code>
                 </div>
                 <div class="row" style="gap: 4px">
-                  <button class="btn btn-sm" type="button" :disabled="!tool.enabled" :aria-label="t('tools.card.testAria', { title: tool.title })" :title="tool.enabled ? undefined : t('tools.card.enableToTest')" @click="testing = tool">
+                  <button
+                    class="btn btn-sm"
+                    type="button"
+                    :disabled="!tool.enabled"
+                    :aria-label="t('tools.card.testAria', { title: tool.title })"
+                    :title="tool.enabled ? undefined : t('tools.card.enableToTest')"
+                    @click="testing = tool"
+                  >
                     <Play /> {{ t('tools.card.test') }}
                   </button>
                   <template v-if="tool.source === 'custom' && tool.customId">
-                    <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('tools.card.editAria', { name: tool.name })" :title="t('common.actions.edit')" @click="editor = { customId: tool.customId }">
+                    <button
+                      class="btn btn-ghost btn-icon btn-sm"
+                      type="button"
+                      :aria-label="t('tools.card.editAria', { name: tool.name })"
+                      :title="t('common.actions.edit')"
+                      @click="editor = { customId: tool.customId }"
+                    >
                       <Pencil />
                     </button>
-                    <button class="btn btn-ghost btn-icon btn-sm btn-danger" type="button" :aria-label="t('tools.card.deleteAria', { name: tool.name })" :title="t('common.actions.delete')" @click="removeTool(tool)">
+                    <button
+                      class="btn btn-ghost btn-icon btn-sm btn-danger"
+                      type="button"
+                      :aria-label="t('tools.card.deleteAria', { name: tool.name })"
+                      :title="t('common.actions.delete')"
+                      @click="removeTool(tool)"
+                    >
                       <Trash2 />
                     </button>
                   </template>
@@ -324,7 +365,9 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
 
               <div class="row wrap" style="gap: 6px">
                 <span class="badge" :class="{ accent: tool.source !== 'builtin' }">{{ t(SOURCE_KEY[tool.source]) }}</span>
-                <span v-if="tool.dangerous" class="badge warning" :title="t('tools.card.sensitiveTitle')"><TriangleAlert /> {{ t('tools.card.sensitive') }}</span>
+                <span v-if="tool.dangerous" class="badge warning" :title="t('tools.card.sensitiveTitle')"
+                  ><TriangleAlert /> {{ t('tools.card.sensitive') }}</span
+                >
                 <span v-if="!tool.enabled" class="badge danger">{{ t('tools.card.disabled') }}</span>
                 <span v-else-if="blockedReason(tool)" class="badge danger">{{ blockedReason(tool) }}</span>
                 <span class="badge" :title="(usage.get(tool.name) ?? []).join(', ') || t('tools.card.noAgentTitle')">
@@ -362,7 +405,9 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
     <section v-else-if="tab === 'files'" role="tabpanel" :aria-label="t('tools.tabs.files')" class="col" style="gap: 14px">
       <div class="toolbar">
         <i18n-t keypath="tools.files.intro" tag="p" class="muted small grow" scope="global">
-          <template #workspace><Term id="workspace">{{ t('tools.files.workspace') }}</Term></template>
+          <template #workspace
+            ><Term id="workspace">{{ t('tools.files.workspace') }}</Term></template
+          >
           <template #write><code>file_write</code></template>
           <template #read><code>file_read</code></template>
           <template #summary>
@@ -398,19 +443,39 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
               <th>{{ t('tools.files.colFile') }}</th>
               <th class="right">{{ t('tools.files.colSize') }}</th>
               <th class="hide-sm">{{ t('tools.files.colModified') }}</th>
-              <th><span class="sr-only">{{ t('tools.files.colActions') }}</span></th>
+              <th>
+                <span class="sr-only">{{ t('tools.files.colActions') }}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="f in files" :key="f.path">
               <td class="fpath">
-                <button class="link" type="button" :title="t('tools.files.view', { path: f.path })" @click="openFile(f)"><FileText aria-hidden="true" /><span>{{ f.path }}</span></button>
+                <button class="link" type="button" :title="t('tools.files.view', { path: f.path })" @click="openFile(f)">
+                  <FileText aria-hidden="true" /><span>{{ f.path }}</span>
+                </button>
               </td>
               <td class="right num muted nowrap">{{ formatBytes(f.sizeBytes) }}</td>
               <td class="muted nowrap hide-sm" :title="formatDateTime(f.modifiedAt)">{{ relativeTime(f.modifiedAt) }}</td>
               <td class="right nowrap">
-                <button class="btn btn-ghost btn-icon btn-sm" type="button" :aria-label="t('tools.files.view', { path: f.path })" :title="t('tools.files.viewContent')" @click="openFile(f)"><Eye /></button>
-                <button class="btn btn-ghost btn-icon btn-sm btn-danger" type="button" :aria-label="t('tools.card.deleteAria', { name: f.path })" :title="t('common.actions.delete')" @click="removeFile(f)"><Trash2 /></button>
+                <button
+                  class="btn btn-ghost btn-icon btn-sm"
+                  type="button"
+                  :aria-label="t('tools.files.view', { path: f.path })"
+                  :title="t('tools.files.viewContent')"
+                  @click="openFile(f)"
+                >
+                  <Eye />
+                </button>
+                <button
+                  class="btn btn-ghost btn-icon btn-sm btn-danger"
+                  type="button"
+                  :aria-label="t('tools.card.deleteAria', { name: f.path })"
+                  :title="t('common.actions.delete')"
+                  @click="removeFile(f)"
+                >
+                  <Trash2 />
+                </button>
               </td>
             </tr>
           </tbody>
@@ -424,16 +489,24 @@ async function removeFile(file: WorkspaceFile): Promise<void> {
 
     <AppModal v-if="viewing" :title="viewing.path" :width="820" @close="viewing = null">
       <div v-if="viewing.loading" class="row muted"><LoaderCircle class="spin" style="width: 16px; height: 16px" /> {{ t('tools.files.loading') }}</div>
-      <div v-else-if="viewing.error" class="callout danger" role="alert"><CircleAlert /><span>{{ viewing.error }}</span></div>
+      <div v-else-if="viewing.error" class="callout danger" role="alert">
+        <CircleAlert /><span>{{ viewing.error }}</span>
+      </div>
       <div v-else class="col" style="gap: 10px">
         <div class="row between wrap">
           <span class="small muted num">{{ formatBytes(viewing.sizeBytes) }}</span>
           <div v-if="isMarkdown(viewing.path)" class="segmented" role="group" :aria-label="t('tools.files.viewMode')">
-            <button type="button" :class="{ active: viewing.rendered }" :aria-pressed="viewing.rendered" @click="viewing.rendered = true">{{ t('tools.files.preview') }}</button>
-            <button type="button" :class="{ active: !viewing.rendered }" :aria-pressed="!viewing.rendered" @click="viewing.rendered = false">{{ t('tools.files.text') }}</button>
+            <button type="button" :class="{ active: viewing.rendered }" :aria-pressed="viewing.rendered" @click="viewing.rendered = true">
+              {{ t('tools.files.preview') }}
+            </button>
+            <button type="button" :class="{ active: !viewing.rendered }" :aria-pressed="!viewing.rendered" @click="viewing.rendered = false">
+              {{ t('tools.files.text') }}
+            </button>
           </div>
         </div>
-        <div v-if="viewing.truncated" class="callout warning"><TriangleAlert /><span>{{ t('tools.files.truncated') }}</span></div>
+        <div v-if="viewing.truncated" class="callout warning">
+          <TriangleAlert /><span>{{ t('tools.files.truncated') }}</span>
+        </div>
         <p v-if="!viewing.content" class="faint small">{{ t('tools.files.empty') }}</p>
         <div v-else-if="viewing.rendered" class="preview"><MarkdownView :source="viewing.content" /></div>
         <pre v-else class="codeblock" style="max-height: 60vh">{{ viewing.content }}</pre>

@@ -40,7 +40,9 @@ const get = (url: string) => app.inject({ method: 'GET', url });
 const del = (url: string) => app.inject({ method: 'DELETE', url });
 
 async function seed(): Promise<{ provider: Provider; agent: Agent; wf: Workflow }> {
-  const provider = (await post('/api/providers', { name: 'Local', kind: 'ollama', baseUrl: 'http://localhost:11434', defaultModel: 'modelo-local' })).json() as Provider;
+  const provider = (
+    await post('/api/providers', { name: 'Local', kind: 'ollama', baseUrl: 'http://localhost:11434', defaultModel: 'modelo-local' })
+  ).json() as Provider;
   const agent = (await post('/api/agents', { name: 'Redactor', role: 'escribe', providerId: provider.id, model: 'test-model' })).json() as Agent;
   const wf = (
     await post('/api/workflows', {
@@ -167,7 +169,9 @@ describe('cálculo de la siguiente ocasión de un disparador', () => {
   it('diaria con días de la semana y zona; cron; webhook sin horario', () => {
     const from = new Date('2026-03-10T10:00:00Z'); // martes
     expect(nextOccurrence({ ...base, kind: 'daily', time: '09:00', weekdays: [1, 3], timezone: 'UTC' }, from)!.toISOString()).toBe('2026-03-11T09:00:00.000Z');
-    expect(nextOccurrence({ ...base, kind: 'daily', time: '09:00', weekdays: [1], timezone: 'Europe/Madrid' }, from)!.toISOString()).toBe('2026-03-16T08:00:00.000Z');
+    expect(nextOccurrence({ ...base, kind: 'daily', time: '09:00', weekdays: [1], timezone: 'Europe/Madrid' }, from)!.toISOString()).toBe(
+      '2026-03-16T08:00:00.000Z',
+    );
     expect(nextOccurrence({ ...base, kind: 'cron', cron: '0 */6 * * *', timezone: 'UTC' }, from)!.toISOString()).toBe('2026-03-10T12:00:00.000Z');
     expect(nextOccurrence({ ...base, kind: 'webhook' }, from)).toBeNull();
     expect(upcomingOccurrences({ ...base, kind: 'cron', cron: '0 0 * * 0', timezone: 'UTC' }, from, 3).map((d) => d.toISOString())).toEqual([
@@ -206,7 +210,20 @@ describe('disparadores de un workflow', () => {
 
     const before = Date.now();
     const every = await create(wf, { kind: 'interval', intervalMinutes: 15, input: 'noticias', time: '08:00', name: 'Cada cuarto de hora' });
-    expect(every).toMatchObject({ workflowId: wf.id, kind: 'interval', name: 'Cada cuarto de hora', intervalMinutes: 15, time: null, cron: null, timezone: null, weekdays: [], input: 'noticias', enabled: true, lastRunId: null, lastError: null });
+    expect(every).toMatchObject({
+      workflowId: wf.id,
+      kind: 'interval',
+      name: 'Cada cuarto de hora',
+      intervalMinutes: 15,
+      time: null,
+      cron: null,
+      timezone: null,
+      weekdays: [],
+      input: 'noticias',
+      enabled: true,
+      lastRunId: null,
+      lastError: null,
+    });
     expect(every.id).toMatch(/^trg_/);
     expect(every).not.toHaveProperty('secret');
     expect(Date.parse(every.nextRunAt!) - before).toBeGreaterThanOrEqual(15 * MIN - 50);
@@ -254,7 +271,8 @@ describe('disparadores de un workflow', () => {
   it('pone un tope al número de disparadores por workflow', async () => {
     await boot();
     const { wf } = await seed();
-    for (let i = 0; i < 20; i++) expect((await post(`/api/workflows/${wf.id}/triggers`, { kind: 'interval', intervalMinutes: 60, enabled: false })).statusCode).toBe(201);
+    for (let i = 0; i < 20; i++)
+      expect((await post(`/api/workflows/${wf.id}/triggers`, { kind: 'interval', intervalMinutes: 60, enabled: false })).statusCode).toBe(201);
     const res = await post(`/api/workflows/${wf.id}/triggers`, { kind: 'interval', intervalMinutes: 60 });
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toMatch(/máximo 20/);
@@ -363,7 +381,10 @@ describe('disparadores de un workflow', () => {
     const broken = { ...wf, nodes: wf.nodes.map((n) => (n.id === 'redactar' ? { ...n, config: { ...n.config, agentId: 'agt_borrado' } } : n)) };
     expect((await put(`/api/workflows/${wf.id}`, broken)).statusCode).toBe(200);
     expect(ctx.scheduler.tick(due)).toEqual([]);
-    expect(ctx.store.getTrigger(trigger.id)).toMatchObject({ lastRunId: null, lastError: expect.stringMatching(/No se pudo lanzar: .*agente que ya no existe/) });
+    expect(ctx.store.getTrigger(trigger.id)).toMatchObject({
+      lastRunId: null,
+      lastError: expect.stringMatching(/No se pudo lanzar: .*agente que ya no existe/),
+    });
     expect((await post(`/api/triggers/${trigger.id}/run`)).statusCode).toBe(422);
     expect(llm.calls).toHaveLength(0);
 
@@ -437,22 +458,25 @@ describe('disparadores de un workflow', () => {
         last_error TEXT, updated_at TEXT NOT NULL);
       PRAGMA user_version = 5;
     `);
-    raw.prepare('INSERT INTO schedules (workflow_id, kind, time, input, enabled, next_run_at, last_error, updated_at) VALUES (?,?,?,?,?,?,?,?)').run(
-      wf.id,
-      'daily',
-      '07:45',
-      'boletín',
-      1,
-      '2030-01-01T06:45:00.000Z',
-      'algo falló',
-      '2026-01-01T00:00:00.000Z',
-    );
+    raw
+      .prepare('INSERT INTO schedules (workflow_id, kind, time, input, enabled, next_run_at, last_error, updated_at) VALUES (?,?,?,?,?,?,?,?)')
+      .run(wf.id, 'daily', '07:45', 'boletín', 1, '2030-01-01T06:45:00.000Z', 'algo falló', '2026-01-01T00:00:00.000Z');
     raw.close();
 
     await boot(undefined, dataDir);
     const triggers = (await get(`/api/workflows/${wf.id}/triggers`)).json() as Trigger[];
     expect(triggers).toHaveLength(1);
-    expect(triggers[0]).toMatchObject({ kind: 'daily', time: '07:45', weekdays: [], timezone: null, input: 'boletín', enabled: true, nextRunAt: '2030-01-01T06:45:00.000Z', lastError: 'algo falló', name: '' });
+    expect(triggers[0]).toMatchObject({
+      kind: 'daily',
+      time: '07:45',
+      weekdays: [],
+      timezone: null,
+      input: 'boletín',
+      enabled: true,
+      nextRunAt: '2030-01-01T06:45:00.000Z',
+      lastError: 'algo falló',
+      name: '',
+    });
     expect(triggers[0].id).toMatch(/^trg_[0-9a-f]{16}$/);
     expect(fs.existsSync(path.join(dataDir, 'agentforge.db.v5.bak'))).toBe(true);
   });
@@ -483,27 +507,45 @@ describe('webhooks', () => {
     const hook = await create(wf, { kind: 'webhook' });
 
     // Texto plano con el secreto en la cabecera Authorization.
-    const res = await call(hook.id, { body: 'la versión 2.3 ya está desplegada', headers: { 'content-type': 'text/plain', authorization: `Bearer ${hook.secret}` } });
+    const res = await call(hook.id, {
+      body: 'la versión 2.3 ya está desplegada',
+      headers: { 'content-type': 'text/plain', authorization: `Bearer ${hook.secret}` },
+    });
     expect(res.statusCode).toBe(202);
     const { runId } = res.json() as { runId: string };
     await ctx.runs.waitFor(runId);
-    expect(ctx.store.getRun(runId)).toMatchObject({ status: 'completed', input: 'la versión 2.3 ya está desplegada', scheduled: false, triggerKind: 'webhook', workflowId: wf.id });
+    expect(ctx.store.getRun(runId)).toMatchObject({
+      status: 'completed',
+      input: 'la versión 2.3 ya está desplegada',
+      scheduled: false,
+      triggerKind: 'webhook',
+      workflowId: wf.id,
+    });
     expect(userText(llm.calls[0])).toBe('escribe sobre la versión 2.3 ya está desplegada');
     expect(ctx.store.getTrigger(hook.id)).toMatchObject({ lastRunId: runId, lastError: null });
 
     // JSON con un campo «input»: ese es el texto. Secreto en su propia cabecera.
-    const json = await call(hook.id, { body: JSON.stringify({ input: 'un pedido nuevo', otro: 1 }), headers: { 'content-type': 'application/json', 'x-agentforge-secret': hook.secret! } });
+    const json = await call(hook.id, {
+      body: JSON.stringify({ input: 'un pedido nuevo', otro: 1 }),
+      headers: { 'content-type': 'application/json', 'x-agentforge-secret': hook.secret! },
+    });
     expect(json.statusCode).toBe(202);
     expect(ctx.store.getRun(json.json().runId)!.input).toBe('un pedido nuevo');
 
     // JSON sin «input»: el cuerpo entero. Sin cuerpo: entrada vacía.
-    const whole = await call(hook.id, { body: '{"evento":"push","rama":"main"}', headers: { 'content-type': 'application/json', authorization: `Bearer ${hook.secret}` } });
+    const whole = await call(hook.id, {
+      body: '{"evento":"push","rama":"main"}',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${hook.secret}` },
+    });
     expect(ctx.store.getRun(whole.json().runId)!.input).toBe('{"evento":"push","rama":"main"}');
     const empty = await call(hook.id, { headers: { authorization: `Bearer ${hook.secret}` } });
     expect(empty.statusCode).toBe(202);
     expect(ctx.store.getRun(empty.json().runId)!.input).toBe('');
     // Un tipo de contenido cualquiera también vale.
-    const form = await call(hook.id, { body: 'a=1&b=2', headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: `Bearer ${hook.secret}` } });
+    const form = await call(hook.id, {
+      body: 'a=1&b=2',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: `Bearer ${hook.secret}` },
+    });
     expect(ctx.store.getRun(form.json().runId)!.input).toBe('a=1&b=2');
     for (const r of (await get('/api/runs')).json().items as Run[]) await ctx.runs.waitFor(r.id);
   });
@@ -527,9 +569,25 @@ describe('webhooks', () => {
     await ctx.runs.waitFor(ok.json().runId);
     expect(ctx.store.getRun(ok.json().runId)!.input).toBe('firmado');
     // La firma de otro cuerpo, o hecha con otro secreto, no vale; y una firma presente manda sobre el secreto en claro.
-    expect((await call(hook.id, { body: '{"input":"manipulado"}', headers: { 'content-type': 'application/json', 'x-agentforge-signature': sign(hook.secret!, body) } })).statusCode).toBe(401);
-    expect((await call(hook.id, { body, headers: { 'content-type': 'application/json', 'x-agentforge-signature': sign('whsec_otro', body) } })).statusCode).toBe(401);
-    expect((await call(hook.id, { body, headers: { 'content-type': 'application/json', 'x-agentforge-signature': 'sha256=00', authorization: `Bearer ${hook.secret}` } })).statusCode).toBe(401);
+    expect(
+      (
+        await call(hook.id, {
+          body: '{"input":"manipulado"}',
+          headers: { 'content-type': 'application/json', 'x-agentforge-signature': sign(hook.secret!, body) },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (await call(hook.id, { body, headers: { 'content-type': 'application/json', 'x-agentforge-signature': sign('whsec_otro', body) } })).statusCode,
+    ).toBe(401);
+    expect(
+      (
+        await call(hook.id, {
+          body,
+          headers: { 'content-type': 'application/json', 'x-agentforge-signature': 'sha256=00', authorization: `Bearer ${hook.secret}` },
+        })
+      ).statusCode,
+    ).toBe(401);
     expect((await get('/api/runs')).json().total).toBe(1);
   });
 
@@ -592,8 +650,17 @@ describe('webhooks', () => {
   it('con clave de acceso configurada, el webhook se autentica solo con su secreto; el resto de la API sigue cerrada', async () => {
     await boot(undefined, undefined, { authToken: 'una-clave-de-acceso-larga' });
     const session = { authorization: 'Bearer una-clave-de-acceso-larga' };
-    const provider = (await app.inject({ method: 'POST', url: '/api/providers', headers: session, payload: { name: 'Local', kind: 'ollama', baseUrl: 'http://localhost:11434' } })).json() as Provider;
-    const agent = (await app.inject({ method: 'POST', url: '/api/agents', headers: session, payload: { name: 'A', providerId: provider.id, model: 'm' } })).json() as Agent;
+    const provider = (
+      await app.inject({
+        method: 'POST',
+        url: '/api/providers',
+        headers: session,
+        payload: { name: 'Local', kind: 'ollama', baseUrl: 'http://localhost:11434' },
+      })
+    ).json() as Provider;
+    const agent = (
+      await app.inject({ method: 'POST', url: '/api/agents', headers: session, payload: { name: 'A', providerId: provider.id, model: 'm' } })
+    ).json() as Agent;
     const wf = (
       await app.inject({
         method: 'POST',
@@ -611,7 +678,9 @@ describe('webhooks', () => {
     ).json() as Workflow;
     // Crear el disparador exige la clave de acceso.
     expect((await post(`/api/workflows/${wf.id}/triggers`, { kind: 'webhook' })).statusCode).toBe(401);
-    const hook = (await app.inject({ method: 'POST', url: `/api/workflows/${wf.id}/triggers`, headers: session, payload: { kind: 'webhook' } })).json() as TriggerWithSecret;
+    const hook = (
+      await app.inject({ method: 'POST', url: `/api/workflows/${wf.id}/triggers`, headers: session, payload: { kind: 'webhook' } })
+    ).json() as TriggerWithSecret;
 
     // La llamada al webhook no lleva la clave de acceso: basta su secreto. La clave de acceso NO sirve de secreto.
     const ok = await call(hook.id, { body: 'hola', headers: { 'content-type': 'text/plain', 'x-agentforge-secret': hook.secret! } });

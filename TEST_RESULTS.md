@@ -5,14 +5,19 @@ Todos los resultados proceden de ejecuciones reales en esta máquina
 
 ## 1. Tests automatizados
 
-Comandos: `npm test` (Vitest 5), `npm run test:e2e` (Playwright 1.65, Chromium), `npm run typecheck`, `npm audit`.
-Resultados del 2026-11-12 (hito 5, tras la fase 7):
+Comandos: `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run test:coverage` (Vitest 5 con
+cobertura v8), `npm run test:e2e:all` (Playwright 1.65 en Chromium, Firefox y WebKit) y `npm audit`.
+Resultados del 2026-11-12 (hito 5, tras la fase 8):
 
 ```
-servidor     Test Files  17 passed (17)   Tests  379 passed | 1 skipped (380)
-frontend     Test Files  13 passed (13)   Tests   79 passed (79)
-end-to-end   71 passed (4.5m)
+lint         sin errores (ESLint 10)
+formato      todo el código con el estilo de Prettier
 typecheck    sin errores (tsc servidor, vue-tsc frontend, tsc e2e)
+servidor     Test Files  18 passed (18)   Tests  510 passed | 1 skipped (511)
+             cobertura: sentencias 93,9 % · ramas 86,4 % · funciones 94,9 % · líneas 96,7 %
+frontend     Test Files  23 passed (23)   Tests  288 passed (288)
+             cobertura: sentencias 39,8 % · ramas 42,2 % · funciones 41,5 % · líneas 41,9 %
+end-to-end   213 passed (12.9m): chromium 71, firefox 71, webkit 71
 npm audit    found 0 vulnerabilities
 ```
 
@@ -41,6 +46,16 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `server/test/flow.test.ts` | Listas en texto libre (14 formas reales), **subworkflows** (resultado, enlace, instantánea estable, fallo y reintento, cancelación en cascada, anidamiento, ciclos, borrado bloqueado), **«para cada»** con herramienta y con subworkflow, política por elemento, reutilización de elementos al reintentar, **aprobación humana** (espera, aprobar, rechazar con comentario, sin ocupar hueco ni consumir la duración máxima, cancelación, tiempo máximo, **reinicio con la base en disco**), reanudación automática, texto parcial, respuestas cortadas del proveedor contra un servidor con el protocolo real, ids reservados | Solo el proveedor LLM (y en un caso ninguno: adaptador real contra un servidor local) |
 | `server/test/static.test.ts` | Servido del frontend: fallback de la SPA, caché, 404 de assets, archivos nuevos sin reiniciar | Ninguno |
 | `server/test/ollama.integration.test.ts` | **Modelo real**: chat nativo, adaptador OpenAI vía `/v1`, agente con herramienta por ambos adaptadores, workflow paralelo de 3 agentes | **Ninguno** (se omite si no hay Ollama) |
+| `server/test/gaps.test.ts` | Huecos de la auditoría de pruebas: **migraciones reales** (base nueva e idempotencia; v1, v2 y v3 fabricadas con el SQL de entonces y datos en todas las tablas, comparando fila a fila; dos migraciones que fallan a medias dejan el esquema intacto), **cifrado** (Unicode, IV aleatorio, un byte manipulado, formato, longitud de clave; `secret.key` perdido → 409 legible en las cuatro rutas de prueba de proveedor), **archivos** (`DELETE` y `GET` frente a `../`, `%2F`, `..\\`, rutas absolutas y byte NUL; los datos siguen intactos), **`web_fetch`** contra un servidor local, **SSE** por HTTP real (estados, `llm.snapshot`, retirada de la suscripción), **ramas de error del motor** y de la delegación, el **`code` de cada tipo de error**, un caso por cada uno de los **50 códigos de validación** y ramas del almacén | Solo el proveedor LLM; servidores HTTP locales reales |
+| `web/src/components/TriggersModal.test.ts` | Disparadores: lista, alta de cada tipo con su validación en el campo, vista previa del cron, secreto del webhook mostrado una vez y llamada HTTP real con él, editar, pausar, ejecutar ahora (ejecución real), regenerar el secreto, eliminar y tope del servidor | Solo el proveedor LLM: **API real** en memoria |
+| `web/src/components/ImportModal.test.ts` | Revisión de una importación con archivos exportados de verdad: todo nuevo, todo existente, distinto (usar el de aquí, sustituir, copiar), proveedor ausente, avisos, archivo no válido, cancelar y fallo a medias (todo o nada) | Solo el proveedor LLM: **API real** en memoria |
+| `web/src/components/ProviderModal.test.ts` | Proveedor: plantillas, alta con y sin clave (cifrada en la base, nunca devuelta), probar antes de guardar, proveedor caído, validación campo a campo, edición sin reenviar la clave, quitar y deshacer, cambio de dirección | Solo el proveedor LLM: **API real** en memoria |
+| `web/src/components/McpServersPanel.test.ts` | Servidores MCP contra el **servidor MCP real** de pruebas, por stdio (proceso hijo) y por HTTP: alta, programa inexistente o que termina con error, variables secretas, validación, renombrar, desactivar, reconectar tras caerse y eliminar | Solo el proveedor LLM |
+| `web/src/components/ToolEditorModal.test.ts` | Editor de herramientas HTTP: alta, parámetros, huecos sin declarar, cabeceras con credencial (cifrada, conservada al editar), cuerpo, validación en vivo, conflictos de nombre y esquemas anidados conservados | Solo el proveedor LLM: **API real** en memoria |
+| `web/src/lib/markdown.test.ts` | **Saneado de la salida de los modelos**: Markdown legítimo y una batería hostil (`script`, `iframe`, `form`, imágenes, atributos `on*` y `style`, URLs `javascript:`, `vbscript:` y `data:`, variantes ofuscadas, HTML dentro de código) comprobando el DOM resultante | Ninguno (marked y DOMPurify reales) |
+| `web/src/lib/api.test.ts` | Cliente de la API: validación, 404, 409, 422 con problemas, 204, 401, servidor parado, respuestas que no son JSON (servidores `node:http` locales), filtros vacíos omitidos y errores según el idioma | Solo el proveedor LLM |
+| `web/src/lib/useRunStream.test.ts` | Seguimiento en vivo con un `EventSource` real: ejecución terminada, en curso con streaming, cancelada con su texto parcial, inexistente, cambios rápidos de ejecución, cierre al desmontar y **corte del flujo** (reenviador TCP real) | Solo el proveedor LLM |
+| `web/src/stores/runs.test.ts`, `ui.test.ts` | Canal global de ejecuciones (altas, fin, avisos, reconexión real) y avisos, confirmaciones y tema | Solo el proveedor LLM; el reloj de Vitest en `ui.test.ts` |
 | `web/src/lib/run-state.test.ts` | Reductor de eventos del monitor en vivo, emparejado de llamadas a herramientas, formato | Ninguno |
 | `web/src/lib/glossary.test.ts` | Coherencia del glosario: ids existentes, entradas usadas, términos fuera de botones/enlaces/código/títulos, definiciones aptas para tooltip | Ninguno (analiza las plantillas reales) |
 | `web/src/lib/transfer.test.ts` | Nombre del archivo exportado y descripción de la cadencia en lenguaje natural | Ninguno |
@@ -54,7 +69,7 @@ frontend, 43 e2e, `typecheck` limpio y 0 vulnerabilidades.
 | `web/src/components/RunActivity.test.ts` | Registro de actividad: marcadores, mensajes, herramientas (OK/error/en curso), despliegue, filtro por nodo, sangría de delegados | Ninguno |
 | `web/src/components/FlowNode.test.ts` | Nodo del lienzo: conexiones por tipo, subtítulos, estados, errores, datos históricos del agente | El punto de conexión de Vue Flow (necesita un lienzo real) |
 | `web/src/views/AgentEditorView.test.ts` | Formulario de agentes: valores por defecto, validación, alta, edición, errores del servidor, herramientas huérfanas | Solo el proveedor LLM: usa la **API real** en memoria |
-| `e2e/*.spec.ts` (71 tests) | Interfaz real en Chromium contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
+| `e2e/*.spec.ts` (71 tests × 3 navegadores) | Interfaz real en Chromium, Firefox y WebKit contra el servidor real; ver `e2e/README.md` | Solo el modelo: servidor HTTP local que habla el protocolo de Ollama/OpenAI |
 
 Defectos reales destapados por los tests y corregidos: puntos 4, 5, 6, 7 y 9 de `PROGRESS.md`, y los
 puntos 14 a 20 (hito 4.1), todos encontrados por la suite e2e o por los tests de componentes.
@@ -391,7 +406,9 @@ de una ejecución anterior al reinicio.
   componente contra la API real, no apagando Ollama en esta máquina.
 - **Datos de ejemplo corregidos sobre la instalación real**: `data/` ya estaba sembrada y conserva el «Redactor»
   anterior; lo nuevo se probó en una instalación temporal.
-- Navegadores distintos de Chromium (la suite e2e solo define el proyecto Chromium).
+- **Safari real**: WebKit se ha probado con la compilación de Playwright para Windows, no con Safari en macOS ni
+  en iOS. Tampoco se han probado Edge ni navegadores móviles reales (sí la vista de 375 px emulada).
+- **Integración continua**: `.github/workflows/ci.yml` no se ha ejecutado nunca.
 - La suite e2e usa un modelo simulado: prueba la interfaz y el protocolo, no la calidad de las respuestas de
   un modelo real (eso lo cubren `ollama.integration.test.ts` y las comprobaciones manuales).
 - El arrastre con ratón del lienzo se prueba con ratón sintético de Playwright; no se ha probado con pantalla

@@ -72,8 +72,14 @@ describe('idiomas', () => {
 
   it('el idioma por defecto es el del navegador, y el elegido se recuerda', () => {
     const storage = new Map<string, string>();
-    const original = { localStorage: Object.getOwnPropertyDescriptor(globalThis, 'localStorage'), navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator') };
-    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => storage.set(k, v) } });
+    const original = {
+      localStorage: Object.getOwnPropertyDescriptor(globalThis, 'localStorage'),
+      navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'),
+    };
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => storage.set(k, v) },
+    });
     const browser = (language: string) => Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { language } });
     try {
       browser('es-MX');

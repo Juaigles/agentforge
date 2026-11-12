@@ -261,8 +261,7 @@ export class Store {
   updateProvider(id: string, input: ProviderInput): Provider | null {
     const existing = this.get('SELECT api_key_enc FROM providers WHERE id = ?', id);
     if (!existing) return null;
-    const apiKeyEnc =
-      input.apiKey === undefined ? existing.api_key_enc : input.apiKey ? this.secrets.encrypt(input.apiKey) : null;
+    const apiKeyEnc = input.apiKey === undefined ? existing.api_key_enc : input.apiKey ? this.secrets.encrypt(input.apiKey) : null;
     this.exec(
       'UPDATE providers SET name=?, kind=?, base_url=?, api_key_enc=?, default_model=?, enabled=?, updated_at=? WHERE id=?',
       input.name,
@@ -886,10 +885,15 @@ export class Store {
   listRuns(filter: RunFilter = {}): { items: RunSummary[]; total: number; capped?: boolean } {
     const where: string[] = [];
     const params: unknown[] = [];
-    if (filter.status) (where.push('status = ?'), params.push(filter.status));
-    if (filter.kind) (where.push('kind = ?'), params.push(filter.kind));
-    if (filter.workflowId) (where.push('workflow_id = ?'), params.push(filter.workflowId));
-    if (filter.agentId) (where.push('agent_id = ?'), params.push(filter.agentId));
+    const equals = (column: string, value: unknown): void => {
+      if (!value) return;
+      where.push(`${column} = ?`);
+      params.push(value);
+    };
+    equals('status', filter.status);
+    equals('kind', filter.kind);
+    equals('workflow_id', filter.workflowId);
+    equals('agent_id', filter.agentId);
     const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
     const offset = Math.max(filter.offset ?? 0, 0);
     const search = filter.search?.trim();
@@ -929,7 +933,9 @@ export class Store {
 
   /** Subejecuciones lanzadas por una ejecución (sus subworkflows). */
   listChildRuns(parentRunId: string): RunSummary[] {
-    return this.all(`SELECT ${RUN_SUMMARY_COLS} FROM runs WHERE parent_run_id = ? ORDER BY created_at, id LIMIT 500`, parentRunId).map((r) => this.mapRunSummary(r));
+    return this.all(`SELECT ${RUN_SUMMARY_COLS} FROM runs WHERE parent_run_id = ? ORDER BY created_at, id LIMIT 500`, parentRunId).map((r) =>
+      this.mapRunSummary(r),
+    );
   }
 
   updateRun(id: string, patch: RunPatch): void {
@@ -975,11 +981,7 @@ export class Store {
     const now = nowIso();
     const stale = this.all("SELECT id, status, parent_run_id FROM runs WHERE status IN ('queued','running','waiting')");
     for (const { id, status, parent_run_id } of stale) {
-      this.exec(
-        "UPDATE run_steps SET status='cancelled', finished_at=? WHERE run_id=? AND status IN ('pending','running','waiting')",
-        now,
-        id,
-      );
+      this.exec("UPDATE run_steps SET status='cancelled', finished_at=? WHERE run_id=? AND status IN ('pending','running','waiting')", now, id);
       this.exec("UPDATE approvals SET status='cancelled', decided_at=? WHERE run_id=? AND status='pending'", now, id);
       // Una subejecución no se reanuda por separado: lo hace la ejecución que la lanzó, que repite ese nodo.
       // Una ejecución que solo esperaba una aprobación no tenía trabajo a medias: se reanuda sola al arrancar.
@@ -1018,7 +1020,14 @@ export class Store {
    */
   finishRun(
     id: string,
-    final: { status: 'completed' | 'failed' | 'cancelled'; output?: string | null; error?: string | null; usage?: Usage; finishedAt?: string; interrupted?: number },
+    final: {
+      status: 'completed' | 'failed' | 'cancelled';
+      output?: string | null;
+      error?: string | null;
+      usage?: Usage;
+      finishedAt?: string;
+      interrupted?: number;
+    },
   ): void {
     this.transaction(() => {
       const row = this.get('SELECT created_at, started_at, ended_at, usage FROM runs WHERE id = ?', id);
@@ -1169,9 +1178,14 @@ export class Store {
   listApprovals(filter: { runId?: string; pendingOnly?: boolean } = {}): Approval[] {
     const where: string[] = [];
     const params: unknown[] = [];
-    if (filter.runId) (where.push('a.run_id = ?'), params.push(filter.runId));
+    if (filter.runId) {
+      where.push('a.run_id = ?');
+      params.push(filter.runId);
+    }
     if (filter.pendingOnly) where.push("a.status = 'pending'");
-    return this.all(`${Store.APPROVAL_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.created_at, a.id LIMIT 500`, ...params).map((r) => this.mapApproval(r));
+    return this.all(`${Store.APPROVAL_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.created_at, a.id LIMIT 500`, ...params).map(
+      (r) => this.mapApproval(r),
+    );
   }
 
   /** Cierra una aprobación pendiente. Devuelve false si ya estaba decidida o cancelada. */
@@ -1211,15 +1225,7 @@ export class Store {
     // (el evento que se emite en directo sí la lleva). Así la misma salida no se almacena tres veces.
     const omit = EVENT_FIELDS_NOT_PERSISTED[type];
     const stored = omit && omit.some((field) => field in data) ? Object.fromEntries(Object.entries(data).filter(([k]) => !omit.includes(k))) : data;
-    this.exec(
-      'INSERT INTO run_events (run_id, seq, ts, type, node_id, data) VALUES (?,?,?,?,?,?)',
-      runId,
-      seq,
-      ts,
-      type,
-      nodeId,
-      stored,
-    );
+    this.exec('INSERT INTO run_events (run_id, seq, ts, type, node_id, data) VALUES (?,?,?,?,?,?)', runId, seq, ts, type, nodeId, stored);
     if (type === 'tool.call' && typeof data.name === 'string' && data.name) {
       this.exec('INSERT INTO stats_tool (name, calls) VALUES (?, 1) ON CONFLICT(name) DO UPDATE SET calls = calls + 1', data.name);
     }
@@ -1253,11 +1259,7 @@ export class Store {
   updateSettings(patch: Partial<Settings>): Settings {
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined) continue;
-      this.exec(
-        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-        key,
-        JSON.stringify(value),
-      );
+      this.exec('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value));
     }
     return this.getSettings();
   }
@@ -1298,7 +1300,10 @@ export class Store {
        FROM stats_agent s LEFT JOIN agents a ON a.id = s.agent_id ORDER BY s.steps DESC, s.agent_id LIMIT 5`,
     ).map((r) => ({ agentId: r.id, name: r.name, steps: Number(r.steps), completionTokens: Number(r.tokens) }));
 
-    const topTools = this.all('SELECT name, calls FROM stats_tool ORDER BY calls DESC, name LIMIT 6').map((r) => ({ name: String(r.name), calls: Number(r.calls) }));
+    const topTools = this.all('SELECT name, calls FROM stats_tool ORDER BY calls DESC, name LIMIT 6').map((r) => ({
+      name: String(r.name),
+      calls: Number(r.calls),
+    }));
 
     const finished = runsByStatus.completed + runsByStatus.failed;
     return {

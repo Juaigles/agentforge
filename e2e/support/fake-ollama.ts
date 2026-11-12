@@ -132,7 +132,9 @@ export async function startFakeOllama(): Promise<FakeOllama> {
   async function handle(req: http.IncomingMessage, res: http.ServerResponse, raw: string): Promise<void> {
     const url = (req.url ?? '').split('?')[0];
     if (req.method === 'GET' && (url === '/api/tags' || url === '/v1/models')) {
-      state.modelListAuth.push(req.headers.authorization);
+      // Solo las peticiones por el protocolo de OpenAI: el proveedor de ejemplo (Ollama, sin clave) también pide su
+      // lista de modelos de fondo, y mezclarlas hacía que el orden dependiera del navegador.
+      if (url === '/v1/models') state.modelListAuth.push(req.headers.authorization);
       if (!authorized(req, res)) return;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(url === '/api/tags' ? { models: MODELS } : { object: 'list', data: MODELS.map((m) => ({ id: m.name, object: 'model' })) }));
@@ -186,9 +188,14 @@ export async function startFakeOllama(): Promise<FakeOllama> {
     }
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     const send = (delta: Record<string, unknown>, finish: string | null = null, extra: Record<string, unknown> = {}) =>
-      res.write(`data: ${JSON.stringify({ id: 'chatcmpl-e2e', object: 'chat.completion.chunk', model, choices: [{ index: 0, delta, finish_reason: finish }], ...extra })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({ id: 'chatcmpl-e2e', object: 'chat.completion.chunk', model, choices: [{ index: 0, delta, finish_reason: finish }], ...extra })}\n\n`,
+      );
     if (p.toolCall) {
-      send({ role: 'assistant', tool_calls: [{ index: 0, id: 'call_e2e', type: 'function', function: { name: p.toolCall.name, arguments: JSON.stringify(p.toolCall.arguments) } }] });
+      send({
+        role: 'assistant',
+        tool_calls: [{ index: 0, id: 'call_e2e', type: 'function', function: { name: p.toolCall.name, arguments: JSON.stringify(p.toolCall.arguments) } }],
+      });
     }
     for (const word of p.words) {
       if (closed()) return;

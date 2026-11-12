@@ -6,11 +6,14 @@ const node = (page: Page, id: string) => page.locator(`.vue-flow__node[data-id="
 const announcer = (page: Page) => page.getByTestId('announcer');
 
 test.describe('Teclado y foco', () => {
-  test('«Saltar al contenido» es la primera parada del tabulador y lleva el foco al contenido', async ({ page }) => {
+  test('«Saltar al contenido» es la primera parada del tabulador y lleva el foco al contenido', async ({ page, browserName }) => {
     await page.goto('/agents');
     await expect(page.getByRole('heading', { name: 'Agentes', level: 1 })).toBeVisible();
-    await page.keyboard.press('Tab');
     const skip = page.getByRole('link', { name: 'Saltar al contenido' });
+    // Safari (WebKit) no detiene el tabulador en los enlaces salvo que el usuario lo active en sus ajustes: allí
+    // se comprueba el enlace enfocándolo; en los demás motores, que es de verdad la primera parada.
+    if (browserName === 'webkit') await skip.focus();
+    else await page.keyboard.press('Tab');
     await expect(skip).toBeFocused();
     await expect(skip).toBeInViewport();
     await page.keyboard.press('Enter');
@@ -205,7 +208,9 @@ test.describe('Constructor sin ratón y con vuelta atrás', () => {
     await page.keyboard.press('Control+s');
     await expect(toast(page, 'guardado')).toBeVisible();
     await expect(page).toHaveURL(/\/workflows\/wf_/);
-    const saved = (await app.api<Array<{ name: string; edges: Array<{ source: string; target: string }> }>>('GET', '/api/workflows')).find((w) => w.name === name)!;
+    const saved = (await app.api<Array<{ name: string; edges: Array<{ source: string; target: string }> }>>('GET', '/api/workflows')).find(
+      (w) => w.name === name,
+    )!;
     expect(saved.edges.map((e) => `${e.source}>${e.target}`).sort()).toHaveLength(2);
     expect(saved.edges.some((e) => e.source === 'entrada')).toBe(true);
     expect(saved.edges.some((e) => e.target === 'salida')).toBe(true);

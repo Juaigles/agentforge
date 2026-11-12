@@ -16,7 +16,8 @@ export default {
     addOne: 'Añade uno en Ajustes',
     notResponding: '«{name}» no responde.',
     notRespondingWith: '«{name}» no responde: {error}',
-    ollama: '{ollama} ejecuta modelos en tu propio equipo, gratis y sin enviar datos fuera. {download}, déjalo abierto y descarga el modelo con este comando en una terminal:',
+    ollama:
+      '{ollama} ejecuta modelos en tu propio equipo, gratis y sin enviar datos fuera. {download}, déjalo abierto y descarga el modelo con este comando en una terminal:',
     ollamaDownload: 'Descárgalo e instálalo',
     remote: '¿Prefieres un servicio remoto? {add} con una API {compatible}.',
     remoteAdd: 'Añade en Ajustes un proveedor',

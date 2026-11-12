@@ -30,7 +30,9 @@ const post = (url: string, payload?: unknown) => app.inject({ method: 'POST', ur
 const get = (url: string) => app.inject({ method: 'GET', url });
 
 async function seed(agentExtra: Record<string, unknown> = {}): Promise<{ provider: Provider; agent: Agent; wf: Workflow }> {
-  const provider = (await post('/api/providers', { name: 'Local', kind: 'ollama', baseUrl: 'http://localhost:11434', defaultModel: 'modelo-local' })).json() as Provider;
+  const provider = (
+    await post('/api/providers', { name: 'Local', kind: 'ollama', baseUrl: 'http://localhost:11434', defaultModel: 'modelo-local' })
+  ).json() as Provider;
   const agent = (await post('/api/agents', { name: 'Redactor', role: 'escribe', providerId: provider.id, model: 'test-model', ...agentExtra })).json() as Agent;
   const wf = (
     await post('/api/workflows', {
@@ -65,7 +67,21 @@ describe('exportar e importar workflows', () => {
     expect(bundle.workflow).toEqual({ name: wf.name, description: wf.description, nodes: wf.nodes, edges: wf.edges, settings: wf.settings });
     // Un solo agente aunque lo usen dos nodos; el que no participa no viaja.
     expect(bundle.agents).toEqual([
-      { id: agent.id, name: 'Redactor', role: 'escribe', description: '', color: agent.color, model: 'test-model', systemPrompt: 'Sé breve.', temperature: 0.3, maxTokens: null, maxIterations: agent.maxIterations, tools: ['calculator'], thinking: false, provider: 'Local' },
+      {
+        id: agent.id,
+        name: 'Redactor',
+        role: 'escribe',
+        description: '',
+        color: agent.color,
+        model: 'test-model',
+        systemPrompt: 'Sé breve.',
+        temperature: 0.3,
+        maxTokens: null,
+        maxIterations: agent.maxIterations,
+        tools: ['calculator'],
+        thinking: false,
+        provider: 'Local',
+      },
     ]);
     expect(res.body).not.toContain(provider.id);
     expect((await get('/api/workflows/wf_no_existe/export')).statusCode).toBe(404);
@@ -79,7 +95,9 @@ describe('exportar e importar workflows', () => {
 
     // Otra instalación, con otro proveedor y sin agentes.
     const { llm } = await boot(new ScriptedLlm((req) => ({ content: userText(req).startsWith('escribe') ? '["x"]' : `ok(${userText(req)})` })));
-    const provider = (await post('/api/providers', { name: 'Otro', kind: 'ollama', baseUrl: 'http://localhost:11434', defaultModel: 'modelo-destino' })).json() as Provider;
+    const provider = (
+      await post('/api/providers', { name: 'Otro', kind: 'ollama', baseUrl: 'http://localhost:11434', defaultModel: 'modelo-destino' })
+    ).json() as Provider;
     const res = await post('/api/workflows/import', bundle);
     expect(res.statusCode).toBe(201);
     const result = res.json() as WorkflowImportResult;
@@ -92,7 +110,12 @@ describe('exportar e importar workflows', () => {
     expect(created.id).not.toBe(bundle.agents[0].id);
     // Los dos nodos que usaban el agente apuntan ahora al agente local.
     expect(result.workflow.nodes.filter((n) => n.config.agentId).map((n) => n.config.agentId)).toEqual([created.id, created.id]);
-    expect(result.workflow).toMatchObject({ name: 'Boletín', description: 'Resumen periódico', edges: bundle.workflow.edges, settings: bundle.workflow.settings });
+    expect(result.workflow).toMatchObject({
+      name: 'Boletín',
+      description: 'Resumen periódico',
+      edges: bundle.workflow.edges,
+      settings: bundle.workflow.settings,
+    });
 
     const run = (await post(`/api/workflows/${result.workflow.id}/run`, { input: 'deporte' })).json() as Run;
     await ctx.runs.waitFor(run.id);
@@ -112,7 +135,14 @@ describe('exportar e importar workflows', () => {
     expect((await post('/api/workflows/import', bundle)).json().workflow.name).toBe('Boletín (importado 2)');
 
     // Mismo nombre con otro id (archivo de otra instalación): se enlaza por nombre.
-    const foreign = { ...bundle, agents: [{ ...bundle.agents[0], id: 'agt_de_otra_maquina' }], workflow: { ...bundle.workflow, nodes: bundle.workflow.nodes.map((n) => (n.config.agentId ? { ...n, config: { ...n.config, agentId: 'agt_de_otra_maquina' } } : n)) } };
+    const foreign = {
+      ...bundle,
+      agents: [{ ...bundle.agents[0], id: 'agt_de_otra_maquina' }],
+      workflow: {
+        ...bundle.workflow,
+        nodes: bundle.workflow.nodes.map((n) => (n.config.agentId ? { ...n, config: { ...n.config, agentId: 'agt_de_otra_maquina' } } : n)),
+      },
+    };
     const byName = (await post('/api/workflows/import', foreign)).json() as WorkflowImportResult;
     expect(byName.createdAgents).toEqual([]);
     expect(byName.workflow.nodes.find((n) => n.id === 'redactar')!.config.agentId).toBe(agent.id);
@@ -140,14 +170,34 @@ describe('exportar e importar workflows', () => {
         ],
         settings: { maxConcurrency: 2, maxDurationMs: 60_000, maxLlmCalls: 10, onError: 'fail', defaultRetries: 0 },
       },
-      agents: [{ id: 'agt_x', name: 'Con herramienta propia', role: '', description: '', color: '#112233', model: '', systemPrompt: '', temperature: 0.5, maxTokens: null, maxIterations: 4, tools: ['calculator', 'mi_api_interna'], thinking: false }],
+      agents: [
+        {
+          id: 'agt_x',
+          name: 'Con herramienta propia',
+          role: '',
+          description: '',
+          color: '#112233',
+          model: '',
+          systemPrompt: '',
+          temperature: 0.5,
+          maxTokens: null,
+          maxIterations: 4,
+          tools: ['calculator', 'mi_api_interna'],
+          thinking: false,
+        },
+      ],
     };
 
     // Sin proveedor no se puede crear el agente: se importa como borrador con errores.
     const noProvider = (await post('/api/workflows/import', bundle)).json() as WorkflowImportResult;
     expect(noProvider.createdAgents).toEqual([]);
     expect(noProvider.warnings).toEqual(['No se pudo crear el agente «Con herramienta propia»: no hay ningún proveedor configurado.']);
-    expect(noProvider.issues.filter((i) => i.level === 'error').map((i) => i.nodeId).sort()).toEqual(['a', 'b']);
+    expect(
+      noProvider.issues
+        .filter((i) => i.level === 'error')
+        .map((i) => i.nodeId)
+        .sort(),
+    ).toEqual(['a', 'b']);
 
     // Con proveedor: el agente se crea con su modelo por defecto y sin la herramienta desconocida.
     await post('/api/providers', { name: 'P', kind: 'ollama', baseUrl: 'http://localhost:11434', defaultModel: 'modelo-por-defecto' });
@@ -173,7 +223,9 @@ describe('exportar e importar workflows', () => {
     expect(await rejected({ ...bundle, format: 'otra.cosa' })).toMatch(/no es un workflow exportado de AgentForge/);
     expect(await rejected({ ...bundle, version: 3 })).toMatch(/Versión de archivo no admitida/);
     expect(await rejected({ ...bundle, workflow: { ...bundle.workflow, name: '' } })).toMatch(/nombre/i);
-    expect(await rejected({ ...bundle, workflow: { ...bundle.workflow, nodes: [{ id: 'x', type: 'inventado', position: { x: 0, y: 0 } }] } })).toMatch(/Datos no válidos/);
+    expect(await rejected({ ...bundle, workflow: { ...bundle.workflow, nodes: [{ id: 'x', type: 'inventado', position: { x: 0, y: 0 } }] } })).toMatch(
+      /Datos no válidos/,
+    );
     expect((await get('/api/workflows')).json()).toHaveLength(before);
     expect((await get('/api/agents')).json()).toHaveLength(1);
   });

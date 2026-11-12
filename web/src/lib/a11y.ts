@@ -131,7 +131,8 @@ export function localizeFlow(container: HTMLElement, nodeHelpText: string | (() 
   };
 }
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** Elementos que pueden recibir el foco con el tabulador dentro de `root`, en orden. */
 export function focusableIn(root: HTMLElement): HTMLElement[] {

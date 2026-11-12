@@ -66,29 +66,34 @@ const edges = computed(() =>
     if (target === 'running') classes.push('flowing');
     if (source === 'skipped' || target === 'skipped' || target === 'cancelled') classes.push('dimmed');
     const key = e.sourceHandle === 'true' ? 'runGraph.edgeYes' : e.sourceHandle === 'false' ? 'runGraph.edgeNo' : 'runGraph.edge';
-    return { ...edge, ariaLabel: t(key, { from: labelOf(e.source), to: labelOf(e.target) }), animated: target === 'running', class: classes.filter(Boolean).join(' ') };
+    return {
+      ...edge,
+      ariaLabel: t(key, { from: labelOf(e.source), to: labelOf(e.target) }),
+      animated: target === 'running',
+      class: classes.filter(Boolean).join(' '),
+    };
   }),
 );
 </script>
 
 <template>
   <div ref="root" class="run-graph" role="region" :aria-label="t('runGraph.region')" @keydown.capture="onKey">
-  <VueFlow
-    :id="flowId"
-    :nodes="nodes"
-    :edges="edges"
-    :nodes-draggable="false"
-    :nodes-connectable="false"
-    :edges-updatable="false"
-    :min-zoom="0.2"
-    :max-zoom="1.5"
-    @node-click="emit('select', $event.node.id)"
-    @pane-click="emit('select', null)"
-  >
-    <template #node-af="p"><FlowNode :id="p.id" :data="p.data" :selected="p.id === selected" /></template>
-    <Background :gap="20" :size="1.2" />
-    <Controls :show-interactive="false" position="bottom-left" />
-  </VueFlow>
+    <VueFlow
+      :id="flowId"
+      :nodes="nodes"
+      :edges="edges"
+      :nodes-draggable="false"
+      :nodes-connectable="false"
+      :edges-updatable="false"
+      :min-zoom="0.2"
+      :max-zoom="1.5"
+      @node-click="emit('select', $event.node.id)"
+      @pane-click="emit('select', null)"
+    >
+      <template #node-af="p"><FlowNode :id="p.id" :data="p.data" :selected="p.id === selected" /></template>
+      <Background :gap="20" :size="1.2" />
+      <Controls :show-interactive="false" position="bottom-left" />
+    </VueFlow>
   </div>
 </template>
 

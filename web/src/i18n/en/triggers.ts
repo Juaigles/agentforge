@@ -5,7 +5,8 @@ export default {
     new: 'New trigger for “{name}”',
     edit: 'Edit trigger',
   },
-  intro: 'A {trigger} launches the {workflow} without anyone pressing “Run”: at certain times or when another program calls a {webhook}. Scheduled ones only work while AgentForge is running.',
+  intro:
+    'A {trigger} launches the {workflow} without anyone pressing “Run”: at certain times or when another program calls a {webhook}. Scheduled ones only work while AgentForge is running.',
   introTrigger: 'trigger',
   introWorkflow: 'workflow',
   introWebhook: 'webhook',
@@ -82,10 +83,11 @@ export default {
   cronLabel: '{cron} expression',
   cronTerm: 'Cron',
   cronHint: 'Five fields: minute, hour, day of month, month and day of week. “0 9 * * 1-5” = Monday to Friday at 9:00.',
-  webhookNote: 'Saving creates an address and a secret. Any program that sends a {post} to that address with the secret launches the workflow, and the request body is its input text.',
+  webhookNote:
+    'Saving creates an address and a secret. Any program that sends a {post} to that address with the secret launches the workflow, and the request body is its input text.',
   zone: 'Time zone',
   zonePlaceholder: "The server's (this browser: {zone})",
-  zoneHint: "Leave it empty to use the time zone of the machine running AgentForge. With a time zone, daylight saving changes are applied automatically.",
+  zoneHint: 'Leave it empty to use the time zone of the machine running AgentForge. With a time zone, daylight saving changes are applied automatically.',
   upcoming: 'Upcoming runs ({zone})',
   name: 'Name',
   optional: '(optional)',

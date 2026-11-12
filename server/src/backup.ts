@@ -77,7 +77,14 @@ function tarHeader(name: string, size: number, mtime: Date): Buffer {
   header.write('0000000\0', 108, 8, 'ascii');
   header.write('0000000\0', 116, 8, 'ascii');
   header.write(`${size.toString(8).padStart(11, '0')}\0`, 124, 12, 'ascii');
-  header.write(`${Math.floor(mtime.getTime() / 1000).toString(8).padStart(11, '0')}\0`, 136, 12, 'ascii');
+  header.write(
+    `${Math.floor(mtime.getTime() / 1000)
+      .toString(8)
+      .padStart(11, '0')}\0`,
+    136,
+    12,
+    'ascii',
+  );
   header.write('        ', 148, 8, 'ascii'); // suma de control: espacios mientras se calcula
   header.write('0', 156, 1, 'ascii'); // archivo normal
   header.write('ustar\0', 257, 6, 'ascii');
@@ -101,11 +108,10 @@ async function* tarStream(entries: TarSource[]): AsyncGenerator<Buffer> {
     const stat = entry.file ? await fsp.stat(entry.file) : null;
     const size = entry.data ? entry.data.length : stat!.size;
     yield tarHeader(entry.name, size, stat?.mtime ?? new Date());
-    let written = 0;
     if (entry.data) {
-      written = entry.data.length;
       yield entry.data;
     } else {
+      let written = 0;
       for await (const chunk of fs.createReadStream(entry.file!, { end: size > 0 ? size - 1 : 0 })) {
         if (size === 0) break;
         written += (chunk as Buffer).length;
@@ -178,7 +184,11 @@ async function readTar(
       const header = pending.subarray(0, BLOCK);
       pending = pending.subarray(BLOCK);
       if (header.every((b) => b === 0)) return; // bloque de fin
-      const text = (from: number, len: number) => header.subarray(from, from + len).toString('utf8').replace(/\0.*$/s, '');
+      const text = (from: number, len: number) =>
+        header
+          .subarray(from, from + len)
+          .toString('utf8')
+          .replace(/\0.*$/s, '');
       const size = parseInt(text(124, 12).trim() || '0', 8);
       if (!Number.isFinite(size) || size < 0) throw new HttpError(400, 'La copia de seguridad está dañada (tamaño de entrada no válido).');
       const prefix = text(345, 155);
@@ -227,7 +237,10 @@ export async function createBackup(paths: BackupPaths, db: DatabaseSync, appVers
   const dir = backupsDir(paths);
   await fsp.mkdir(dir, { recursive: true });
   const createdAt = new Date();
-  const suffix = label.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24);
+  const suffix = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 24);
   const name = `agentforge-${stamp(createdAt)}${suffix ? `-${suffix}` : ''}.afbackup`;
   const target = path.join(dir, name);
   if (fs.existsSync(target)) throw new HttpError(409, 'Ya existe una copia con esa fecha y hora. Espera un segundo y vuelve a intentarlo.');
@@ -378,7 +391,10 @@ export async function prepareRestore(paths: BackupPaths, name: string): Promise<
   const file = backupFile(paths, name);
   const manifest = await readManifest(file);
   if (manifest.schemaVersion > SCHEMA_VERSION) {
-    throw new HttpError(409, `La copia es de una versión más reciente de AgentForge (esquema v${manifest.schemaVersion}; esta versión entiende hasta v${SCHEMA_VERSION}). Actualiza AgentForge antes de restaurarla.`);
+    throw new HttpError(
+      409,
+      `La copia es de una versión más reciente de AgentForge (esquema v${manifest.schemaVersion}; esta versión entiende hasta v${SCHEMA_VERSION}). Actualiza AgentForge antes de restaurarla.`,
+    );
   }
   const dir = pendingDir(paths);
   await fsp.rm(dir, { recursive: true, force: true });

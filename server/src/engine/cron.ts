@@ -54,7 +54,8 @@ function parseField(text: string, field: (typeof FIELDS)[number]): number[] {
     const [range, stepText, extra] = part.split('/');
     if (extra !== undefined) throw new CronError(`«${part}» no es válido en el campo ${field.name}.`);
     const step = stepText === undefined ? 1 : Number(stepText);
-    if (!Number.isInteger(step) || step < 1 || !/^\d+$/.test(stepText ?? '1')) throw new CronError(`El paso «${stepText}» del campo ${field.name} debe ser un entero mayor que 0.`);
+    if (!Number.isInteger(step) || step < 1 || !/^\d+$/.test(stepText ?? '1'))
+      throw new CronError(`El paso «${stepText}» del campo ${field.name} debe ser un entero mayor que 0.`);
     let from: number;
     let to: number;
     if (range === '*') {
@@ -116,7 +117,16 @@ export function isValidTimeZone(zone: string): boolean {
 function formatter(zone: string): Intl.DateTimeFormat {
   let f = formatters.get(zone);
   if (!f) {
-    f = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    });
     formatters.set(zone, f);
   }
   return f;

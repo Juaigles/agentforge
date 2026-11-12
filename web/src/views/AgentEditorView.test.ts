@@ -19,10 +19,13 @@ async function open(path: string): Promise<void> {
   ]);
   await router.push(path);
   // Se monta a través de RouterView, como en la aplicación, para que funcionen los guardas de ruta.
-  wrapper = mount({ template: '<RouterView v-slot="{ Component, route }"><component :is="Component" :key="route.fullPath" /></RouterView>' }, {
-    global: { plugins: [pinia, router] },
-    attachTo: document.body,
-  });
+  wrapper = mount(
+    { template: '<RouterView v-slot="{ Component, route }"><component :is="Component" :key="route.fullPath" /></RouterView>' },
+    {
+      global: { plugins: [pinia, router] },
+      attachTo: document.body,
+    },
+  );
   await until(() => wrapper.find('#ag-name').exists());
 }
 

@@ -1,7 +1,8 @@
 import type { Page } from '@playwright/test';
 import { expect, test, toast, unique } from './support/fixtures';
 
-const providerRow = (page: Page, name: string) => page.locator('ul.providers > li').filter({ has: page.locator('.p-name', { hasText: new RegExp(`^${name}$`) }) });
+const providerRow = (page: Page, name: string) =>
+  page.locator('ul.providers > li').filter({ has: page.locator('.p-name', { hasText: new RegExp(`^${name}$`) }) });
 const SECRET = 'sk-e2e-clave-secreta-123';
 
 test.describe('Ajustes · proveedores', () => {
@@ -31,7 +32,10 @@ test.describe('Ajustes · proveedores', () => {
     await expect(modal.getByRole('status')).toContainText('Conexión correcta: 2 modelos');
     await expect(modal.getByText('2 modelos disponibles: elige uno de la lista o escríbelo.')).toBeVisible();
     await expect(modal.locator('#prv-models option')).toHaveCount(2);
-    expect(await modal.locator('#prv-models option').evaluateAll((els) => els.map((e) => (e as HTMLOptionElement).value))).toEqual(['e2e-model', 'e2e-sin-herramientas']);
+    expect(await modal.locator('#prv-models option').evaluateAll((els) => els.map((e) => (e as HTMLOptionElement).value))).toEqual([
+      'e2e-model',
+      'e2e-sin-herramientas',
+    ]);
     expect((await app.api<any[]>('GET', '/api/providers')).some((p) => p.name === name)).toBe(false);
     await modal.getByLabel(/Modelo/).fill('e2e-model');
 

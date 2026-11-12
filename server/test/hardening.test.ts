@@ -50,9 +50,7 @@ describe('protección SSRF con la IP fijada', () => {
     'no-es-una-ip',
   ])('%s se trata como privada', (ip) => expect(isPrivateAddress(ip)).toBe(true));
 
-  it.each(['::ffff:808:808', '64:ff9b::808:808', '2001:4860:4860::8888', '93.184.216.34'])('%s es pública', (ip) =>
-    expect(isPrivateAddress(ip)).toBe(false),
-  );
+  it.each(['::ffff:808:808', '64:ff9b::808:808', '2001:4860:4860::8888', '93.184.216.34'])('%s es pública', (ip) => expect(isPrivateAddress(ip)).toBe(false));
 
   it('una IPv4 privada escrita como IPv6 mapeada en la URL no burla el filtro', async () => {
     const server = await listenOn('127.0.0.1', 0, 'interno');
@@ -71,7 +69,10 @@ describe('protección SSRF con la IP fijada', () => {
     try {
       const lookup = async () => ['93.184.216.34', '127.0.0.1'];
       await expect(safeFetch(`http://mixto.test:${server.port}/`, { signal: signal(), allowPrivate: false, lookup })).rejects.toThrow(/red privada/);
-      await expect(resolveTarget('http://solo-publica.test/', false, async () => ['93.184.216.34'])).resolves.toMatchObject({ address: '93.184.216.34', family: 4 });
+      await expect(resolveTarget('http://solo-publica.test/', false, async () => ['93.184.216.34'])).resolves.toMatchObject({
+        address: '93.184.216.34',
+        family: 4,
+      });
       expect(server.hits).toEqual([]);
     } finally {
       await server.close();
@@ -273,7 +274,11 @@ describe('retención del historial', () => {
     ctx.db.prepare('UPDATE runs SET created_at = ?, finished_at = ?, ended_at = ? WHERE id = ?').run(when, when, when, run.id);
     return run.id;
   }
-  const names = () => ctx.store.listRuns({ limit: 200 }).items.map((r) => r.name).sort();
+  const names = () =>
+    ctx.store
+      .listRuns({ limit: 200 })
+      .items.map((r) => r.name)
+      .sort();
   const count = (table: string) => Number((ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n);
 
   it('sin política configurada no borra nada', async () => {
@@ -312,7 +317,13 @@ describe('retención del historial', () => {
 
   it('con un máximo de ejecuciones conserva las más recientes y se aplica sola al terminar cada ejecución', async () => {
     ctx = makeContext(new ScriptedLlm(() => ({ content: 'ok' })));
-    for (const [name, days] of [['e1', 5], ['e2', 4], ['e3', 3], ['e4', 2]] as const) await finishedRun(name, days);
+    for (const [name, days] of [
+      ['e1', 5],
+      ['e2', 4],
+      ['e3', 3],
+      ['e4', 2],
+    ] as const)
+      await finishedRun(name, days);
     ctx.store.updateSettings({ retentionMaxRuns: 3 });
     expect(ctx.applyRetention()).toBe(1);
     expect(names()).toEqual(['e2', 'e3', 'e4']);

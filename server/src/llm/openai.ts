@@ -63,9 +63,7 @@ export class OpenAiCompatibleClient implements LlmClient {
       } catch (err) {
         // Si el servidor rechaza (400) un parámetro opcional, se reintenta sin él y se recuerda.
         const rejected =
-          err instanceof LlmError && err.status === 400
-            ? OPTIONAL_PARAMS.find((p) => !skip.has(p) && err.message.toLowerCase().includes(p))
-            : undefined;
+          err instanceof LlmError && err.status === 400 ? OPTIONAL_PARAMS.find((p) => !skip.has(p) && err.message.toLowerCase().includes(p)) : undefined;
         if (!rejected) throw err;
         skip.add(rejected);
         unsupportedParams.set(key, skip);

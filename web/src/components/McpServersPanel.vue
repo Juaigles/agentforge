@@ -99,7 +99,14 @@ function openForm(server: McpServer | null): void {
   formError.value = null;
   Object.assign(form, { name: '', transport: 'stdio', command: '', args: '', env: '', url: '', headers: '', replaceSecrets: true, enabled: true });
   if (server) {
-    Object.assign(form, { name: server.name, transport: server.transport, command: server.command, args: server.args.join('\n'), url: server.url, enabled: server.enabled });
+    Object.assign(form, {
+      name: server.name,
+      transport: server.transport,
+      command: server.command,
+      args: server.args.join('\n'),
+      url: server.url,
+      enabled: server.enabled,
+    });
     form.replaceSecrets = !(server.transport === 'stdio' ? server.envKeys.length : server.headerKeys.length);
   }
   editing.value = server ?? 'new';
@@ -127,7 +134,12 @@ async function save(): Promise<void> {
     name: form.name.trim(),
     transport: form.transport,
     command: isStdio ? form.command.trim() : '',
-    args: isStdio ? form.args.split('\n').map((a) => a.trim()).filter(Boolean) : [],
+    args: isStdio
+      ? form.args
+          .split('\n')
+          .map((a) => a.trim())
+          .filter(Boolean)
+      : [],
     url: isStdio ? '' : form.url.trim(),
     enabled: form.enabled,
   };
@@ -163,8 +175,12 @@ async function save(): Promise<void> {
     <div class="row wrap intro">
       <i18n-t keypath="mcp.intro" tag="p" class="muted small grow" style="margin: 0; min-width: 240px" scope="global">
         <template #mcp><Term id="mcp">MCP</Term></template>
-        <template #tools><Term id="herramienta">{{ t('mcp.introTools') }}</Term></template>
-        <template #pattern><code>{{ t('mcp.introPattern') }}</code></template>
+        <template #tools
+          ><Term id="herramienta">{{ t('mcp.introTools') }}</Term></template
+        >
+        <template #pattern
+          ><code>{{ t('mcp.introPattern') }}</code></template
+        >
       </i18n-t>
       <button class="btn btn-primary" type="button" :disabled="loading || !!loadError" @click="openForm(null)"><Plus /> {{ t('mcp.add') }}</button>
     </div>
@@ -194,7 +210,16 @@ async function save(): Promise<void> {
             <LoaderCircle v-if="busy === `reconnect:${s.id}`" class="spin" /><RefreshCw v-else /> {{ t('mcp.reconnect') }}
           </button>
           <button class="btn btn-sm" type="button" :disabled="!!busy" @click="openForm(s)"><Pencil /> {{ t('common.actions.edit') }}</button>
-          <button class="btn btn-ghost btn-icon btn-sm btn-danger" type="button" :disabled="!!busy" :aria-label="t('mcp.deleteAria', { name: s.name })" :title="t('common.actions.delete')" @click="remove(s)"><Trash2 /></button>
+          <button
+            class="btn btn-ghost btn-icon btn-sm btn-danger"
+            type="button"
+            :disabled="!!busy"
+            :aria-label="t('mcp.deleteAria', { name: s.name })"
+            :title="t('common.actions.delete')"
+            @click="remove(s)"
+          >
+            <Trash2 />
+          </button>
         </header>
         <code class="mono small target">{{ s.transport === 'stdio' ? [s.command, ...s.args].join(' ') : s.url }}</code>
         <p v-if="s.error" class="error-line small" role="alert"><CircleAlert /> {{ s.error }}</p>
@@ -210,7 +235,17 @@ async function save(): Promise<void> {
       <form id="mcp-form" class="col" style="gap: 16px" novalidate @submit.prevent="save">
         <div class="field">
           <label for="mcp-name">{{ t('mcp.form.name') }}</label>
-          <input id="mcp-name" v-model="form.name" class="input mono" type="text" maxlength="20" spellcheck="false" autocomplete="off" :placeholder="t('mcp.form.namePlaceholder')" :aria-invalid="!!fieldErrors.name" />
+          <input
+            id="mcp-name"
+            v-model="form.name"
+            class="input mono"
+            type="text"
+            maxlength="20"
+            spellcheck="false"
+            autocomplete="off"
+            :placeholder="t('mcp.form.namePlaceholder')"
+            :aria-invalid="!!fieldErrors.name"
+          />
           <span v-if="fieldErrors.name" class="error" role="alert">{{ fieldErrors.name }}</span>
           <span v-else class="hint">{{ t('mcp.form.nameHint') }}</span>
         </div>
@@ -218,8 +253,24 @@ async function save(): Promise<void> {
         <div class="field">
           <span class="label">{{ t('mcp.form.connection') }}</span>
           <div class="segmented" role="radiogroup" :aria-label="t('mcp.form.connectionType')">
-            <button type="button" role="radio" :aria-checked="form.transport === 'stdio'" :class="{ active: form.transport === 'stdio' }" @click="form.transport = 'stdio'">{{ t('mcp.form.stdio') }}</button>
-            <button type="button" role="radio" :aria-checked="form.transport === 'http'" :class="{ active: form.transport === 'http' }" @click="form.transport = 'http'">{{ t('mcp.form.http') }}</button>
+            <button
+              type="button"
+              role="radio"
+              :aria-checked="form.transport === 'stdio'"
+              :class="{ active: form.transport === 'stdio' }"
+              @click="form.transport = 'stdio'"
+            >
+              {{ t('mcp.form.stdio') }}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              :aria-checked="form.transport === 'http'"
+              :class="{ active: form.transport === 'http' }"
+              @click="form.transport = 'http'"
+            >
+              {{ t('mcp.form.http') }}
+            </button>
           </div>
         </div>
 
@@ -230,32 +281,65 @@ async function save(): Promise<void> {
           </div>
           <div class="field">
             <label for="mcp-command">{{ t('mcp.form.command') }}</label>
-            <input id="mcp-command" v-model="form.command" class="input mono" type="text" spellcheck="false" autocomplete="off" placeholder="npx" :aria-invalid="!!fieldErrors.command" />
+            <input
+              id="mcp-command"
+              v-model="form.command"
+              class="input mono"
+              type="text"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="npx"
+              :aria-invalid="!!fieldErrors.command"
+            />
             <span v-if="fieldErrors.command" class="error" role="alert">{{ fieldErrors.command }}</span>
           </div>
           <div class="field">
             <i18n-t keypath="mcp.form.argsLabel" tag="label" for="mcp-args" scope="global">
-              <template #hint><span class="muted">{{ t('mcp.form.argsHint') }}</span></template>
+              <template #hint
+                ><span class="muted">{{ t('mcp.form.argsHint') }}</span></template
+              >
             </i18n-t>
-            <textarea id="mcp-args" v-model="form.args" class="textarea mono" rows="3" spellcheck="false" placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;C:\datos" />
+            <textarea
+              id="mcp-args"
+              v-model="form.args"
+              class="textarea mono"
+              rows="3"
+              spellcheck="false"
+              placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;C:\datos"
+            />
           </div>
         </template>
         <div v-else class="field">
           <i18n-t keypath="mcp.form.urlLabel" tag="label" for="mcp-url" scope="global">
             <template #url><Term id="url">URL</Term></template>
           </i18n-t>
-          <input id="mcp-url" v-model="form.url" class="input mono" type="url" spellcheck="false" autocomplete="off" :placeholder="t('mcp.form.urlPlaceholder')" :aria-invalid="!!fieldErrors.url" />
+          <input
+            id="mcp-url"
+            v-model="form.url"
+            class="input mono"
+            type="url"
+            spellcheck="false"
+            autocomplete="off"
+            :placeholder="t('mcp.form.urlPlaceholder')"
+            :aria-invalid="!!fieldErrors.url"
+          />
           <span v-if="fieldErrors.url" class="error" role="alert">{{ fieldErrors.url }}</span>
         </div>
 
         <div class="field">
           <label for="mcp-secrets">
             <i18n-t v-if="form.transport === 'stdio'" keypath="mcp.form.envLabel" tag="span" scope="global">
-              <template #hint><span class="muted">{{ t('mcp.form.envHint') }}</span></template>
+              <template #hint
+                ><span class="muted">{{ t('mcp.form.envHint') }}</span></template
+              >
             </i18n-t>
             <i18n-t v-else keypath="mcp.form.headersLabel" tag="span" scope="global">
-              <template #headers><Term id="cabecera">{{ t('mcp.form.headersTerm') }}</Term></template>
-              <template #hint><span class="muted">{{ t('mcp.form.headersHint') }}</span></template>
+              <template #headers
+                ><Term id="cabecera">{{ t('mcp.form.headersTerm') }}</Term></template
+              >
+              <template #hint
+                ><span class="muted">{{ t('mcp.form.headersHint') }}</span></template
+              >
             </i18n-t>
           </label>
           <label v-if="current && savedSecrets.length" class="check small">
@@ -263,8 +347,8 @@ async function save(): Promise<void> {
             <span>{{ t('mcp.form.replaceSaved', { list: savedSecrets.join(', ') }) }}</span>
           </label>
           <textarea
-            id="mcp-secrets"
             v-if="form.transport === 'stdio'"
+            id="mcp-secrets"
             v-model="form.env"
             class="textarea mono"
             rows="3"
@@ -274,8 +358,8 @@ async function save(): Promise<void> {
             :aria-invalid="!!fieldErrors.env"
           />
           <textarea
-            id="mcp-secrets"
             v-else
+            id="mcp-secrets"
             v-model="form.headers"
             class="textarea mono"
             rows="3"
@@ -286,7 +370,9 @@ async function save(): Promise<void> {
           />
           <span v-if="fieldErrors.env || fieldErrors.headers" class="error" role="alert">{{ fieldErrors.env || fieldErrors.headers }}</span>
           <i18n-t v-else keypath="mcp.form.secretsHint" tag="span" class="hint" scope="global">
-            <template #encrypted><Term id="cifrado">{{ t('mcp.form.encrypted') }}</Term></template>
+            <template #encrypted
+              ><Term id="cifrado">{{ t('mcp.form.encrypted') }}</Term></template
+            >
           </i18n-t>
         </div>
 
@@ -298,7 +384,9 @@ async function save(): Promise<void> {
           </span>
         </label>
 
-        <div v-if="formError" class="callout danger" role="alert"><CircleAlert /><span>{{ formError }}</span></div>
+        <div v-if="formError" class="callout danger" role="alert">
+          <CircleAlert /><span>{{ formError }}</span>
+        </div>
       </form>
       <template #footer>
         <button class="btn" type="button" @click="editing = null">{{ t('common.actions.cancel') }}</button>

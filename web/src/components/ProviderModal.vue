@@ -127,7 +127,15 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
       <div class="form-grid">
         <div class="field">
           <label for="prv-name">{{ t('providerModal.name') }}</label>
-          <input id="prv-name" v-model="form.name" class="input" maxlength="80" required :aria-invalid="Boolean(fieldErrors.name)" :placeholder="t('providerModal.namePlaceholder')" />
+          <input
+            id="prv-name"
+            v-model="form.name"
+            class="input"
+            maxlength="80"
+            required
+            :aria-invalid="Boolean(fieldErrors.name)"
+            :placeholder="t('providerModal.namePlaceholder')"
+          />
           <span v-if="fieldErrors.name" class="error">{{ fieldErrors.name }}</span>
         </div>
         <div class="field">
@@ -141,13 +149,17 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
               <template #ollama><Term id="ollama" /></template>
             </i18n-t>
             <i18n-t v-else keypath="providerModal.kindHintOpenai" scope="global">
-              <template #openai><Term id="openai-compatible">{{ t('providerModal.kindHintOpenaiTerm') }}</Term></template>
+              <template #openai
+                ><Term id="openai-compatible">{{ t('providerModal.kindHintOpenaiTerm') }}</Term></template
+              >
             </i18n-t>
           </span>
         </div>
 
         <div class="field span-2">
-          <label for="prv-url"><Term id="base-url">{{ t('providerModal.baseUrl') }}</Term></label>
+          <label for="prv-url"
+            ><Term id="base-url">{{ t('providerModal.baseUrl') }}</Term></label
+          >
           <input
             id="prv-url"
             v-model="form.baseUrl"
@@ -166,7 +178,9 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
         </div>
 
         <div class="field span-2">
-          <label for="prv-key"><Term id="api-key">API key</Term> <span class="faint" style="font-weight: 400">{{ t('providerModal.optional') }}</span></label>
+          <label for="prv-key"
+            ><Term id="api-key">API key</Term> <span class="faint" style="font-weight: 400">{{ t('providerModal.optional') }}</span></label
+          >
           <div class="row">
             <input
               id="prv-key"
@@ -176,19 +190,26 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
               autocomplete="off"
               spellcheck="false"
               :aria-invalid="Boolean(fieldErrors.apiKey)"
-              :placeholder="hasSavedKey ? t('providerModal.apiKeyPlaceholderSaved') : form.kind === 'ollama' ? t('providerModal.apiKeyPlaceholderOllama') : 'sk-…'"
+              :placeholder="
+                hasSavedKey ? t('providerModal.apiKeyPlaceholderSaved') : form.kind === 'ollama' ? t('providerModal.apiKeyPlaceholderOllama') : 'sk-…'
+              "
               @input="((removeKey = false), (testResult = null), (models = []))"
             />
-            <button v-if="hasSavedKey && !form.apiKey" type="button" class="btn btn-danger" @click="removeKey = true">{{ t('providerModal.removeKey') }}</button>
+            <button v-if="hasSavedKey && !form.apiKey" type="button" class="btn btn-danger" @click="removeKey = true">
+              {{ t('providerModal.removeKey') }}
+            </button>
           </div>
           <span v-if="fieldErrors.apiKey" class="error">{{ fieldErrors.apiKey }}</span>
           <span v-else-if="removeKey && !form.apiKey" class="hint">
             {{ t('providerModal.keyWillBeRemoved') }}
             <button type="button" class="linkish" @click="removeKey = false">{{ t('providerModal.undo') }}</button>
           </span>
-          <span v-else class="hint row" style="gap: 5px"><KeyRound style="width: 12px; height: 12px" />
+          <span v-else class="hint row" style="gap: 5px"
+            ><KeyRound style="width: 12px; height: 12px" />
             <i18n-t keypath="providerModal.keyHint" scope="global">
-              <template #encrypted><Term id="cifrado">{{ t('providerModal.keyHintEncrypted') }}</Term></template>
+              <template #encrypted
+                ><Term id="cifrado">{{ t('providerModal.keyHintEncrypted') }}</Term></template
+              >
             </i18n-t>
           </span>
         </div>
@@ -196,7 +217,9 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
         <div class="field span-2">
           <label for="prv-model">
             <i18n-t keypath="providerModal.defaultModel" scope="global">
-              <template #model><Term id="modelo">{{ t('providerModal.defaultModelTerm') }}</Term></template>
+              <template #model
+                ><Term id="modelo">{{ t('providerModal.defaultModelTerm') }}</Term></template
+              >
             </i18n-t>
             <span class="faint" style="font-weight: 400">{{ t('providerModal.optional') }}</span>
           </label>
@@ -222,7 +245,9 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
           <span>
             <strong>{{ t('providerModal.enabled') }}</strong>
             <i18n-t keypath="providerModal.enabledHint" tag="span" class="muted small" style="display: block" scope="global">
-              <template #agents><Term id="agente">{{ t('providerModal.enabledHintAgents') }}</Term></template>
+              <template #agents
+                ><Term id="agente">{{ t('providerModal.enabledHintAgents') }}</Term></template
+              >
             </i18n-t>
           </span>
         </label>
@@ -232,14 +257,18 @@ const chatModels = computed(() => models.value.filter((m) => !m.capabilities || 
       <div v-else-if="testResult?.ok" class="callout test-ok" role="status">
         <CircleCheck />
         <span>
-          {{ t('providerModal.testOk', { models: tn('providerModal.modelsCount', testResult.modelCount ?? 0), latency: formatDuration(testResult.latencyMs) }) }}
+          {{
+            t('providerModal.testOk', { models: tn('providerModal.modelsCount', testResult.modelCount ?? 0), latency: formatDuration(testResult.latencyMs) })
+          }}
         </span>
       </div>
       <div v-else-if="testResult" class="callout danger" role="alert">
         <CircleAlert />
         <span>{{ testResult.error ?? t('providerModal.connectFailed') }}</span>
       </div>
-      <div v-if="formError" class="callout danger" role="alert"><CircleAlert /> <span>{{ formError }}</span></div>
+      <div v-if="formError" class="callout danger" role="alert">
+        <CircleAlert /> <span>{{ formError }}</span>
+      </div>
     </form>
 
     <template #footer>

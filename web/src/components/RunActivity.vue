@@ -27,7 +27,9 @@ const where = (nodeId: string | null) => (!props.nodeId && nodeId ? (props.label
         <span>
           {{ item.text }}
           <span v-if="where(item.nodeId)" class="faint"> · {{ where(item.nodeId) }}</span>
-          <template v-if="item.link"> · <RouterLink :to="item.link.to" class="marker-link">{{ item.link.label }}</RouterLink></template>
+          <template v-if="item.link">
+            · <RouterLink :to="item.link.to" class="marker-link">{{ item.link.label }}</RouterLink></template
+          >
         </span>
         <p v-if="item.detail" class="detail">{{ item.detail }}</p>
       </div>
@@ -64,7 +66,9 @@ const where = (nodeId: string | null) => (!props.nodeId && nodeId ? (props.label
             <span v-if="where(item.nodeId)" class="faint"> · {{ where(item.nodeId) }}</span>
           </span>
           <span v-if="item.pending" class="badge info">{{ t('common.status.running') }}</span>
-          <span v-else class="badge" :class="item.ok ? 'success' : 'danger'">{{ item.ok ? t('runActivity.ok') : t('runActivity.error') }} · {{ formatDuration(item.durationMs) }}</span>
+          <span v-else class="badge" :class="item.ok ? 'success' : 'danger'"
+            >{{ item.ok ? t('runActivity.ok') : t('runActivity.error') }} · {{ formatDuration(item.durationMs) }}</span
+          >
         </button>
         <div v-if="expanded.has(item.key)" class="content">
           <div class="eyebrow">{{ t('runActivity.arguments') }}</div>

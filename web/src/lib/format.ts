@@ -13,7 +13,9 @@ function cached<T>(kind: string, create: (tag: string) => T): T {
 const compact = (): Intl.NumberFormat => cached('compact', (tag) => new Intl.NumberFormat(tag, { notation: 'compact', maximumFractionDigits: 1 }));
 /** Decimales con la coma o el punto del idioma («7,0 s» / «7.0 s»). */
 const fixed = (value: number, digits: number): string =>
-  cached(`fixed${digits}`, (tag) => new Intl.NumberFormat(tag, { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false })).format(value);
+  cached(`fixed${digits}`, (tag) => new Intl.NumberFormat(tag, { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false })).format(
+    value,
+  );
 
 export const formatNumber = (n: number): string => formatCount(n);
 export const formatCompact = (n: number): string => (n < 10_000 ? formatCount(n) : compact().format(n));
@@ -64,8 +66,7 @@ export function formatDateTime(iso: string | null): string {
   return new Date(iso).toLocaleString(intlLocale(), { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-export const formatTime = (iso: string): string =>
-  new Date(iso).toLocaleTimeString(intlLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+export const formatTime = (iso: string): string => new Date(iso).toLocaleTimeString(intlLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 export function formatUptime(sec: number): string {
   if (sec < 60) return `${sec} s`;

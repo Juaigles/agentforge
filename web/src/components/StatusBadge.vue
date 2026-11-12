@@ -5,7 +5,16 @@ import { computed } from 'vue';
 import { STATUS_LABEL, STATUS_TONE } from '@/lib/format';
 
 const props = defineProps<{ status: RunStatus | StepStatus; iconOnly?: boolean }>();
-const ICONS = { queued: Clock, pending: CircleDashed, running: LoaderCircle, waiting: Hourglass, completed: Check, failed: X, cancelled: Ban, skipped: SkipForward };
+const ICONS = {
+  queued: Clock,
+  pending: CircleDashed,
+  running: LoaderCircle,
+  waiting: Hourglass,
+  completed: Check,
+  failed: X,
+  cancelled: Ban,
+  skipped: SkipForward,
+};
 const icon = computed(() => ICONS[props.status]);
 </script>
 

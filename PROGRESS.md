@@ -1,6 +1,6 @@
 # AgentForge — Progreso
 
-_Última actualización: 2026-11-12 (hito 5, fases 1 a 7; ver «Hito 5» más abajo)._
+_Última actualización: 2026-11-12 (hito 5, fases 1 a 8; ver «Hito 5» más abajo)._
 
 ## Estado real
 
@@ -426,7 +426,64 @@ Defecto encontrado al verificar y corregido:
 25. **La descarga de un archivo exportado se cancelaba a veces** con el equipo cargado: la dirección temporal se
     liberaba al segundo. Ahora se libera al minuto.
 
+### Fase 8 · Calidad y pruebas — HECHA (2026-11-12)
+
+- **ESLint y Prettier** (`npm run lint`, `npm run format`, `npm run format:check`): configuración plana con
+  TypeScript y Vue; todo el código formateado. El código tenía solo 9 errores de lint reales, corregidos.
+  `npm run check` encadena lint, formato, tipos y tests.
+- **Cobertura** (`npm run test:coverage`, proveedor v8) con umbrales que hacen fallar la batería si baja:
+
+  | Paquete | Sentencias | Ramas | Funciones | Líneas |
+  |---|---|---|---|---|
+  | Servidor y `shared/` | 93,9 % | 86,4 % | 94,9 % | 96,7 % |
+  | Frontend | 39,8 % | 42,2 % | 41,5 % | 41,9 % |
+
+  La del frontend cuenta todos los archivos, también los que ningún test de Vitest importa: las vistas grandes
+  (constructor, Ajustes, Herramientas, monitor, Panel) se prueban en la suite e2e, que aquí no suma.
+- **Tests nuevos**: 510 de servidor (eran 379) y 288 de frontend (eran 79).
+  - Componentes: `TriggersModal`, `ImportModal`, `ProviderModal`, `McpServersPanel` (contra un servidor MCP real
+    por stdio y por HTTP) y `ToolEditorModal`, todos contra la API real.
+  - `markdown.test.ts`: saneado de la salida de los modelos con una batería de entradas hostiles.
+  - `api.test.ts`, `useRunStream.test.ts` (con un `EventSource` real), `runs.test.ts`, `ui.test.ts`.
+  - `server/test/gaps.test.ts` (131 tests): migraciones reales desde v1, v2 y v3 con datos en todas las tablas y
+    fallos a medias; cifrado de secretos; rutas de archivos frente a salidas del espacio de trabajo; `web_fetch`;
+    canales SSE por HTTP real; ramas de error del motor y de la delegación; el `code` de cada tipo de error; y un
+    caso para **cada uno de los 50 códigos** de validación de workflows.
+- **Tres navegadores**: la suite e2e corre en Chromium, Firefox y WebKit (`npm run test:e2e:all`);
+  `npm run test:e2e` sigue lanzando solo Chromium.
+- **Integración continua**: `.github/workflows/ci.yml` (lint, formato, tipos, auditoría, tests con cobertura en
+  Ubuntu y Windows, y e2e en matriz de tres navegadores). **No se ha ejecutado nunca**: el repositorio no está
+  publicado.
+
+Defectos encontrados por los tests nuevos y por los otros motores, y corregidos:
+
+26. **El monitor de una ejecución se quedaba «En curso» para siempre** si el flujo en vivo se cortaba y la
+    ejecución terminaba mientras tanto (defecto conocido de la auditoría). Ahora, al fallar el flujo, se consulta
+    el estado.
+27. **Una segunda confirmación dejaba colgada a la primera**: quien esperaba la respuesta del primer diálogo no
+    la recibía nunca.
+28. **El error de un campo no se borraba al corregirlo** en el diálogo de disparadores (cron o zona horaria).
+29. **El título de una página leída con `web_fetch` salía con entidades HTML sin decodificar**, y el texto las
+    decodificaba dos veces.
+30. **Una ruta inexistente de la API respondía sin `code`**, a diferencia del resto de errores.
+31. **En Safari no se podía arrastrar un bloque de la paleta al lienzo**: WebKit descarta los tipos de dato no
+    estándar al arrastrar. Ahora viaja también como texto.
+32. **En Safari el foco no volvía al botón al cerrar un diálogo**: allí pulsar un botón con el ratón no lo enfoca.
+33. Un test de proveedores dependía del orden en que llegaban dos peticiones de fondo (fallaba en Firefox).
+
 ## Pendiente y limitaciones
+
+- **Pruebas (fase 8)**:
+  - *Sin test de componente*: el constructor de workflows, el monitor de una ejecución, el Panel, Ajustes y
+    Herramientas (las vistas grandes). Están cubiertas por la suite e2e, no por Vitest.
+  - *La integración continua no se ha ejecutado nunca.* El archivo refleja los comandos que sí se ejecutan en
+    local; puede necesitar ajustes al estrenarlo (por ejemplo, las dependencias de sistema de WebKit en Linux).
+  - *WebKit se ha probado con la compilación de Playwright para Windows*, no con Safari en macOS ni en iOS.
+    En WebKit el tabulador no se detiene en los enlaces (es un ajuste de Safari): el enlace «Saltar al contenido»
+    solo se alcanza con Opción+Tab o activando ese ajuste.
+  - *Siguen sin test*: el latido de los canales en vivo, los enlaces simbólicos dentro del espacio de trabajo y
+    copiar al portapapeles (no existe en el entorno de los tests de componentes).
+  - El nombre repetido de una herramienta HTTP se avisa en el mensaje general del diálogo, no junto al campo.
 
 - **Idiomas (fase 7)**:
   - *Siguen en español en la interfaz en inglés* los textos que escribe el servidor: el detalle de los errores de
@@ -533,7 +590,7 @@ Defecto encontrado al verificar y corregido:
 - **Los valores permitidos se escriben separados por comas**, así que un valor no puede contener una coma.
 - **Paralelismo real limitado por el proveedor**: Ollama atiende las peticiones a un mismo modelo según
   `OLLAMA_NUM_PARALLEL`; el motor las lanza en paralelo igualmente.
-- **La suite e2e solo se ejecuta en Chromium** y con el modelo simulado; no hay CI configurado (se lanza a mano).
+- **La suite e2e usa un modelo simulado**: prueba la interfaz y el protocolo, no la calidad de las respuestas.
 - **Las instantáneas no se deduplican**: cada ejecución guarda su copia del workflow y de sus agentes.
 - **El texto parcial que se guarda es el de la respuesta en curso**, no el de los elementos de un «para cada»
   ni el de un agente delegado.

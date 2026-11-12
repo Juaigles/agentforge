@@ -52,7 +52,11 @@ test.describe('Servidores MCP', () => {
     await bench.getByRole('button', { name: 'Cerrar' }).first().click();
 
     // Un agente la usa en una ejecución real (el modelo simulado pide la herramienta y recibe el resultado).
-    const agent = await app.createAgent({ name: unique('Con MCP'), tools: [`${name}__sumar`], systemPrompt: `[[herramienta:${name}__sumar {"a": 40, "b": 2}]]` });
+    const agent = await app.createAgent({
+      name: unique('Con MCP'),
+      tools: [`${name}__sumar`],
+      systemPrompt: `[[herramienta:${name}__sumar {"a": 40, "b": 2}]]`,
+    });
     const run = await app.runToEnd('agents', agent.id, 'suma');
     expect(run.status).toBe('completed');
     expect(run.output).toContain(`Resultado de ${name}__sumar: 42`);

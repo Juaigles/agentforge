@@ -28,7 +28,9 @@ export function downloadJson(fileName: string, data: unknown): void {
 }
 
 /** Resumen de una importación terminada, para el aviso: «con 2 agentes nuevos, 1 herramienta nueva y 1 proveedor nuevo». */
-export function importSummary(result: Pick<ImportResult, 'createdAgents' | 'replacedAgents' | 'createdTools' | 'replacedTools' | 'createdProviders' | 'createdWorkflows' | 'triggers'>): string {
+export function importSummary(
+  result: Pick<ImportResult, 'createdAgents' | 'replacedAgents' | 'createdTools' | 'replacedTools' | 'createdProviders' | 'createdWorkflows' | 'triggers'>,
+): string {
   const count = (n: number, key: string): string => (n ? tn(`transfer.summary.${key}`, n) : '');
   const parts = [
     count(result.createdAgents.length, 'createdAgents'),
@@ -55,7 +57,15 @@ export async function readJsonFile(file: File): Promise<unknown> {
 
 /** Días de la semana en el orden en que se muestran (lunes primero); `value` es el de cron (0 = domingo). Los nombres dependen del idioma. */
 export function weekdays(): Array<{ value: number; short: string; long: string }> {
-  const days: Array<[number, string]> = [[1, 'mon'], [2, 'tue'], [3, 'wed'], [4, 'thu'], [5, 'fri'], [6, 'sat'], [0, 'sun']];
+  const days: Array<[number, string]> = [
+    [1, 'mon'],
+    [2, 'tue'],
+    [3, 'wed'],
+    [4, 'thu'],
+    [5, 'fri'],
+    [6, 'sat'],
+    [0, 'sun'],
+  ];
   return days.map(([value, key]) => ({ value, short: t(`transfer.weekday.${key}.short`), long: t(`transfer.weekday.${key}.long`) }));
 }
 

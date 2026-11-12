@@ -89,7 +89,8 @@ describe('estado de la conexión con el servidor', () => {
     closed = true;
     // `fetch` ya no pasa por el envoltorio de pruebas: se resuelve la ruta a mano contra el servidor parado.
     const nativeFetch = globalThis.fetch;
-    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => nativeFetch(typeof input === 'string' && input.startsWith('/') ? `${url}${input}` : input, init)) as typeof fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+      nativeFetch(typeof input === 'string' && input.startsWith('/') ? `${url}${input}` : input, init)) as typeof fetch;
     try {
       expect(await catalog.checkServer()).toBe(false);
       expect(catalog.online).toBe(false);

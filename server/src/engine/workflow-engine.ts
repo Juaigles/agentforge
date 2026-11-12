@@ -241,7 +241,7 @@ export class WorkflowExecution {
   private async schedule(order: string[], running: Map<string, Promise<void>>, maxConcurrency: number): Promise<void> {
     while (!this.signal.aborted) {
       // 1) Propagar saltos: ramas no tomadas y dependencias fallidas (puede encadenarse).
-      for (let changed = true; changed; ) {
+      for (let changed = true; changed;) {
         changed = false;
         for (const id of order) {
           if (this.status.get(id) === 'pending' && this.decide(id) === 'skip') {
@@ -292,9 +292,7 @@ export class WorkflowExecution {
 
   private skip(nodeId: string): void {
     this.status.set(nodeId, 'skipped');
-    const parentFailed = this.incoming
-      .get(nodeId)!
-      .some((e) => ['failed', 'cancelled'].includes(this.status.get(e.source)!));
+    const parentFailed = this.incoming.get(nodeId)!.some((e) => ['failed', 'cancelled'].includes(this.status.get(e.source)!));
     this.deps.store.updateStep(this.run.id, nodeId, { status: 'skipped', finishedAt: nowIso() });
     this.deps.emit('step.skipped', nodeId, { reason: parentFailed ? 'Una dependencia ha fallado.' : 'Rama no tomada.' });
   }
@@ -571,11 +569,27 @@ export class WorkflowExecution {
               memory: this.memory,
             }),
           );
-          emit('tool.result', node.id, { id: callId, name: cfg.tool, ok: true, result: truncate(result, 12_000), durationMs: Date.now() - started, depth: 1, item: index });
+          emit('tool.result', node.id, {
+            id: callId,
+            name: cfg.tool,
+            ok: true,
+            result: truncate(result, 12_000),
+            durationMs: Date.now() - started,
+            depth: 1,
+            item: index,
+          });
           return result;
         } catch (err) {
           if (!itemSignal.aborted) {
-            emit('tool.result', node.id, { id: callId, name: cfg.tool, ok: false, result: `Error: ${errorMessage(err)}`, durationMs: Date.now() - started, depth: 1, item: index });
+            emit('tool.result', node.id, {
+              id: callId,
+              name: cfg.tool,
+              ok: false,
+              result: `Error: ${errorMessage(err)}`,
+              durationMs: Date.now() - started,
+              depth: 1,
+              item: index,
+            });
           }
           throw err;
         }
@@ -600,7 +614,12 @@ export class WorkflowExecution {
         // La actividad de cada elemento se anida un nivel (como la de un agente delegado) y sus llamadas a
         // herramientas se etiquetan con el índice, para que no se mezclen entre elementos en paralelo.
         emit: (type, data, transient) =>
-          emit(type, node.id, { ...data, depth: (data.depth ?? 0) + 1, item: index, ...(data.id !== undefined ? { id: `${index}:${data.id}` } : {}) }, transient),
+          emit(
+            type,
+            node.id,
+            { ...data, depth: (data.depth ?? 0) + 1, item: index, ...(data.id !== undefined ? { id: `${index}:${data.id}` } : {}) },
+            transient,
+          ),
         onUsage: trackUsage,
       });
       return result.output;
@@ -669,7 +688,9 @@ export class WorkflowExecution {
         2,
       );
     }
-    const sections = items.map((item, i) => `### ${i + 1}. ${truncate(item, 120)}\n\n${errors[i] !== null ? `⚠ No se pudo completar: ${errors[i]}` : results[i]}`);
+    const sections = items.map(
+      (item, i) => `### ${i + 1}. ${truncate(item, 120)}\n\n${errors[i] !== null ? `⚠ No se pudo completar: ${errors[i]}` : results[i]}`,
+    );
     if (failed) sections.push(`_${failed} de ${total} elementos no se pudieron completar._`);
     return sections.join('\n\n');
   }

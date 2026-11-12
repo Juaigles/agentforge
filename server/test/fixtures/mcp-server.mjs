@@ -17,7 +17,10 @@ export function buildServer() {
     'buscar',
     {
       description: 'Busca productos con filtros anidados.',
-      inputSchema: z.object({ filtro: z.object({ categoria: z.string(), precio: z.object({ max: z.number() }).optional() }), etiquetas: z.array(z.string()).optional() }),
+      inputSchema: z.object({
+        filtro: z.object({ categoria: z.string(), precio: z.object({ max: z.number() }).optional() }),
+        etiquetas: z.array(z.string()).optional(),
+      }),
     },
     async ({ filtro, etiquetas }) => ({
       content: [
@@ -26,7 +29,10 @@ export function buildServer() {
       ],
     }),
   );
-  server.registerTool('fallar', { description: 'Siempre devuelve un error.', inputSchema: z.object({}) }, async () => ({ ...text('no hay stock de ese producto'), isError: true }));
+  server.registerTool('fallar', { description: 'Siempre devuelve un error.', inputSchema: z.object({}) }, async () => ({
+    ...text('no hay stock de ese producto'),
+    isError: true,
+  }));
   server.registerTool('lenta', { description: 'Tarda lo que se le pida.', inputSchema: z.object({ ms: z.number() }) }, async ({ ms }) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
     return text('terminé');

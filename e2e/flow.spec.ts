@@ -75,7 +75,10 @@ test.describe('Motor · aprobación humana, subworkflows y «para cada» ampliad
     // Repetirla y aprobar: ahora sigue por la rama «sí».
     await page.getByRole('button', { name: 'Repetir' }).click();
     await expect(page.locator('.page-header .badge').first()).toHaveText('En espera');
-    await page.getByRole('region', { name: /espera tu decisión/ }).getByRole('button', { name: 'Aprobar' }).click();
+    await page
+      .getByRole('region', { name: /espera tu decisión/ })
+      .getByRole('button', { name: 'Aprobar' })
+      .click();
     await expect(page.locator('.page-header .badge').first()).toHaveText('Completado');
     await expect(page.locator('.panel .output')).toContainText('PUBLICADO');
   });
@@ -151,7 +154,10 @@ test.describe('Motor · aprobación humana, subworkflows y «para cada» ampliad
     const runId = page.url().split('/').pop()!;
 
     // Desde el paso se llega a la subejecución, y desde ella se vuelve.
-    await page.getByRole('button', { name: /Subworkflow/ }).first().click();
+    await page
+      .getByRole('button', { name: /Subworkflow/ })
+      .first()
+      .click();
     const childLink = page.locator('.children').getByRole('link', { name: child.name });
     await expect(childLink).toBeVisible();
     await childLink.click();

@@ -38,8 +38,16 @@ const ICONS = { success: CircleCheck, danger: CircleAlert, info: Info };
     <p class="muted">{{ ui.confirmState.message }}</p>
     <template #footer>
       <!-- En una acción destructiva el foco cae en «Cancelar»: Intro por costumbre no debe borrar nada. -->
-      <button class="btn" type="button" :autofocus="ui.confirmState.danger ? true : undefined" @click="ui.answer(false)">{{ t('common.actions.cancel') }}</button>
-      <button class="btn" :class="ui.confirmState.danger ? 'btn-danger' : 'btn-primary'" type="button" :autofocus="ui.confirmState.danger ? undefined : true" @click="ui.answer(true)">
+      <button class="btn" type="button" :autofocus="ui.confirmState.danger ? true : undefined" @click="ui.answer(false)">
+        {{ t('common.actions.cancel') }}
+      </button>
+      <button
+        class="btn"
+        :class="ui.confirmState.danger ? 'btn-danger' : 'btn-primary'"
+        type="button"
+        :autofocus="ui.confirmState.danger ? undefined : true"
+        @click="ui.answer(true)"
+      >
         {{ ui.confirmState.confirmLabel ?? t('common.actions.confirm') }}
       </button>
     </template>

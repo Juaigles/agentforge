@@ -39,10 +39,27 @@ async function boot(llm = new ScriptedLlm((req) => ({ content: `eco(${userText(r
 const get = (url: string) => app!.inject({ method: 'GET', url });
 
 /** Crea una ejecución ya terminada directamente en el almacén (sin motor), para preparar historiales grandes. */
-function finishedRun(c: AppContext, name: string, opts: { input?: string; output?: string; status?: 'completed' | 'failed' | 'cancelled'; finishedAt?: string } = {}): string {
-  const run = c.store.createRun({ kind: 'agent', workflowId: null, agentId: null, name, input: opts.input ?? '', snapshot: { workflow: { nodes: [], edges: [], settings: {} as never }, agents: {} }, steps: [] });
+function finishedRun(
+  c: AppContext,
+  name: string,
+  opts: { input?: string; output?: string; status?: 'completed' | 'failed' | 'cancelled'; finishedAt?: string } = {},
+): string {
+  const run = c.store.createRun({
+    kind: 'agent',
+    workflowId: null,
+    agentId: null,
+    name,
+    input: opts.input ?? '',
+    snapshot: { workflow: { nodes: [], edges: [], settings: {} as never }, agents: {} },
+    steps: [],
+  });
   c.store.updateRun(run.id, { status: 'running', startedAt: run.createdAt });
-  c.store.finishRun(run.id, { status: opts.status ?? 'completed', output: opts.output ?? 'ok', finishedAt: opts.finishedAt, usage: { promptTokens: 10, completionTokens: 5, llmCalls: 1, toolCalls: 0 } });
+  c.store.finishRun(run.id, {
+    status: opts.status ?? 'completed',
+    output: opts.output ?? 'ok',
+    finishedAt: opts.finishedAt,
+    usage: { promptTokens: 10, completionTokens: 5, llmCalls: 1, toolCalls: 0 },
+  });
   return run.id;
 }
 
@@ -50,7 +67,9 @@ function finishedRun(c: AppContext, name: string, opts: { input?: string; output
 function finishedRunFast(c: AppContext, name: string, input: string): void {
   const now = new Date().toISOString();
   c.db
-    .prepare("INSERT INTO runs (id, kind, name, status, input, output, snapshot, usage, created_at, started_at, finished_at, ended_at) VALUES (?, 'agent', ?, 'completed', ?, 'ok', '{}', '{}', ?, ?, ?, ?)")
+    .prepare(
+      "INSERT INTO runs (id, kind, name, status, input, output, snapshot, usage, created_at, started_at, finished_at, ended_at) VALUES (?, 'agent', ?, 'completed', ?, 'ok', '{}', '{}', ?, ?, ?, ?)",
+    )
     .run(`run_${name.replace(/\W/g, '')}`, name, input, now, now, now, now);
 }
 
@@ -81,7 +100,8 @@ describe('estadísticas del panel', () => {
     const llm = new ScriptedLlm((req, i) => {
       const text = userText(req);
       if (text === 'falla') throw new LlmError('caído', { retryable: false });
-      if (text === 'calcula' && !req.messages.some((m) => m.role === 'tool')) return { toolCalls: [{ id: `c${i}`, name: 'calculator', arguments: { expression: '2+2' } }] };
+      if (text === 'calcula' && !req.messages.some((m) => m.role === 'tool'))
+        return { toolCalls: [{ id: `c${i}`, name: 'calculator', arguments: { expression: '2+2' } }] };
       return { content: `eco(${text})` };
     });
     const { ctx } = await boot(llm);
@@ -139,7 +159,9 @@ describe('estadísticas del panel', () => {
     const id = finishedRun(ctx, 'madrugada');
     // Se recoloca y se recalcula el agregado como lo haría la migración (a partir de los datos).
     ctx.db.prepare('UPDATE runs SET created_at = ? WHERE id = ?').run(midnight.toISOString(), id);
-    ctx.db.exec("DELETE FROM stats_daily; INSERT INTO stats_daily (date, status, runs) SELECT date(created_at, 'localtime'), status, COUNT(*) FROM runs GROUP BY 1, 2;");
+    ctx.db.exec(
+      "DELETE FROM stats_daily; INSERT INTO stats_daily (date, status, runs) SELECT date(created_at, 'localtime'), status, COUNT(*) FROM runs GROUP BY 1, 2;",
+    );
     const stats = ctx.store.stats(14, midnight.getTime() + 3_600_000);
     expect(stats.daily.at(-1)).toMatchObject({ date: localDate(midnight), completed: 1 });
   });
@@ -285,17 +307,35 @@ describe('retención por lotes', () => {
     const old = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
     finishedRun(ctx, 'vieja', { finishedAt: old(40) });
     finishedRun(ctx, 'reciente', { finishedAt: old(1) });
-    const live = ctx.store.createRun({ kind: 'agent', workflowId: null, agentId: null, name: 'en curso', input: '', snapshot: { workflow: { nodes: [], edges: [], settings: {} as never }, agents: {} }, steps: [] });
+    const live = ctx.store.createRun({
+      kind: 'agent',
+      workflowId: null,
+      agentId: null,
+      name: 'en curso',
+      input: '',
+      snapshot: { workflow: { nodes: [], edges: [], settings: {} as never }, agents: {} },
+      steps: [],
+    });
     ctx.db.prepare('UPDATE runs SET created_at = ? WHERE id = ?').run(old(90), live.id);
     const interrupted = finishedRun(ctx, 'interrumpida', { finishedAt: old(90), status: 'failed' });
     ctx.db.prepare('UPDATE runs SET interrupted = 1 WHERE id = ?').run(interrupted);
 
     expect(ctx.store.pruneRuns({ days: 30, maxRuns: 0 })).toBe(1);
-    expect(ctx.store.listRuns().items.map((r) => r.name).sort()).toEqual(['en curso', 'interrumpida', 'reciente']);
+    expect(
+      ctx.store
+        .listRuns()
+        .items.map((r) => r.name)
+        .sort(),
+    ).toEqual(['en curso', 'interrumpida', 'reciente']);
     expect(ctx.store.pruneRuns({ days: 0, maxRuns: 1 })).toBe(0);
     finishedRun(ctx, 'nueva');
     expect(ctx.store.pruneRuns({ days: 0, maxRuns: 1 })).toBe(1);
-    expect(ctx.store.listRuns().items.map((r) => r.name).sort()).toEqual(['en curso', 'interrumpida', 'nueva']);
+    expect(
+      ctx.store
+        .listRuns()
+        .items.map((r) => r.name)
+        .sort(),
+    ).toEqual(['en curso', 'interrumpida', 'nueva']);
   });
 });
 
@@ -305,16 +345,22 @@ describe('memoria compartida persistida', () => {
     const llm = new ScriptedLlm((req) => {
       const text = userText(req);
       const afterTool = req.messages.filter((m) => m.role === 'tool');
-      if (text.startsWith('anota')) return afterTool.length ? { content: 'anotado' } : { toolCalls: [{ id: 'm1', name: 'memory_set', arguments: { key: 'cliente', value: 'ACME S.L.' } }] };
+      if (text.startsWith('anota'))
+        return afterTool.length ? { content: 'anotado' } : { toolCalls: [{ id: 'm1', name: 'memory_set', arguments: { key: 'cliente', value: 'ACME S.L.' } }] };
       if (failing) throw new LlmError('caído', { retryable: false });
-      return afterTool.length ? { content: `leído: ${afterTool[0].content}` } : { toolCalls: [{ id: 'm2', name: 'memory_get', arguments: { key: 'cliente' } }] };
+      return afterTool.length
+        ? { content: `leído: ${afterTool[0].content}` }
+        : { toolCalls: [{ id: 'm2', name: 'memory_get', arguments: { key: 'cliente' } }] };
     });
     const { ctx } = await boot(llm, { onDisk: true });
     const writer = addAgent(ctx, { name: 'Escribe', tools: ['memory_set'] });
     const reader = addAgent(ctx, { name: 'Lee', tools: ['memory_get'] });
     const first = await runWorkflow(
       ctx,
-      workflow([node('a', 'agent', { agentId: writer.id, prompt: 'anota el cliente' }), node('b', 'agent', { agentId: reader.id, prompt: 'lee {{a}}' })], edges('a>b')),
+      workflow(
+        [node('a', 'agent', { agentId: writer.id, prompt: 'anota el cliente' }), node('b', 'agent', { agentId: reader.id, prompt: 'lee {{a}}' })],
+        edges('a>b'),
+      ),
     );
     expect(first.status).toBe('failed');
     expect(ctx.store.listMemory(first.id)).toEqual([['cliente', 'ACME S.L.']]);
@@ -575,7 +621,8 @@ describe('copias de seguridad', () => {
     const bytes = fs.readFileSync(path.join(dataDir, 'backups', backup.name));
     await app.listen({ port: 0, host: '127.0.0.1' });
     const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
-    const upload = (body: Buffer, type = 'application/octet-stream') => fetch(`${base}/api/backups/upload`, { method: 'POST', headers: { 'Content-Type': type }, body: new Uint8Array(body) });
+    const upload = (body: Buffer, type = 'application/octet-stream') =>
+      fetch(`${base}/api/backups/upload`, { method: 'POST', headers: { 'Content-Type': type }, body: new Uint8Array(body) });
 
     const bad = await upload(Buffer.from('esto no es una copia'));
     expect(bad.status).toBe(400);

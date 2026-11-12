@@ -34,7 +34,7 @@ test.describe('Agentes', () => {
     await playground.getByLabel('Tarea').fill('[[herramienta:calculator {"expression":"2450.80 * 1.21"}]] ¿Cuál es el total con IVA?');
     await playground.getByRole('button', { name: 'Ejecutar' }).click();
     await expect(playground.locator('.card-head .badge')).toHaveText('Completado');
-    await expect(playground.locator(".answer")).toContainText("\"result\": 2965.468");
+    await expect(playground.locator('.answer')).toContainText('"result": 2965.468');
 
     await playground.getByText('Actividad y herramientas').click();
     const call = playground.locator('.activity li.tool').first();

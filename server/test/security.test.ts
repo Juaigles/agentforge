@@ -123,7 +123,9 @@ describe('cabecera Host', () => {
 
   it('los hosts admitidos se calculan a partir de la configuración', () => {
     expect([...buildAllowedHosts({ host: '127.0.0.1', allowedHosts: [] })].sort()).toEqual(['127.0.0.1', '[::1]', 'localhost']);
-    expect(buildAllowedHosts({ host: '192.168.1.20', allowedHosts: ['Mi.Proxy.Test'] })).toEqual(new Set(['localhost', '127.0.0.1', '[::1]', 'mi.proxy.test', '192.168.1.20']));
+    expect(buildAllowedHosts({ host: '192.168.1.20', allowedHosts: ['Mi.Proxy.Test'] })).toEqual(
+      new Set(['localhost', '127.0.0.1', '[::1]', 'mi.proxy.test', '192.168.1.20']),
+    );
     expect(buildAllowedHosts({ host: '::', allowedHosts: [] }).has(os.hostname().toLowerCase())).toBe(true);
     expect(buildAllowedHosts({ host: '0.0.0.0', allowedHosts: [] }).has('cualquier.cosa')).toBe(false);
   });
@@ -187,7 +189,8 @@ describe('peticiones desde otra web (CSRF)', () => {
     const agent = addAgent(ctx);
     const wf = ctx.store.createWorkflow(workflow([node('a', 'agent', { agentId: agent.id, prompt: 'x' })], []));
     const host = 'localhost:4310';
-    const send = (headers: Record<string, string>, method: 'GET' | 'POST' = 'POST', url = '/api/runs/interrupted/resume') => app.inject({ method, url, headers: { host, ...headers } });
+    const send = (headers: Record<string, string>, method: 'GET' | 'POST' = 'POST', url = '/api/runs/interrupted/resume') =>
+      app.inject({ method, url, headers: { host, ...headers } });
 
     // Un POST sin cuerpo desde otra web (la petición «simple» que no pasa por preflight).
     expect((await send({ origin: 'https://atacante.example', 'sec-fetch-site': 'cross-site' })).statusCode).toBe(403);
@@ -290,7 +293,13 @@ describe('las herramientas no pueden llamar a la propia API', () => {
     const invoke = async (url: string, method = 'GET', body?: string) =>
       (await app.inject({ method: 'POST', url: '/api/tools/http_request/invoke', payload: { args: { url, method, ...(body ? { body } : {}) } } })).json();
 
-    for (const target of [`http://127.0.0.1:${port}`, `http://localhost:${port}`, `http://[::1]:${port}`, `http://[::ffff:127.0.0.1]:${port}`, `http://0.0.0.0:${port}`]) {
+    for (const target of [
+      `http://127.0.0.1:${port}`,
+      `http://localhost:${port}`,
+      `http://[::1]:${port}`,
+      `http://[::ffff:127.0.0.1]:${port}`,
+      `http://0.0.0.0:${port}`,
+    ]) {
       const res = await invoke(`${target}/api/settings`, 'PUT', JSON.stringify({ allowCodeExecution: true }));
       expect(res, target).toMatchObject({ ok: false, error: expect.stringContaining('propia API de AgentForge') });
     }
@@ -377,7 +386,10 @@ describe('plantillas del cuerpo de las herramientas HTTP', () => {
       bodyTemplate: '{"canal": "soporte", "texto": "{{texto}}"}',
       enabled: true,
     });
-    const run = await runWorkflow(ctx, workflow([node('t', 'tool', { tool: 'enviar_aviso', args: { texto: 'hola", "canal": "direccion\r\nX-Inyectada: 1' } })], []));
+    const run = await runWorkflow(
+      ctx,
+      workflow([node('t', 'tool', { tool: 'enviar_aviso', args: { texto: 'hola", "canal": "direccion\r\nX-Inyectada: 1' } })], []),
+    );
     expect(run.status).toBe('completed');
     expect(JSON.parse(target.requests[0].body)).toEqual({ canal: 'soporte', texto: 'hola", "canal": "direccion\r\nX-Inyectada: 1' });
     expect(target.requests[0].headers['x-inyectada']).toBeUndefined();
@@ -388,7 +400,11 @@ describe('cuota del espacio de trabajo', () => {
   it('un archivo no puede crecer sin límite añadiendo contenido', async () => {
     const { ctx } = await boot();
     const write = (content: string, append = true) =>
-      ctx.tools.invoke('file_write', { path: 'registro.txt', content, append }, { runId: 'r', nodeId: 'n', signal: signal(), workspaceDir: ctx.config.workspaceDir, settings: ctx.store.getSettings(), memory: new Map() });
+      ctx.tools.invoke(
+        'file_write',
+        { path: 'registro.txt', content, append },
+        { runId: 'r', nodeId: 'n', signal: signal(), workspaceDir: ctx.config.workspaceDir, settings: ctx.store.getSettings(), memory: new Map() },
+      );
     const chunk = 'x'.repeat(1_000_000);
     for (let i = 0; i < MAX_FILE_BYTES / 1_000_000; i++) await write(chunk);
     await expect(write('y')).rejects.toThrow(/límite de 5 MB por archivo/);
@@ -416,7 +432,9 @@ describe('consultas con parámetros no válidos', () => {
       // El mensaje está en el idioma de la aplicación, no es el texto interno de la biblioteca de validación.
       expect(res.json().error).not.toMatch(/Invalid|expected/);
     }
-    expect((await app.inject({ method: 'GET', url: '/api/runs?limit=abc' })).json().error).toBe('Datos no válidos: limit: debe ser un número entero entre 1 y 200');
+    expect((await app.inject({ method: 'GET', url: '/api/runs?limit=abc' })).json().error).toBe(
+      'Datos no válidos: limit: debe ser un número entero entre 1 y 200',
+    );
     expect((await app.inject({ method: 'GET', url: '/api/runs?limit=10&offset=0&status=completed&kind=workflow&search=x' })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/runs' })).json()).toEqual({ items: [], total: 0 });
   });
@@ -432,7 +450,12 @@ describe('sondas de salud', () => {
     ctx.scheduler.start(60_000);
     const ready = await app.inject({ method: 'GET', url: '/api/health/ready' });
     expect(ready.statusCode).toBe(200);
-    expect(ready.json()).toMatchObject({ ok: true, activeRuns: 0, queuedRuns: 0, checks: { database: { ok: true, detail: expect.stringMatching(/^esquema v\d+$/) } } });
+    expect(ready.json()).toMatchObject({
+      ok: true,
+      activeRuns: 0,
+      queuedRuns: 0,
+      checks: { database: { ok: true, detail: expect.stringMatching(/^esquema v\d+$/) } },
+    });
 
     fs.rmSync(ctx.config.workspaceDir, { recursive: true, force: true });
     const broken = await app.inject({ method: 'GET', url: '/api/health/ready' });
@@ -446,7 +469,11 @@ describe('run_javascript sin red', () => {
   /** Lanza el proceso aislado con sus argumentos y su preludio reales y, dentro, un intento de usar la red. */
   function attack(script: string): Promise<{ stdout: string }> {
     return new Promise((resolve) => {
-      const child = spawn(process.execPath, [...sandboxNodeArgs(), '-e', `${SANDBOX_NETWORK_LOCKDOWN}\n${script}`], { env: {}, cwd: os.tmpdir(), windowsHide: true });
+      const child = spawn(process.execPath, [...sandboxNodeArgs(), '-e', `${SANDBOX_NETWORK_LOCKDOWN}\n${script}`], {
+        env: {},
+        cwd: os.tmpdir(),
+        windowsHide: true,
+      });
       let stdout = '';
       child.stdout.on('data', (c) => (stdout += c));
       const timer = setTimeout(() => child.kill('SIGKILL'), 10_000);
@@ -504,7 +531,11 @@ describe('run_javascript sin red', () => {
     await new Promise<void>((resolve) => {
       const child = spawn(
         process.execPath,
-        [...sandboxNodeArgs(), '-e', `require('node:http').get('${target.url}/', (res) => { res.resume(); res.on('end', () => process.exit(0)); }).on('error', () => process.exit(1));`],
+        [
+          ...sandboxNodeArgs(),
+          '-e',
+          `require('node:http').get('${target.url}/', (res) => { res.resume(); res.on('end', () => process.exit(0)); }).on('error', () => process.exit(1));`,
+        ],
         { env: {}, cwd: os.tmpdir(), stdio: 'ignore', windowsHide: true },
       );
       child.on('close', () => resolve());
@@ -584,7 +615,9 @@ describe('fijación de DNS contra un servidor DNS real', () => {
     cleanups.push(rebound.close);
 
     // DNS de verdad (UDP, RFC 1035): primera consulta → 127.0.0.1; las siguientes → 127.0.0.2 (el «rebind»).
-    const dns = await startDnsServer((name, nth) => (name === 'rebind.test' ? [nth === 1 ? '127.0.0.1' : '127.0.0.2'] : name === 'mixto.test' ? ['93.184.216.34', '10.0.0.5'] : []));
+    const dns = await startDnsServer((name, nth) =>
+      name === 'rebind.test' ? [nth === 1 ? '127.0.0.1' : '127.0.0.2'] : name === 'mixto.test' ? ['93.184.216.34', '10.0.0.5'] : [],
+    );
     cleanups.push(dns.close);
     const resolver = new dnsPromises.Resolver({ timeout: 2000, tries: 1 });
     resolver.setServers([`127.0.0.1:${dns.port}`]);
@@ -615,7 +648,12 @@ describe('delegación y flujo', () => {
     const run = await runWorkflow(
       ctx,
       workflow(
-        [node('entrada', 'input'), node('cond', 'condition', { left: '{{input}}', operator: 'matches', right: '^urgente' }), node('si', 'transform', { template: 'prioridad alta' }), node('no', 'transform', { template: 'normal' })],
+        [
+          node('entrada', 'input'),
+          node('cond', 'condition', { left: '{{input}}', operator: 'matches', right: '^urgente' }),
+          node('si', 'transform', { template: 'prioridad alta' }),
+          node('no', 'transform', { template: 'normal' }),
+        ],
         edges('entrada>cond', 'cond:true>si', 'cond:false>no'),
       ),
       'Urgente: se ha caído el servidor',

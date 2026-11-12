@@ -36,7 +36,10 @@ function makeRun(): Run {
     createdAt: '2026-01-01T00:00:00.000Z',
     startedAt: null,
     finishedAt: null,
-    snapshot: { workflow: { nodes: [], edges: [], settings: { maxConcurrency: 1, maxDurationMs: 1, maxLlmCalls: 1, onError: 'fail', defaultRetries: 0 } }, agents: {} },
+    snapshot: {
+      workflow: { nodes: [], edges: [], settings: { maxConcurrency: 1, maxDurationMs: 1, maxLlmCalls: 1, onError: 'fail', defaultRetries: 0 } },
+      agents: {},
+    },
     steps: [step('in', 'input'), step('ag', 'agent')],
   };
 }
@@ -76,8 +79,14 @@ describe('estado en vivo de una ejecución', () => {
     applyEvent(state, ev('tool.call', 'ag', { id: 'c', name: 't', arguments: {} }));
     expect(totalUsage(state)).toEqual({ promptTokens: 10, completionTokens: 4, llmCalls: 1, toolCalls: 1 });
 
-    applyEvent(state, ev('step.finished', 'ag', { status: 'completed', output: 'Final', usage: { promptTokens: 30, completionTokens: 9, llmCalls: 2, toolCalls: 1 } }));
-    applyEvent(state, ev('run.finished', null, { status: 'completed', output: 'Final', usage: { promptTokens: 30, completionTokens: 9, llmCalls: 2, toolCalls: 1 } }));
+    applyEvent(
+      state,
+      ev('step.finished', 'ag', { status: 'completed', output: 'Final', usage: { promptTokens: 30, completionTokens: 9, llmCalls: 2, toolCalls: 1 } }),
+    );
+    applyEvent(
+      state,
+      ev('run.finished', null, { status: 'completed', output: 'Final', usage: { promptTokens: 30, completionTokens: 9, llmCalls: 2, toolCalls: 1 } }),
+    );
     expect(state).toMatchObject({ status: 'completed', output: 'Final', error: null });
     expect(state.steps.ag).toMatchObject({ status: 'completed', output: 'Final', streamText: '' });
     expect(totalUsage(state).promptTokens).toBe(30); // prevalece el uso definitivo del servidor
