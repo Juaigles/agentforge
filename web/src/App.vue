@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, Bot, BookOpen, LayoutDashboard, Monitor, Moon, Settings, Sun, Unplug, Workflow, Wrench } from 'lucide-vue-next';
+import { Activity, Bot, BookOpen, Compass, LayoutDashboard, Monitor, Moon, Settings, Sun, Unplug, Workflow, Wrench } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { LOCALES, locale, setLocale, t, tn } from '@/i18n';
 import { announce, announcement, installFormA11y } from '@/lib/a11y';
@@ -7,15 +7,20 @@ import { api, authRequired } from '@/lib/api';
 import AccessGate from '@/components/AccessGate.vue';
 import ApprovalsBanner from '@/components/ApprovalsBanner.vue';
 import InterruptedBanner from '@/components/InterruptedBanner.vue';
+import OnboardingTour from '@/components/OnboardingTour.vue';
 import SkinToggle from '@/components/SkinToggle.vue';
 import UiHost from '@/components/UiHost.vue';
 import { useCatalog } from '@/stores/catalog';
+import { useOnboarding } from '@/stores/onboarding';
 import { useRuns } from '@/stores/runs';
 import { useUi, type Theme } from '@/stores/ui';
 
 const catalog = useCatalog();
 const runs = useRuns();
 const ui = useUi();
+const onboarding = useOnboarding();
+/** Texto del lanzador del recorrido guiado: empezarlo o reanudarlo si quedó a medias. */
+const tourLabel = computed(() => (onboarding.active ? t('onboarding.launcher.resume') : t('onboarding.launcher.start')));
 
 const NAV = [
   { to: '/', labelKey: 'app.nav.dashboard', icon: LayoutDashboard, exact: true },
@@ -141,6 +146,17 @@ onBeforeUnmount(() => {
         <RouterLink to="/glosario" class="nav-item subtle" :aria-label="t('app.nav.glossary')" :title="t('app.nav.glossary')"
           ><BookOpen aria-hidden="true" /><span>{{ t('app.nav.glossary') }}</span></RouterLink
         >
+        <button
+          type="button"
+          class="nav-item subtle tour-link"
+          :aria-label="tourLabel"
+          :title="tourLabel"
+          :aria-pressed="onboarding.open"
+          data-testid="tour-launcher"
+          @click="onboarding.open ? onboarding.close() : onboarding.startTour()"
+        >
+          <Compass aria-hidden="true" /><span>{{ tourLabel }}</span>
+        </button>
         <RouterLink to="/settings" class="status" :title="providerStatus.text" :aria-label="t('app.status.label', { text: providerStatus.text })">
           <span class="dot" :class="[providerStatus.tone, { pulse: !providerStatus.tone && catalog.providers.length > 0 }]" />
           <span class="truncate">{{ providerStatus.text }}</span>
@@ -194,6 +210,7 @@ onBeforeUnmount(() => {
       </RouterView>
     </main>
     <UiHost />
+    <OnboardingTour />
     <!-- Mensajes de estado para lectores de pantalla (cambio de página, acciones del constructor, fin de una ejecución). -->
     <div class="sr-only" role="status" aria-live="polite" data-testid="announcer">{{ announcement }}</div>
   </div>
@@ -266,6 +283,15 @@ nav {
 .nav-item.subtle {
   font-weight: 500;
   font-size: 13px;
+}
+/* El lanzador del recorrido es un botón con el aspecto de los enlaces del pie. */
+.tour-link {
+  width: 100%;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .count {
   margin-left: auto;
@@ -418,6 +444,10 @@ nav {
   }
   .sidebar-foot {
     flex-direction: row;
+  }
+  .tour-link {
+    width: auto;
+    flex: none;
   }
 }
 </style>

@@ -1,7 +1,7 @@
 import type { Agent, NodeType, RunSnapshot, RunStatus, StepStatus, WorkflowNode } from '@shared/types';
 import { describe, expect, it } from 'vitest';
 import type { ActivityLog, RunLive, StepLive } from '../run-state';
-import { actorsFromRun, COURIER_COLOR, courierTarget } from './choreography';
+import { activeStep, actorsFromRun, COURIER_COLOR, courierTarget, roomMarks, runProgress, staffPosts, workSpot } from './choreography';
 import { ROOMS, seatFor } from './map';
 import { speciesFor } from './species';
 import type { Actor } from './types';
@@ -307,5 +307,105 @@ describe('courierTarget', () => {
     const courier = courierOf(actorsFromRun(WF, live(WF, 'waiting', { ok: { status: 'waiting', startedAt: ts(1) } })));
     expect(courier).toMatchObject({ room: 'despacho', status: 'waiting', activity: 'waiting' });
     expect(courierOf(actorsFromRun(WF, live(WF, 'queued'))).status).toBe('pending');
+  });
+});
+
+describe('activeStep, staffPosts y workSpot', () => {
+  it('activeStep da el paso que acompaña el mensajero, con su sala', () => {
+    expect(activeStep(WF, live(WF, 'queued'))).toBeNull();
+    const l = live(WF, 'running', { a1: { status: 'running', startedAt: ts(1) }, t: { status: 'running', startedAt: ts(2) } });
+    expect(activeStep(WF, l)).toEqual({ nodeId: 't', type: 'tool', status: 'running', room: 'servidores' });
+    expect(activeStep(WF, live(WF, 'waiting', { ok: { status: 'waiting', startedAt: ts(1) } }))).toMatchObject({ room: 'despacho', status: 'waiting' });
+  });
+
+  it('staffPosts: el cubículo y la silla de la cocina del índice', () => {
+    expect(staffPosts(0)).toEqual({ desk: seatFor('cubiculos', 0), rest: seatFor('cocina', 0) });
+    expect(staffPosts(7).desk).toEqual(seatFor('cubiculos', 1));
+  });
+
+  it('workSpot: el primer puesto de la sala', () => {
+    expect(workSpot('servidores')).toEqual(ROOMS.servidores.seats[0]);
+    expect(workSpot('despacho')).toEqual(ROOMS.despacho.seats[0]);
+  });
+});
+
+describe('roomMarks', () => {
+  it('sin pasos terminados ni en curso no marca nada', () => {
+    expect(roomMarks(WF, live(WF, 'queued'))).toEqual({});
+  });
+
+  it('resalta la sala del paso en curso y deja marcadas las de pasos hechos', () => {
+    const l = live(WF, 'running', {
+      in: { status: 'completed', startedAt: ts(1), finishedAt: ts(2) },
+      a1: { status: 'completed', startedAt: ts(2), finishedAt: ts(3) },
+      t: { status: 'running', startedAt: ts(4) },
+    });
+    expect(roomMarks(WF, l)).toEqual({ recepcion: 'done', cubiculos: 'done', servidores: 'active' });
+  });
+
+  it('una aprobación pendiente marca el despacho como «waiting»', () => {
+    const l = live(WF, 'waiting', { ok: { status: 'waiting', startedAt: ts(4) } });
+    expect(roomMarks(WF, l)).toEqual({ despacho: 'waiting' });
+  });
+
+  it('un paso fallido deja su sala en rojo aunque otro de la misma sala se completara', () => {
+    const l = live(WF, 'failed', {
+      a1: { status: 'completed', startedAt: ts(1), finishedAt: ts(2) },
+      a2: { status: 'failed', startedAt: ts(2), finishedAt: ts(3) },
+    });
+    expect(roomMarks(WF, l)).toEqual({ cubiculos: 'failed' });
+  });
+
+  it('la sala en curso manda sobre la marca de hecho', () => {
+    const l = live(WF, 'running', {
+      a1: { status: 'completed', startedAt: ts(1), finishedAt: ts(2) },
+      a2: { status: 'running', startedAt: ts(3) },
+    });
+    expect(roomMarks(WF, l).cubiculos).toBe('active');
+  });
+});
+
+describe('runProgress', () => {
+  it('en cola: fase «queued», paso 0 de todos', () => {
+    expect(runProgress(WF, live(WF, 'queued'))).toEqual({ phase: 'queued', index: 0, total: 7, label: '', nodeId: null });
+  });
+
+  it('con un paso en marcha cuenta los terminados más uno y da su nombre', () => {
+    const l = live(WF, 'running', {
+      in: { status: 'completed', startedAt: ts(1), finishedAt: ts(2) },
+      a1: { status: 'running', startedAt: ts(3) },
+    });
+    expect(runProgress(WF, l)).toEqual({ phase: 'running', index: 2, total: 7, label: 'a1', nodeId: 'a1' });
+  });
+
+  it('entre dos pasos sigue diciendo el último (el texto no cambia hasta el siguiente paso)', () => {
+    const running = live(WF, 'running', {
+      in: { status: 'completed', startedAt: ts(1), finishedAt: ts(2) },
+      a1: { status: 'running', startedAt: ts(3) },
+    });
+    const between = live(WF, 'running', {
+      in: { status: 'completed', startedAt: ts(1), finishedAt: ts(2) },
+      a1: { status: 'completed', startedAt: ts(3), finishedAt: ts(4) },
+    });
+    const a = runProgress(WF, running);
+    const b = runProgress(WF, between);
+    expect(b).toMatchObject({ phase: 'between', label: 'a1' });
+    expect([b.index, b.total, b.label]).toEqual([a.index, a.total, a.label]);
+  });
+
+  it('esperando aprobación', () => {
+    expect(runProgress(WF, live(WF, 'waiting', { ok: { status: 'waiting', startedAt: ts(1) } }))).toMatchObject({ phase: 'waiting', label: 'ok' });
+  });
+
+  it('los pasos omitidos no cuentan en el total', () => {
+    const l = live(WF, 'completed', { in: { status: 'completed', startedAt: ts(1), finishedAt: ts(2) }, t: { status: 'skipped' }, fx: { status: 'skipped' } });
+    expect(runProgress(WF, l)).toEqual({ phase: 'completed', index: 1, total: 5, label: '', nodeId: null });
+  });
+
+  it('fallida: el último paso que falló; cancelada: sin paso', () => {
+    const failed = live(WF, 'failed', { t: { status: 'failed', startedAt: ts(1), finishedAt: ts(2) } });
+    expect(runProgress(WF, failed)).toMatchObject({ phase: 'failed', label: 't', nodeId: 't' });
+    expect(runProgress(WF, live(WF, 'failed'))).toMatchObject({ phase: 'failed', label: '' });
+    expect(runProgress(WF, live(WF, 'cancelled'))).toMatchObject({ phase: 'cancelled', label: '' });
   });
 });

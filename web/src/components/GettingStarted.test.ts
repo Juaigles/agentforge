@@ -4,6 +4,7 @@ import { mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addAgent, edges, node, runWorkflow, workflow } from '../../../server/test/helpers';
 import { useCatalog } from '@/stores/catalog';
+import { useOnboarding } from '@/stores/onboarding';
 import { useRuns } from '@/stores/runs';
 import { useUi } from '@/stores/ui';
 import { freshPinia, setTouchDevice, startApi, testRouter, until, type TestApi } from '@/test/harness';
@@ -103,6 +104,34 @@ describe('GettingStarted', () => {
     await open();
     await new Promise((r) => setTimeout(r, 100));
     expect(guide().exists()).toBe(false);
+  });
+
+  it('la primera vez ofrece el recorrido guiado; «Ahora no» lo descarta y queda el botón para hacerlo luego', async () => {
+    await open();
+    await until(() => guide().exists());
+    const offer = () => wrapper.find('[data-testid="tour-offer"]');
+    expect(offer().exists()).toBe(true);
+    expect(offer().text()).toContain('¿Primera vez por aquí?');
+
+    await button('Ahora no')!.trigger('click');
+    expect(offer().exists()).toBe(false);
+    expect(useOnboarding().progress.status).toBe('dismissed');
+
+    await button('Hacer el recorrido guiado')!.trigger('click');
+    expect(useOnboarding().progress).toMatchObject({ status: 'active', open: true, stepId: 'welcome' });
+    expect(wrapper.find('[data-testid="guide-tour"]').text()).toContain('Reanudar el recorrido guiado (1 de');
+  });
+
+  it('en un navegador automatizado (Playwright) el recorrido no se ofrece solo', async () => {
+    Object.defineProperty(navigator, 'webdriver', { configurable: true, get: () => true });
+    try {
+      await open();
+      await until(() => guide().exists());
+      expect(wrapper.find('[data-testid="tour-offer"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="guide-tour"]').exists()).toBe(true);
+    } finally {
+      delete (navigator as unknown as Record<string, unknown>).webdriver;
+    }
   });
 });
 

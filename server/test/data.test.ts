@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { BackupState, Run, RunEvent, RunSummary } from '../../shared/types';
 import { buildApp } from '../src/app';
 import type { AppContext } from '../src/context';
+import { SCHEMA_VERSION } from '../src/db/database';
 import { LlmError } from '../src/errors';
 import { htmlTitle, htmlToText } from '../src/tools/net';
 import { localDate } from '../src/util';
@@ -551,7 +552,11 @@ describe('copias de seguridad', () => {
     expect(created.statusCode).toBe(201);
     const backup = created.json();
     expect(backup.name).toMatch(/^agentforge-\d{8}-\d{6}\.afbackup$/);
-    expect(backup.manifest).toMatchObject({ format: 'agentforge.backup', schemaVersion: 7, counts: { agents: 1, workflows: 0, runs: 1, workspaceFiles: 1 } });
+    expect(backup.manifest).toMatchObject({
+      format: 'agentforge.backup',
+      schemaVersion: SCHEMA_VERSION,
+      counts: { agents: 1, workflows: 0, runs: 1, workspaceFiles: 1 },
+    });
 
     let state = (await get('/api/backups')).json() as BackupState;
     expect(state).toMatchObject({ backups: [{ name: backup.name, sizeBytes: backup.sizeBytes }], pending: null, lastRestore: null });

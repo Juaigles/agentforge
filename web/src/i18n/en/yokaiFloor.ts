@@ -15,6 +15,18 @@ export default {
     correo: 'Mailroom',
     cocina: 'Kitchen',
   },
+  caption: {
+    step: 'Step {n} of {total}',
+    waitingBody: '{label}: awaiting approval',
+    queued: 'Queued',
+    queuedBody: 'The courier waits at reception',
+    completed: 'Completed',
+    completedBody: 'Steps done: {n} of {total}',
+    failed: 'Failed',
+    failedBody: 'The run did not finish',
+    cancelled: 'Cancelled',
+    cancelledBody: 'The courier heads back to reception',
+  },
   view: {
     label: 'Run view',
     floor: 'Floor',

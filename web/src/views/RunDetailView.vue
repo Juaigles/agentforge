@@ -325,7 +325,7 @@ async function copy(text: string): Promise<void> {
         <CircleAlert /> <span>{{ serverText(live.error, live.errorI18n) }}</span>
       </div>
 
-      <section class="stats card">
+      <section class="stats card" data-tour="run-stats">
         <div>
           <span class="eyebrow">{{ t('runDetail.stats.duration') }}</span><strong class="num">{{ formatDuration(duration) }}</strong>
         </div>
@@ -352,8 +352,8 @@ async function copy(text: string): Promise<void> {
         </div>
       </section>
 
-      <section v-if="isWorkflow" class="card graph" :class="{ 'is-floor': showFloor }">
-        <div v-if="yokaiOn" class="segmented view-switch" role="group" :aria-label="t('yokaiFloor.view.label')">
+      <section v-if="isWorkflow" class="card graph" data-tour="run-graph" :class="{ 'is-floor': showFloor }">
+        <div v-if="yokaiOn" class="segmented view-switch" data-tour="run-view-switch" role="group" :aria-label="t('yokaiFloor.view.label')">
           <button type="button" :class="{ active: runView === 'floor' }" :aria-pressed="runView === 'floor'" @click="setRunView('floor')">
             {{ t('yokaiFloor.view.floor') }}
           </button>
@@ -374,7 +374,7 @@ async function copy(text: string): Promise<void> {
       </section>
 
       <div class="detail">
-        <nav class="card steps" :aria-label="t('runDetail.steps.label')">
+        <nav class="card steps" data-tour="run-steps" :aria-label="t('runDetail.steps.label')">
           <button class="step" :class="{ active: selected === null }" type="button" :aria-pressed="selected === null" @click="selected = null">
             <LayoutList class="sum-ico" />
             <span class="grow"

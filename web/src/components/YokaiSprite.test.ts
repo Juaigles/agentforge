@@ -36,6 +36,12 @@ describe('YokaiSprite', () => {
     expect(w.classes()).toContain('is-walking');
   });
 
+  it('con `frame` el fotograma lo marca quien lo usa: sin animación CSS del ciclo', () => {
+    const w = mount(YokaiSprite, { props: { species: 'kappa', facing: 'left', walking: true, frame: 2, size: 32 } });
+    expect(w.classes()).not.toContain('is-walking');
+    expect(sheet(w).style.backgroundPosition).toBe('-64px -32px');
+  });
+
   it('con actividad muestra la burbuja con su glifo y el color de acento', () => {
     const w = mount(YokaiSprite, { props: { species: 'kitsune', activity: 'thinking', tint: '#0ea5e9', size: 24 } });
     const bubble = w.get('.bubble');

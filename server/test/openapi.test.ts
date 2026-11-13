@@ -387,6 +387,8 @@ describe('contrato con respuestas reales', () => {
     },
     { name: 'ajustes', method: 'GET', url: () => '/api/settings', spec: '/api/settings', status: 200 },
     { name: 'estadísticas', method: 'GET', url: () => '/api/stats', spec: '/api/stats', status: 200 },
+    { name: 'crear la bienvenida', method: 'POST', url: () => '/api/onboarding/welcome', spec: '/api/onboarding/welcome', status: 200 },
+    { name: 'primeros pasos (con la bienvenida)', method: 'GET', url: () => '/api/onboarding', spec: '/api/onboarding', status: 200 },
     {
       name: 'sonda de disponibilidad (503: en el test no corre el planificador)',
       method: 'GET',

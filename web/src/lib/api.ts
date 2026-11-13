@@ -15,6 +15,7 @@ import type {
   CustomToolInput,
   DashboardStats,
   ModelInfo,
+  OnboardingState,
   Provider,
   ProviderHealth,
   ProviderInput,
@@ -41,6 +42,7 @@ import type {
   ImportDecision,
   ImportPlan,
   ImportResult,
+  WelcomeWorkflowResult,
   WorkflowInput,
   WorkspaceFile,
 } from '@shared/types';
@@ -163,7 +165,9 @@ export const api = {
   health: () => get<{ ok: boolean; version: string; uptimeSec: number }>('/api/health'),
   stats: () => get<DashboardStats>('/api/stats'),
   /** Hitos de la guía de primeros pasos (el servidor los resuelve con una consulta barata, sin contar el historial). */
-  onboarding: () => get<{ agentRun: boolean; workflowCompleted: boolean }>('/api/onboarding'),
+  onboarding: () => get<OnboardingState>('/api/onboarding'),
+  /** Crea el workflow de bienvenida si no existe (o se borró) y devuelve su id. Idempotente. */
+  welcome: () => post<WelcomeWorkflowResult>('/api/onboarding/welcome'),
   auth: {
     status: () => get<AuthStatus>('/api/auth/status'),
     login: (token: string) => post<void>('/api/auth/login', { token }),

@@ -20,6 +20,10 @@ del desarrollo local, cada uno con sus commits. El detalle de cada hito, con lo 
     mensajero con una llama azul recorre la oficina hasta el paso que se ejecuta, mientras los yōkai de plantilla
     van de la cocina a su cubículo. Los yōkai son botones accesibles y se pueden seleccionar.
   - Aldea embrujada de fondo en la puerta de acceso y en el 404, y «Plantilla de hoy» en el panel.
+- **Workflow de bienvenida** («Bienvenida a AgentForge», con su agente «Guía»): un recorrido de menos de un minuto
+  con un modelo local pequeño por entrada, agente, herramienta, condición, plantilla, «para cada», aprobación y
+  salida. Lo crea el primer arranque y `POST /api/onboarding/welcome` (idempotente, lo recrea si se borró);
+  `GET /api/onboarding` devuelve su id (`welcomeWorkflowId`), que se mantiene aunque se renombre (esquema v8).
 
 ## [1.0.0] — 2026-11-12 · Cierre de la primera versión
 

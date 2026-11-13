@@ -839,7 +839,9 @@ onBeforeRouteLeave(async (to) => {
       <button class="btn" type="button" :disabled="saving || loading || (!dirty && !!workflowId)" :title="t('builder.saveTitle')" @click="save">
         <Save /> {{ saving ? t('common.actions.saving') : t('common.actions.save') }}
       </button>
-      <button class="btn btn-primary" type="button" :disabled="loading || !!loadError" @click="openRun"><Play /> {{ t('common.actions.run') }}</button>
+      <button class="btn btn-primary" type="button" data-tour="run-button" :disabled="loading || !!loadError" @click="openRun">
+        <Play /> {{ t('common.actions.run') }}
+      </button>
     </header>
 
     <div v-if="loadError" class="page">
@@ -927,6 +929,7 @@ onBeforeRouteLeave(async (to) => {
       <div
         ref="canvas"
         class="canvas"
+        data-tour="builder-canvas"
         role="region"
         :aria-label="t('builder.canvas.label')"
         aria-describedby="canvas-help"
@@ -1601,7 +1604,7 @@ onBeforeRouteLeave(async (to) => {
       <p v-if="dirty" class="small muted" style="margin-top: 10px">{{ t('builder.run.pending') }}</p>
       <template #footer>
         <button class="btn" type="button" @click="runModal = false">{{ t('common.actions.cancel') }}</button>
-        <button class="btn btn-primary" type="button" :disabled="launching" @click="launch">
+        <button class="btn btn-primary" type="button" data-tour="run-launch" :disabled="launching" @click="launch">
           <Play /> {{ launching ? t('builder.run.launching') : t('common.actions.run') }}
         </button>
       </template>

@@ -2,7 +2,11 @@
 // agente es el mismo yōkai en la lista, en el avatar y en la planta, sin guardar nada.
 import type { YokaiSpecies } from './types';
 
-export const YOKAI_SPECIES: readonly YokaiSpecies[] = ['kitsune', 'ojo'];
+/**
+ * Especies que puede ser un agente. El fantasma de un ojo (`ojo`) no está: se reserva para el mensajero de la planta,
+ * para que se le reconozca siempre.
+ */
+export const YOKAI_SPECIES: readonly YokaiSpecies[] = ['kitsune', 'tengu', 'kappa', 'tanuki', 'oni', 'kasa', 'nekomata'];
 
 /** Especie estable para una clave (normalmente el id del agente). */
 export function speciesFor(key: string): YokaiSpecies {

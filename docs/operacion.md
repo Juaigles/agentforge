@@ -19,7 +19,7 @@ npm start          # API + interfaz en http://127.0.0.1:4310
 ```
 
 En el primer arranque, si la base de datos está vacía, se crean datos de ejemplo: un proveedor «Ollama
-local», cinco agentes y dos workflows (el modelo se elige automáticamente: el más ligero con soporte de
+local», seis agentes y tres workflows, entre ellos el de bienvenida (el modelo se elige automáticamente: el más ligero con soporte de
 herramientas que tengas instalado).
 
 ### Desarrollo

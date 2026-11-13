@@ -74,6 +74,7 @@ Estado del servidor, sondas de salud, estadísticas y la propia especificación.
 | `GET` | `/api/health/ready` | Sonda de disponibilidad: base de datos, carpeta de datos y planificador |
 | `GET` | `/api/stats` | Estadísticas del panel: totales, consumo, actividad diaria y sistema |
 | `GET` | `/api/onboarding` | Qué pasos de la guía de primeros pasos están ya hechos |
+| `POST` | `/api/onboarding/welcome` | Crea el workflow de bienvenida si no existe y devuelve su id |
 | `GET` | `/api/metrics` | Métricas en el formato de texto de Prometheus |
 | `GET` | `/api/openapi.json` | Esta especificación OpenAPI 3.1 en JSON |
 

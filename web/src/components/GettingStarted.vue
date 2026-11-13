@@ -1,14 +1,16 @@
 <script setup lang="ts">
 // Guía de primera sesión: tres pasos que se marcan solos (conectar un modelo, probar un agente, ejecutar un
 // workflow). Se muestra en el Panel hasta completarla u ocultarla.
-import { Check, CircleAlert, Copy, Play, RefreshCw, X } from 'lucide-vue-next';
+import { Check, CircleAlert, Compass, Copy, Play, RefreshCw, X } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Term from '@/components/Term.vue';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
+import { isAutomated, shouldOffer } from '@/lib/onboarding';
 import { serverText } from '@/lib/server-messages-en';
 import { safeStorage } from '@/lib/storage';
 import { useCatalog } from '@/stores/catalog';
+import { useOnboarding } from '@/stores/onboarding';
 import { useRuns } from '@/stores/runs';
 import { useUi } from '@/stores/ui';
 
@@ -17,6 +19,7 @@ const HIDDEN_KEY = 'agentforge.guide.hidden';
 const catalog = useCatalog();
 const runs = useRuns();
 const ui = useUi();
+const onboarding = useOnboarding();
 
 const hidden = ref(safeStorage.get(HIDDEN_KEY) === '1');
 /** null mientras no se sabe (no se pinta la guía a medias para luego quitarla). */
@@ -85,6 +88,13 @@ async function copyCommand(): Promise<void> {
   }
 }
 
+// Recorrido guiado: se ofrece con un aviso discreto solo la primera vez (nunca en una sesión automatizada) y se
+// puede empezar o reanudar desde aquí.
+const offerTour = computed(() => shouldOffer(onboarding.progress, { workflowCompleted: !!workflowDone.value, automated: isAutomated() }));
+const tourLabel = computed(() =>
+  onboarding.active ? t('onboarding.launcher.resumeLong', { n: onboarding.index + 1, total: onboarding.steps.length }) : t('onboarding.launcher.startLong'),
+);
+
 function hide(): void {
   hidden.value = true;
   safeStorage.set(HIDDEN_KEY, '1');
@@ -98,7 +108,19 @@ function hide(): void {
         <h2 id="guide-title">{{ t('guide.title') }}</h2>
         <p class="small muted" style="margin: 2px 0 0">{{ t('guide.progress', { done: doneCount }) }}</p>
       </div>
-      <button class="btn btn-ghost btn-sm" type="button" @click="hide"><X /> {{ t('guide.hide') }}</button>
+      <div class="row" style="gap: 6px">
+        <button v-if="!offerTour" class="btn btn-sm" type="button" data-testid="guide-tour" @click="onboarding.startTour()"><Compass /> {{ tourLabel }}</button>
+        <button class="btn btn-ghost btn-sm" type="button" @click="hide"><X /> {{ t('guide.hide') }}</button>
+      </div>
+    </div>
+    <div v-if="offerTour" class="tour-offer" data-testid="tour-offer">
+      <Compass aria-hidden="true" />
+      <div class="grow">
+        <strong>{{ t('onboarding.offer.title') }}</strong>
+        <span class="small">{{ onboarding.progress.outdated ? t('onboarding.offer.updated') : t('onboarding.offer.body') }}</span>
+      </div>
+      <button class="btn btn-sm btn-primary" type="button" @click="onboarding.startTour()">{{ t('onboarding.offer.start') }}</button>
+      <button class="btn btn-sm btn-ghost" type="button" @click="onboarding.dismiss()">{{ t('onboarding.offer.later') }}</button>
     </div>
     <ol class="steps">
       <li :class="{ done: modelReady }">
@@ -200,6 +222,29 @@ function hide(): void {
 <style scoped>
 .guide {
   margin-bottom: 16px;
+}
+.tour-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 18px 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+.tour-offer > svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--accent);
+}
+.tour-offer .grow {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 220px;
+  min-width: 0;
 }
 /* Los botones llevan el nombre del agente o del workflow: si es largo, se parten en vez de salirse en el móvil. */
 .body {

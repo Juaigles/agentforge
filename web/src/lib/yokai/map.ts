@@ -12,7 +12,9 @@
 // Navegación: `WALKABLE` es la máscara de suelo transitable (rectángulos) y `NAV` un grafo de waypoints cuyas aristas
 // son los pares de waypoints que se ven en línea recta sin salir de la máscara. `planPath` va en línea recta si puede
 // y, si no, por el camino más corto del grafo; como entre salas solo hay suelo transitable en los pasos de las puertas,
-// cualquier cambio de sala sale por la puerta de la suya, cruza el vestíbulo y entra por la de destino.
+// cualquier cambio de sala sale por la puerta de la suya, cruza el vestíbulo y entra por la de destino. Después quita
+// los waypoints que sobran (`pullString`, solo atajando por sitios con holgura) y redondea las esquinas
+// (`roundCorners`, solo si la curva sigue en suelo transitable), para que el paseo no haga quiebros.
 //
 // Sobre las puertas: el dibujo solo tiene huecos de verdad en el despacho (una rendija entre el panel diagonal y el
 // pilar), el correo (el mostrador da al vestíbulo entre dos pilares) y la recepción (umbral entre pilares, aunque detrás
@@ -266,10 +268,25 @@ export function isWalkable(p: Point): boolean {
 }
 
 /** Si el tramo recto de `a` a `b` va entero por suelo transitable (muestreado cada píxel). */
-function segmentWalkable(a: Point, b: Point): boolean {
+export function segmentWalkable(a: Point, b: Point): boolean {
   const n = Math.max(1, Math.ceil(distance(a, b)));
   for (let i = 0; i <= n; i++) if (!isWalkable({ x: a.x + ((b.x - a.x) * i) / n, y: a.y + ((b.y - a.y) * i) / n })) return false;
   return true;
+}
+
+/**
+ * Si el tramo de `a` a `b` tiene holgura: además de ir por suelo transitable, también lo hacen los dos tramos paralelos
+ * a `margin` píxeles a cada lado. Sirve para atajar solo por sitios anchos y no pasar rozando muebles y esquinas.
+ */
+function segmentClear(a: Point, b: Point, margin: number): boolean {
+  if (!segmentWalkable(a, b)) return false;
+  const d = distance(a, b);
+  if (d === 0 || margin <= 0) return true;
+  const nx = (-(b.y - a.y) / d) * margin;
+  const ny = ((b.x - a.x) / d) * margin;
+  return (
+    segmentWalkable({ x: a.x + nx, y: a.y + ny }, { x: b.x + nx, y: b.y + ny }) && segmentWalkable({ x: a.x - nx, y: a.y - ny }, { x: b.x - nx, y: b.y - ny })
+  );
 }
 
 // ---------- Navegación ----------
@@ -458,7 +475,81 @@ export function planPath(from: Point, to: Point): Point[] {
     }
   }
   points.push(end);
-  return points.filter((p, i) => i === 0 || !samePoint(p, points[i - 1]));
+  const raw = points.filter((p, i) => i === 0 || !samePoint(p, points[i - 1]));
+  return roundCorners(pullString(raw));
+}
+
+/** Holgura (px de la planta) que exige un atajo de `pullString` a cada lado: no pasa rozando muebles ni esquinas. */
+export const PULL_CLEARANCE = 10;
+/** Radio máximo con que `roundCorners` redondea una esquina, en píxeles de la planta. */
+export const CORNER_RADIUS = 46;
+/** Separación aproximada entre los puntos con que se dibuja cada curva. */
+const CURVE_STEP = 7;
+
+/**
+ * Quita los waypoints que sobran (string-pulling): desde cada punto salta al más lejano del camino que se ve en línea
+ * recta con holgura (`PULL_CLEARANCE`). Si ninguno se ve así, sigue al siguiente tal cual (ese tramo ya era transitable).
+ * Conserva los extremos y nunca devuelve un camino más largo que el recibido.
+ */
+export function pullString(path: Point[], clearance = PULL_CLEARANCE): Point[] {
+  if (path.length <= 2) return path.map((p) => pt(p.x, p.y));
+  const out: Point[] = [pt(path[0].x, path[0].y)];
+  let i = 0;
+  while (i < path.length - 1) {
+    let j = path.length - 1;
+    while (j > i + 1 && !segmentClear(path[i], path[j], clearance)) j--;
+    out.push(pt(path[j].x, path[j].y));
+    i = j;
+  }
+  return out;
+}
+
+/**
+ * Redondea cada esquina interior con una curva cuadrática (de Bézier, con la esquina como punto de control) que empieza
+ * y acaba a `r` píxeles de ella sobre sus dos tramos. Si la curva se saliera del suelo transitable prueba con un radio
+ * menor y, si tampoco cabe, deja la esquina como estaba. Los extremos no cambian y nunca hay dos puntos seguidos iguales.
+ */
+export function roundCorners(path: Point[], maxRadius = CORNER_RADIUS): Point[] {
+  if (path.length <= 2) return path.map((p) => pt(p.x, p.y));
+  const out: Point[] = [pt(path[0].x, path[0].y)];
+  for (let i = 1; i < path.length - 1; i++) {
+    const a = path[i - 1];
+    const b = path[i];
+    const c = path[i + 1];
+    const curve = cornerCurve(a, b, c, maxRadius);
+    for (const p of curve ?? [b]) if (!samePoint(p, out[out.length - 1])) out.push(p);
+  }
+  const last = path[path.length - 1];
+  if (!samePoint(last, out[out.length - 1])) out.push(pt(last.x, last.y));
+  return out;
+}
+
+/** Puntos de la curva que sustituye a la esquina `b` (entre `a` y `c`), o null si no hace falta o no cabe. */
+function cornerCurve(a: Point, b: Point, c: Point, maxRadius: number): Point[] | null {
+  const ab = distance(a, b);
+  const bc = distance(b, c);
+  if (!ab || !bc) return null;
+  const ux = (a.x - b.x) / ab;
+  const uy = (a.y - b.y) / ab;
+  const vx = (c.x - b.x) / bc;
+  const vy = (c.y - b.y) / bc;
+  // Casi en línea recta (menos de ~4° de giro): no hay esquina que redondear.
+  if (ux * vx + uy * vy < -0.9975) return null;
+  // Cada esquina usa como mucho el 45 % de cada tramo, así dos curvas seguidas no se pisan.
+  for (let r = Math.min(maxRadius, ab * 0.45, bc * 0.45); r >= 3; r /= 2) {
+    const p1 = { x: b.x + ux * r, y: b.y + uy * r };
+    const p2 = { x: b.x + vx * r, y: b.y + vy * r };
+    const n = Math.max(3, Math.ceil((2 * r) / CURVE_STEP));
+    const curve: Point[] = [];
+    for (let k = 0; k <= n; k++) {
+      const t = k / n;
+      const s = 1 - t;
+      curve.push({ x: s * s * p1.x + 2 * s * t * b.x + t * t * p2.x, y: s * s * p1.y + 2 * s * t * b.y + t * t * p2.y });
+    }
+    // Con un pelín de holgura: la curva no tiene coordenadas enteras y no debe rozar el borde de la máscara.
+    if (curve.every((p, k) => k === 0 || segmentClear(curve[k - 1], p, 1.5))) return curve;
+  }
+  return null;
 }
 
 /** Hacia dónde mira un yōkai que va de `from` a `to`: el eje que más cambia manda (en empate, el horizontal). */

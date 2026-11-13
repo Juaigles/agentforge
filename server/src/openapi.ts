@@ -335,7 +335,9 @@ function domainSchemas(): Record<string, Schema> {
     OnboardingState: obj({
       agentRun: bool('¿Existe alguna ejecución de un agente?'),
       workflowCompleted: bool('¿Existe alguna ejecución de workflow completada?'),
+      welcomeWorkflowId: nullable(str('Id del workflow de bienvenida, aunque se haya renombrado; `null` si no existe o se borró.')),
     }),
+    WelcomeWorkflow: obj({ workflowId: str('Id del workflow de bienvenida.') }, { description: 'El workflow de bienvenida, creado si hacía falta.' }),
     DashboardStats: obj({
       counts: obj({ agents: int(), workflows: int(), tools: int(), providers: int(), runs: int() }),
       runsByStatus: obj(Object.fromEntries(RUN_STATUS.map((status) => [status, int()]))),
@@ -921,8 +923,17 @@ function routes(): Array<[string, Method, OpSpec]> {
       tag: T.system,
       id: 'getOnboarding',
       summary: 'Qué pasos de la guía de primeros pasos están ya hechos',
-      description: 'Consulta ligera: comprueba si existe alguna ejecución, sin contar el historial.',
+      description:
+        'Consulta ligera: comprueba si existe alguna ejecución, sin contar el historial. Incluye el id del workflow de bienvenida, que el servidor reconoce por una marca propia aunque el usuario lo renombre.',
       response: ref('OnboardingState'),
+    }),
+    R('/api/onboarding/welcome', 'post', {
+      tag: T.system,
+      id: 'ensureWelcomeWorkflow',
+      summary: 'Crea el workflow de bienvenida si no existe y devuelve su id',
+      description:
+        'Idempotente: si ya existe (aunque se haya renombrado o editado) devuelve el mismo id sin tocarlo; si se borró, lo vuelve a crear con su agente «Guía» (o reutiliza el agente si sigue existiendo). Si no hay ningún proveedor configurado, crea antes el de Ollama local, como el primer arranque. No lleva cuerpo.',
+      response: ref('WelcomeWorkflow'),
     }),
     R('/api/metrics', 'get', {
       tag: T.system,

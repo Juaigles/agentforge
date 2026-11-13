@@ -72,6 +72,12 @@ export function bubbleSize(size: number, ratio = 0.28): number {
  */
 export const PORTRAIT_CROP: Record<YokaiSpecies, { x: number; y: number; size: number }> = {
   kitsune: { x: 34, y: 14, size: 64 },
+  tengu: { x: 31, y: 7, size: 64 },
+  kappa: { x: 32, y: 12, size: 64 },
+  tanuki: { x: 32, y: 8, size: 64 },
+  oni: { x: 37, y: 13, size: 64 },
+  kasa: { x: 32, y: 6, size: 64 },
+  nekomata: { x: 42, y: 15, size: 64 },
   ojo: { x: 32, y: 20, size: 64 },
 };
 

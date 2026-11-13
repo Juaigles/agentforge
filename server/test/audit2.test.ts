@@ -266,7 +266,7 @@ describe('seguridad B1 · las llamadas a proveedores y a servidores MCP no sigue
 describe('código A1 · GET /api/onboarding', () => {
   it('dice si existe alguna ejecución de agente y alguna de workflow completada, sin contar el historial', async () => {
     const { ctx } = await boot(new ScriptedLlm((req) => (userText(req).includes('falla') ? Promise.reject(new Error('sin modelo')) : { content: 'hecho' })));
-    expect((await get('/api/onboarding')).json()).toEqual({ agentRun: false, workflowCompleted: false });
+    expect((await get('/api/onboarding')).json()).toEqual({ agentRun: false, workflowCompleted: false, welcomeWorkflowId: null });
 
     const agent = addAgent(ctx);
     const wf = ctx.store.createWorkflow(
@@ -274,15 +274,15 @@ describe('código A1 · GET /api/onboarding', () => {
     );
     // Un workflow que falla no completa el paso de la guía.
     expect((await finished(ctx.runs.startWorkflowRun(wf, 'falla').id)).status).toBe('failed');
-    expect((await get('/api/onboarding')).json()).toEqual({ agentRun: false, workflowCompleted: false });
+    expect((await get('/api/onboarding')).json()).toEqual({ agentRun: false, workflowCompleted: false, welcomeWorkflowId: null });
 
     await finished(ctx.runs.startAgentRun(agent, 'falla').id);
-    expect((await get('/api/onboarding')).json()).toEqual({ agentRun: true, workflowCompleted: false });
+    expect((await get('/api/onboarding')).json()).toEqual({ agentRun: true, workflowCompleted: false, welcomeWorkflowId: null });
 
     expect((await finished(ctx.runs.startWorkflowRun(wf, 'bien').id)).status).toBe('completed');
     const res = await get('/api/onboarding');
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ agentRun: true, workflowCompleted: true });
+    expect(res.json()).toEqual({ agentRun: true, workflowCompleted: true, welcomeWorkflowId: null });
   });
 });
 

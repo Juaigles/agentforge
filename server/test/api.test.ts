@@ -8,6 +8,7 @@ import { validateWorkflow } from '../../shared/graph';
 import type { Agent, Provider, Run, RunEvent, Workflow } from '../../shared/types';
 import { buildApp } from '../src/app';
 import type { AppContext } from '../src/context';
+import { SCHEMA_VERSION } from '../src/db/database';
 import { pickDefaultModel, seedIfEmpty } from '../src/seed';
 import { sleep } from '../src/util';
 import { delay, makeContext, ScriptedLlm, startServer, tempDir, userText } from './helpers';
@@ -697,6 +698,9 @@ describe('persistencia entre reinicios', () => {
     // Se devuelve el archivo al esquema v1: se deshace, de la más reciente a la más antigua, cada migración.
     const raw = new DatabaseSync(path.join(dataDir, 'agentforge.db'));
     raw.exec(`
+      -- v8
+      DROP INDEX idx_workflows_builtin; DROP INDEX idx_agents_builtin;
+      ALTER TABLE workflows DROP COLUMN builtin; ALTER TABLE agents DROP COLUMN builtin;
       -- v7
       ALTER TABLE runs DROP COLUMN error_i18n; ALTER TABLE run_steps DROP COLUMN error_i18n; ALTER TABLE run_step_items DROP COLUMN error_i18n;
       -- v6
@@ -723,7 +727,7 @@ describe('persistencia entre reinicios', () => {
     raw.close();
 
     await boot(undefined, dataDir);
-    expect((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(7);
+    expect((ctx.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);
     expect((await get(`/api/runs/${run.id}`)).json()).toMatchObject({ status: 'completed', output: 'eco(antes de migrar)', interrupted: false });
     expect((await get('/api/runs/interrupted')).json()).toEqual([]);
     // Antes de migrar se guardó una copia de la versión anterior.
@@ -800,7 +804,10 @@ describe('datos de ejemplo', () => {
     expect(await seedIfEmpty(ctx)).toBe(false);
     const agents = (await get('/api/agents')).json() as Agent[];
     const workflows = (await get('/api/workflows')).json() as Workflow[];
-    expect(agents.map((a) => a.name)).toEqual(['Investigador', 'Analista', 'Redactor', 'Revisor', 'Calculista']);
+    expect(agents.map((a) => a.name)).toEqual(['Guía', 'Investigador', 'Analista', 'Redactor', 'Revisor', 'Calculista']);
+    // La bienvenida va la primera y el servidor la reconoce por su marca.
+    expect(workflows.map((w) => w.name)).toEqual(['Bienvenida a AgentForge', 'Informe de investigación multiagente', 'Cálculo con herramientas y archivo']);
+    expect((await get('/api/onboarding')).json()).toMatchObject({ welcomeWorkflowId: workflows[0].id });
     expect(agents.every((a) => a.model === 'test-model')).toBe(true);
     for (const wf of workflows) {
       const issues = validateWorkflow(wf, { agentIds: agents.map((a) => a.id), toolNames: ctx.tools.names() });

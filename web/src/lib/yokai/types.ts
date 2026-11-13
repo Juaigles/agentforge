@@ -4,7 +4,7 @@ import type { StepStatus } from '@shared/types';
 import type { AgentActivity } from '../agent-activity';
 
 /** Especies de yōkai disponibles: hay una hoja de sprites por cada una. */
-export type YokaiSpecies = 'kitsune' | 'ojo';
+export type YokaiSpecies = 'kitsune' | 'tengu' | 'kappa' | 'tanuki' | 'oni' | 'kasa' | 'nekomata' | 'ojo';
 
 /** Hacia dónde mira un yōkai; cada dirección es una fila de su hoja de sprites. */
 export type Facing = 'down' | 'left' | 'right' | 'up';

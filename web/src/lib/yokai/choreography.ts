@@ -126,6 +126,113 @@ export function courierTarget(snapshot: RunSnapshot, live: RunLive): CourierTarg
   return courierState(snapshot, live).target;
 }
 
+/** Paso en curso (el que acompaña el mensajero): si hay varios en paralelo, el que empezó más tarde; null si ninguno. */
+export function activeStep(snapshot: RunSnapshot, live: RunLive): { nodeId: string; type: NodeType; status: StepStatus; room: RoomId } | null {
+  const step = latestStep(
+    live,
+    (s) => isStepActive(s.status),
+    (s) => s.startedAt,
+  );
+  if (!step) return null;
+  const type = nodeTypeOf(snapshot, step);
+  return { nodeId: step.nodeId, type, status: step.status, room: roomForNode(type) };
+}
+
+/** Puesto de trabajo y silla de descanso del yōkai de plantilla n-ésimo. */
+export function staffPosts(index: number): { desk: Point; rest: Point } {
+  return { desk: seatFor('cubiculos', index), rest: seatFor(IDLE_ROOM, index) };
+}
+
+/**
+ * Dónde deja el mensajero la hitodama (el dato) al llegar a la sala de un paso que no tiene yōkai de plantilla: sobre
+ * el mueble del primer puesto de la sala (el mostrador, el rack, el escritorio del sello…). Las coordenadas son las
+ * del suelo delante del mueble; quien dibuja eleva la llama.
+ */
+export function workSpot(room: RoomId): Point {
+  return ROOMS[room].seats[0];
+}
+
+/** Marca de una sala en la planta: la del paso en curso (o esperando aprobación) y las de pasos ya terminados. */
+export type RoomMark = 'active' | 'waiting' | 'done' | 'failed';
+
+/**
+ * Marca de cada sala según los pasos que viven en ella: la del paso en curso se resalta ('active', o 'waiting' si
+ * espera una aprobación); si no, 'failed' si algún paso de esa sala falló y 'done' si alguno se completó. Las salas
+ * sin pasos terminados no aparecen.
+ */
+export function roomMarks(snapshot: RunSnapshot, live: RunLive): Partial<Record<RoomId, RoomMark>> {
+  const marks: Partial<Record<RoomId, RoomMark>> = {};
+  for (const step of Object.values(live.steps)) {
+    if (step.status !== 'completed' && step.status !== 'failed') continue;
+    const room = roomForNode(nodeTypeOf(snapshot, step));
+    if (step.status === 'failed') marks[room] = 'failed';
+    else if (!marks[room]) marks[room] = 'done';
+  }
+  const current = activeStep(snapshot, live);
+  if (current) marks[current.room] = current.status === 'waiting' ? 'waiting' : 'active';
+  return marks;
+}
+
+/** Progreso de la ejecución para el rótulo de la planta. */
+export interface RunProgress {
+  /**
+   * - `queued`: aún no ha empezado ningún paso; `running` / `waiting`: hay un paso en curso (o esperando aprobación);
+   * - `between`: la ejecución sigue pero entre dos pasos (se muestra el último terminado);
+   * - `completed` / `failed` / `cancelled`: terminada.
+   */
+  phase: 'queued' | 'running' | 'waiting' | 'between' | 'completed' | 'failed' | 'cancelled';
+  /** Número del paso (1 … total) que se muestra; 0 si no hay ninguno. */
+  index: number;
+  /** Pasos de la ejecución sin contar los omitidos. */
+  total: number;
+  /** Nombre del paso que se muestra ('' si no hay). */
+  label: string;
+  nodeId: string | null;
+}
+
+/**
+ * Progreso para el rótulo «Paso 2 de 4 · …». El número del paso en curso es los pasos ya terminados más uno (con pasos
+ * en paralelo cuenta el que acompaña el mensajero). Solo cambia cuando cambia de paso o de fase, nunca con la
+ * actividad del paso, así que se puede anunciar con aria-live sin repetir.
+ */
+export function runProgress(snapshot: RunSnapshot, live: RunLive): RunProgress {
+  const steps = Object.values(live.steps);
+  const known = new Set([...snapshot.workflow.nodes.map((n) => n.id), ...Object.keys(live.steps)]);
+  const skipped = steps.filter((s) => s.status === 'skipped').length;
+  const total = Math.max(0, known.size - skipped);
+  const finished = steps.filter((s) => s.status === 'completed' || s.status === 'failed').length;
+  const labelOf = (step: StepLive): string => snapshot.workflow.nodes.find((n) => n.id === step.nodeId)?.label || step.label || step.nodeId;
+  const current = latestStep(
+    live,
+    (s) => isStepActive(s.status),
+    (s) => s.startedAt,
+  );
+  if (current) {
+    return {
+      phase: current.status === 'waiting' ? 'waiting' : 'running',
+      index: Math.min(total, finished + 1),
+      total,
+      label: labelOf(current),
+      nodeId: current.nodeId,
+    };
+  }
+  const lastOf = (status: StepStatus) =>
+    latestStep(
+      live,
+      (s) => s.status === status,
+      (s) => s.finishedAt ?? s.startedAt,
+    );
+  if (live.status === 'completed') return { phase: 'completed', index: finished, total, label: '', nodeId: null };
+  if (live.status === 'cancelled') return { phase: 'cancelled', index: finished, total, label: '', nodeId: null };
+  if (live.status === 'failed') {
+    const failed = lastOf('failed');
+    return { phase: 'failed', index: finished, total, label: failed ? labelOf(failed) : '', nodeId: failed?.nodeId ?? null };
+  }
+  const last = lastOf('completed');
+  if (!last) return { phase: 'queued', index: 0, total, label: '', nodeId: null };
+  return { phase: 'between', index: finished, total, label: labelOf(last), nodeId: last.nodeId };
+}
+
 /** Yōkai de la ejecución: la plantilla (uno por nodo de agente, en el orden del workflow) y, al final, el mensajero. */
 export function actorsFromRun(snapshot: RunSnapshot, live: RunLive): Actor[] {
   const finished = isRunFinished(live.status);

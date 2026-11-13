@@ -15,7 +15,7 @@ beforeEach(() => {
 afterEach(() => setSkin(previous));
 
 /** Un id cuya especie es la pedida (la especie depende del hash del id). */
-function idOf(species: 'kitsune' | 'ojo'): string {
+function idOf(species: 'kitsune' | 'tengu'): string {
   for (let i = 0; ; i++) if (speciesFor(`agt_${i}`) === species) return `agt_${i}`;
 }
 
@@ -57,7 +57,7 @@ describe('AgentAvatar con el Modo Yōkai', () => {
 
   it('agentId decide la especie; sin él, el nombre', () => {
     setSkin('yokai');
-    for (const species of ['kitsune', 'ojo'] as const) {
+    for (const species of ['kitsune', 'tengu'] as const) {
       const w = mount(AgentAvatar, { props: { name: 'Mismo nombre', agentId: idOf(species) } });
       expect(w.getComponent(YokaiSprite).props('species')).toBe(species);
       expect(w.classes()).toContain(`is-${species}`);

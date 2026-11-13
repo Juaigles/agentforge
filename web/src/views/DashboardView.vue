@@ -124,7 +124,7 @@ async function cancel(run: RunSummary): Promise<void> {
     <GettingStarted />
 
     <template v-if="stats">
-      <section class="kpis" :aria-label="t('dashboard.kpi.label')">
+      <section class="kpis" data-tour="dashboard-kpis" :aria-label="t('dashboard.kpi.label')">
         <article class="card kpi">
           <div class="kpi-head">
             <Activity /> <Term id="ejecucion">{{ t('dashboard.kpi.runs') }}</Term>

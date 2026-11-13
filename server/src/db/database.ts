@@ -302,6 +302,15 @@ const MIGRATIONS: Migration[] = [
   ALTER TABLE run_step_items ADD COLUMN error_i18n TEXT;
   ALTER TABLE triggers ADD COLUMN last_error_i18n TEXT;
   `,
+  // v8: marca de los elementos que crea la propia aplicación (hoy, 'welcome': el workflow de bienvenida y su
+  // agente). Así el servidor los reconoce aunque el usuario los renombre o los edite; como la marca va en la fila,
+  // desaparece sola al borrarlos y no viaja al duplicar, exportar o importar.
+  `
+  ALTER TABLE workflows ADD COLUMN builtin TEXT;
+  CREATE UNIQUE INDEX idx_workflows_builtin ON workflows(builtin) WHERE builtin IS NOT NULL;
+  ALTER TABLE agents ADD COLUMN builtin TEXT;
+  CREATE UNIQUE INDEX idx_agents_builtin ON agents(builtin) WHERE builtin IS NOT NULL;
+  `,
 ];
 
 /** Versión de esquema que conoce este código. */

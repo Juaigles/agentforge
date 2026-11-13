@@ -1,6 +1,11 @@
-// Datos de ejemplo para el primer arranque: un proveedor Ollama, cinco agentes y dos workflows.
-import { DEFAULT_WORKFLOW_SETTINGS, type AgentInput, type ModelInfo } from '../../shared/types';
+// Datos de ejemplo para el primer arranque: un proveedor Ollama, el workflow de bienvenida (con su agente),
+// cinco agentes más y dos workflows de ejemplo.
+import { DEFAULT_WORKFLOW_SETTINGS, type AgentInput, type ModelInfo, type Provider } from '../../shared/types';
 import type { AppContext } from './context';
+import { createWelcomeWorkflow, welcomeWorkflowId } from './welcome';
+
+/** Modelo con el que se crean los agentes si no se encuentra ninguno instalado. */
+const FALLBACK_MODEL = 'llama3.2';
 
 /** Elige el modelo local más ligero que soporte herramientas (o, en su defecto, el más ligero de chat). */
 export function pickDefaultModel(models: ModelInfo[]): string | null {
@@ -10,10 +15,8 @@ export function pickDefaultModel(models: ModelInfo[]): string | null {
   return (withTools[0] ?? chat.sort(bySize)[0])?.id ?? null;
 }
 
-export async function seedIfEmpty(ctx: AppContext): Promise<boolean> {
-  const { store } = ctx;
-  if (store.listProviders().length || store.listAgents().length || store.listWorkflows().length) return false;
-
+/** Modelo por defecto: el configurado o, si no hay, el más ligero que tenga instalado el Ollama local. */
+async function discoverDefaultModel(ctx: AppContext): Promise<string> {
   let model = ctx.config.defaultModel;
   if (!model) {
     try {
@@ -23,9 +26,51 @@ export async function seedIfEmpty(ctx: AppContext): Promise<boolean> {
       /* Ollama no disponible: se deja un modelo por defecto que el usuario puede cambiar */
     }
   }
-  model ||= 'llama3.2';
+  return model || FALLBACK_MODEL;
+}
 
-  const provider = store.createProvider({ name: 'Ollama local', kind: 'ollama', baseUrl: ctx.config.ollamaUrl, defaultModel: model });
+/** El proveedor Ollama local que crea el primer arranque. */
+function createLocalProvider(ctx: AppContext, model: string): Provider {
+  return ctx.store.createProvider({ name: 'Ollama local', kind: 'ollama', baseUrl: ctx.config.ollamaUrl, defaultModel: model });
+}
+
+/** Proveedor que usará el agente de la bienvenida: uno activo, mejor si es local (Ollama). */
+function preferredProvider(providers: Provider[]): Provider | null {
+  const enabled = providers.filter((p) => p.enabled);
+  return enabled.find((p) => p.kind === 'ollama') ?? enabled[0] ?? providers[0] ?? null;
+}
+
+/**
+ * Garantiza que existe el workflow de bienvenida y devuelve su id (idempotente). Si se borró, lo vuelve a crear;
+ * si no hay ningún proveedor, crea el Ollama local igual que el primer arranque.
+ */
+export async function ensureWelcomeWorkflow(ctx: AppContext): Promise<string> {
+  const { store } = ctx;
+  const existing = welcomeWorkflowId(store);
+  if (existing) return existing;
+
+  let provider = preferredProvider(store.listProviders());
+  let model = provider?.defaultModel || (provider && store.listAgents().find((a) => a.providerId === provider!.id)?.model) || '';
+  if (!provider) {
+    const discovered = await discoverDefaultModel(ctx);
+    // Durante la espera otra petición (o el primer arranque) puede haber creado el proveedor o la bienvenida.
+    const meanwhile = welcomeWorkflowId(store);
+    if (meanwhile) return meanwhile;
+    provider = preferredProvider(store.listProviders()) ?? createLocalProvider(ctx, discovered);
+    model = provider.defaultModel || discovered;
+  }
+  return createWelcomeWorkflow(store, { providerId: provider.id, model: model || ctx.config.defaultModel || FALLBACK_MODEL }).id;
+}
+
+export async function seedIfEmpty(ctx: AppContext): Promise<boolean> {
+  const { store } = ctx;
+  if (store.listProviders().length || store.listAgents().length || store.listWorkflows().length) return false;
+
+  const model = await discoverDefaultModel(ctx);
+  const provider = createLocalProvider(ctx, model);
+  // La bienvenida va primero: es lo primero que se ve en la lista de workflows.
+  createWelcomeWorkflow(store, { providerId: provider.id, model });
+
   const base: Pick<AgentInput, 'providerId' | 'model' | 'maxTokens' | 'maxIterations' | 'thinking'> = {
     providerId: provider.id,
     model,

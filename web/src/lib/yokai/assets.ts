@@ -9,7 +9,16 @@ export const YOKAI_ASSETS = {
   /** Aldea embrujada nocturna (apaisada, 3:2), pensada de fondo de ambiente. */
   aldea: base('aldea.png'),
   /** Hojas de sprites: 4 columnas (fotogramas del ciclo) × 4 filas (una por dirección). */
-  sprites: { kitsune: base('kitsune.png'), ojo: base('ojo.png') } satisfies Record<YokaiSpecies, string>,
+  sprites: {
+    kitsune: base('kitsune.png'),
+    tengu: base('tengu.png'),
+    kappa: base('kappa.png'),
+    tanuki: base('tanuki.png'),
+    oni: base('oni.png'),
+    kasa: base('kasa.png'),
+    nekomata: base('nekomata.png'),
+    ojo: base('ojo.png'),
+  } satisfies Record<YokaiSpecies, string>,
 } as const;
 
 /** Lado de la imagen de la planta, en píxeles. */

@@ -1,7 +1,21 @@
 import type { NodeType } from '@shared/types';
 import { describe, expect, it } from 'vitest';
 import { PLAN_SIZE } from './assets';
-import { facingBetween, IDLE_ROOM, isWalkable, NAV, pathLength, planPath, ROOMS, roomAt, roomForNode, seatFor, WALKABLE } from './map';
+import {
+  facingBetween,
+  IDLE_ROOM,
+  isWalkable,
+  NAV,
+  pathLength,
+  planPath,
+  pullString,
+  ROOMS,
+  roomAt,
+  roomForNode,
+  roundCorners,
+  seatFor,
+  WALKABLE,
+} from './map';
 import type { Point, Rect, RoomId } from './types';
 
 const ROOM_IDS = Object.keys(ROOMS) as RoomId[];
@@ -232,6 +246,92 @@ describe('planPath', () => {
     for (const p of path) p.x = -1;
     expect(Object.values(NAV.nodes).some((p) => p.x === -1)).toBe(false);
     expect(ROOMS.cocina.anchor.x).not.toBe(-1);
+  });
+});
+
+/** Ángulo de giro (en grados) en cada punto interior de una polilínea. */
+function turns(path: Point[]): number[] {
+  const out: number[] = [];
+  for (let i = 1; i < path.length - 1; i++) {
+    const a = Math.atan2(path[i].y - path[i - 1].y, path[i].x - path[i - 1].x);
+    const b = Math.atan2(path[i + 1].y - path[i].y, path[i + 1].x - path[i].x);
+    let d = Math.abs(b - a) * (180 / Math.PI);
+    if (d > 180) d = 360 - d;
+    out.push(d);
+  }
+  return out;
+}
+
+describe('suavizado de caminos', () => {
+  it('pullString quita los waypoints que se ven en línea recta y conserva los extremos', () => {
+    // Tres puntos alineados en el pasillo sur de los cubículos: el del medio sobra.
+    const path = [
+      { x: 880, y: 684 },
+      { x: 1000, y: 684 },
+      { x: 1140, y: 684 },
+    ];
+    expect(pullString(path)).toEqual([path[0], path[2]]);
+    // Si no hay línea de visión (el mostrador del correo en medio) se queda el rodeo.
+    const around = [ROOMS.correo.seats[2], { x: 720, y: 294 }, ROOMS.correo.seats[0]];
+    expect(pullString(around).length).toBeGreaterThanOrEqual(2);
+    expect(pullString([ROOMS.cocina.anchor])).toEqual([ROOMS.cocina.anchor]);
+  });
+
+  it('roundCorners cambia cada esquina por una curva de giros suaves y deja los extremos', () => {
+    // Una L en el vestíbulo, con sitio de sobra para redondear.
+    const l = [
+      { x: 500, y: 760 },
+      { x: 700, y: 760 },
+      { x: 700, y: 860 },
+    ];
+    const round = roundCorners(l);
+    expect(round[0]).toEqual(l[0]);
+    expect(round.at(-1)).toEqual(l[2]);
+    expect(round.length).toBeGreaterThan(4);
+    expect(Math.max(...turns(round))).toBeLessThan(35);
+    expect(pathLength(round)).toBeLessThan(pathLength(l));
+  });
+
+  it('roundCorners no redondea si la curva se saldría del suelo transitable', () => {
+    // Esquina al pie del pilar de la cocina: el pasillo tiene 5 px de ancho, así que la curva grande se saldría.
+    const corner = [
+      { x: 439, y: 720 },
+      { x: 439, y: 890 },
+      { x: 410, y: 890 },
+    ];
+    expect(corner.every(walkable)).toBe(true);
+    const round = roundCorners(corner);
+    expect(round[0]).toEqual(corner[0]);
+    expect(round.at(-1)).toEqual(corner[2]);
+    for (let i = 1; i < round.length; i++) expect(samples(round[i - 1], round[i], 1).every(walkable)).toBe(true);
+    // La curva que cabe es pequeña: no se aparta de la esquina más de unos píxeles.
+    const far = Math.max(...round.map((p) => Math.min(Math.hypot(p.x - 439, p.y - 890), Math.abs(p.x - 439), Math.abs(p.y - 890))));
+    expect(far).toBeLessThan(8);
+  });
+
+  it('entre salas, el camino suavizado no tiene quiebros bruscos salvo en los pasos estrechos de las puertas', () => {
+    const sharp: string[] = [];
+    for (const [a, b] of [
+      ['cocina', 'cubiculos'],
+      ['recepcion', 'servidores'],
+      ['impresoras', 'reunion'],
+      ['correo', 'recepcion'],
+    ] as const) {
+      const path = planPath(ROOMS[a].anchor, ROOMS[b].anchor);
+      const big = turns(path).filter((d) => d > 60).length;
+      // Como mucho un giro fuerte por puerta (la de salida y la de entrada).
+      if (big > 2) sharp.push(`${a}→${b}: ${big}`);
+    }
+    expect(sharp).toEqual([]);
+  });
+
+  it('el camino de la cocina a los servidores va por suelo transitable y sin rodeos', () => {
+    const from = ROOMS.cocina.seats[0];
+    const to = ROOMS.servidores.seats[2];
+    const path = planPath(from, to);
+    for (let i = 1; i < path.length; i++) expect(samples(path[i - 1], path[i]).every(walkable)).toBe(true);
+    // Unos 1,6 veces la distancia en línea recta como mucho (hay que salir por la puerta y cruzar el vestíbulo).
+    expect(pathLength(path)).toBeLessThan(1.6 * Math.hypot(to.x - from.x, to.y - from.y));
   });
 });
 

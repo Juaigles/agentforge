@@ -752,6 +752,22 @@ export interface AuthStatus {
   authenticated: boolean;
 }
 
+// ---------- Primeros pasos ----------
+/** Respuesta de `GET /api/onboarding`: hitos de la guía de primeros pasos. */
+export interface OnboardingState {
+  /** ¿Existe alguna ejecución de un agente? */
+  agentRun: boolean;
+  /** ¿Existe alguna ejecución de workflow completada? */
+  workflowCompleted: boolean;
+  /** Id del workflow de bienvenida (aunque se haya renombrado); null si no existe o se borró. */
+  welcomeWorkflowId: string | null;
+}
+
+/** Respuesta de `POST /api/onboarding/welcome`: el workflow de bienvenida, creado si hacía falta. */
+export interface WelcomeWorkflowResult {
+  workflowId: string;
+}
+
 // ---------- Copias de seguridad ----------
 export interface BackupManifest {
   format: 'agentforge.backup';

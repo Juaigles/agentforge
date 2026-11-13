@@ -27,6 +27,20 @@ Para usar un servicio remoto en lugar de Ollama: **Ajustes → Proveedores de mo
 la plantilla, pega la dirección y la API key, y pulsa «Probar conexión» antes de guardar. La clave se guarda
 cifrada y no se vuelve a mostrar.
 
+### El recorrido guiado
+
+La primera vez, la tarjeta «Primeros pasos» ofrece también un **recorrido guiado** de unos minutos. Abre el
+workflow de ejemplo «Bienvenida a AgentForge» (lo crea si no existe), explica el Panel, los agentes y cada tipo de
+paso señalándolos en pantalla y te acompaña mientras lo **ejecutas de verdad**: lanzas la ejecución, la sigues en
+vivo, apruebas el paso de aprobación humana y ves el resultado con sus tokens y su duración. En el primer paso eliges
+la presentación (normal o Modo Yōkai); con el Modo Yōkai, la guía es Kitsune y habla de la oficina, sus salas y el
+mensajero.
+
+La tarjeta no bloquea la aplicación: puedes pulsar lo que te pide (Ejecutar, Aprobar) con ella abierta. «Siguiente»
+y «Atrás» se mueven por los pasos, **Esc** o la × la cierran sin perder el progreso y «Saltar recorrido» lo abandona.
+Para empezarlo otra vez o reanudarlo: «Recorrido guiado» al pie del menú lateral, o el botón de la tarjeta «Primeros
+pasos». Si no hay ningún modelo que responda, el recorrido lo dice al llegar a la ejecución y remite a esta guía.
+
 ## 2. Agentes
 
 Un **agente** es un modelo con un papel, unas instrucciones y unas herramientas.

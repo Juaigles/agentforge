@@ -7,18 +7,21 @@ import { YOKAI_ASSETS } from '@/lib/yokai/assets';
 import { activityGlyph, backgroundPosition, bubbleSize, sheetSize } from '@/lib/yokai/sprite';
 import type { Facing, YokaiSpecies } from '@/lib/yokai/types';
 
+// `frame` fija el fotograma del ciclo desde fuera (la planta lo sincroniza con la distancia recorrida, así los pies
+// no patinan): con él no corre la animación CSS del ciclo.
 const props = withDefaults(
-  defineProps<{ species: YokaiSpecies; facing?: Facing; walking?: boolean; size?: number; activity?: AgentActivity; tint?: string }>(),
-  { facing: 'down', walking: false, size: 128 },
+  defineProps<{ species: YokaiSpecies; facing?: Facing; walking?: boolean; frame?: number; size?: number; activity?: AgentActivity; tint?: string }>(),
+  { facing: 'down', walking: false, frame: undefined, size: 128 },
 );
 
 const glyph = computed(() => activityGlyph(props.activity));
 const bubble = computed(() => bubbleSize(props.size));
+const stepped = computed(() => props.frame !== undefined);
 
 const sheetStyle = computed(() => ({
   backgroundImage: `url("${YOKAI_ASSETS.sprites[props.species]}")`,
   backgroundSize: `${sheetSize(props.size)}px ${sheetSize(props.size)}px`,
-  backgroundPosition: backgroundPosition(props.facing, 0, props.size),
+  backgroundPosition: backgroundPosition(props.facing, props.frame ?? 0, props.size),
   '--sheet': `${sheetSize(props.size)}px`,
 }));
 </script>
@@ -26,7 +29,7 @@ const sheetStyle = computed(() => ({
 <template>
   <span
     class="yokai-sprite"
-    :class="[`is-${species}`, `facing-${facing}`, { 'is-walking': walking }]"
+    :class="[`is-${species}`, `facing-${facing}`, { 'is-walking': walking && !stepped }]"
     :style="{ width: `${size}px`, height: `${size}px` }"
     aria-hidden="true"
   >
@@ -113,9 +116,23 @@ const sheetStyle = computed(() => ({
 .bubble.is-error {
   color: var(--danger);
 }
+/* Esperando una aprobación: el sello 印 late despacio, a saltos (como un cursor de JRPG que pide atención). */
+.bubble.is-waiting {
+  animation: yokai-stamp 1.2s steps(2, jump-none) infinite;
+}
+@keyframes yokai-stamp {
+  0%,
+  100% {
+    transform: translate(25%, -25%) scale(1);
+  }
+  50% {
+    transform: translate(25%, -35%) scale(1.15);
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .is-walking .sheet {
+  .is-walking .sheet,
+  .bubble.is-waiting {
     animation: none;
   }
 }

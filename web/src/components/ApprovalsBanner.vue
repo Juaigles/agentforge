@@ -73,7 +73,7 @@ const isLong = (text: string) => text.length > 280 || text.split('\n').length > 
 </script>
 
 <template>
-  <section v-if="pending.length" class="approvals" aria-labelledby="approvals-title">
+  <section v-if="pending.length" class="approvals" data-tour="approvals" aria-labelledby="approvals-title">
     <h2 id="approvals-title" class="title">
       <UserCheck aria-hidden="true" />
       {{ tn('approvals.title', pending.length) }}

@@ -14,6 +14,8 @@ import {
   type ImportPlan,
   type ImportResult,
   type DashboardStats,
+  type OnboardingState,
+  type WelcomeWorkflowResult,
   type ProviderHealth,
   type ProviderTestResult,
   type BackupState,
@@ -39,9 +41,11 @@ import { buildOpenApi } from '../openapi';
 import { APP_VERSION } from '../version';
 import type { LlmProviderConfig } from '../llm/types';
 import { applyImport, exportAgent, exportWorkflow, planImport } from '../portability';
+import { ensureWelcomeWorkflow } from '../seed';
 import { listWorkspaceFiles, resolveInWorkspace } from '../tools/builtin';
 import { sandboxStatus } from '../tools/sandbox';
 import { errorMessage, stringifyResult } from '../util';
+import { welcomeWorkflowId } from '../welcome';
 import {
   agentImportSchema,
   agentSchema,
@@ -284,8 +288,12 @@ export function registerApi(app: FastifyInstance, ctx: AppContext, http: HttpCou
     };
   });
 
-  // Guía de primeros pasos: solo necesita saber si existe alguna ejecución, no cuántas hay (sin COUNT del historial).
-  app.get('/api/onboarding', async () => store.onboardingState());
+  // Guía de primeros pasos: solo necesita saber si existe alguna ejecución, no cuántas hay (sin COUNT del historial),
+  // y cuál es el workflow de bienvenida (lo reconoce por su marca, no por el nombre).
+  app.get('/api/onboarding', async (): Promise<OnboardingState> => ({ ...store.onboardingState(), welcomeWorkflowId: welcomeWorkflowId(store) }));
+
+  /** Crea el workflow de bienvenida (y su agente) si no existe o se borró. Idempotente: si ya existe, devuelve el mismo. */
+  app.post('/api/onboarding/welcome', async (): Promise<WelcomeWorkflowResult> => ({ workflowId: await ensureWelcomeWorkflow(ctx) }));
 
   app.get('/api/settings', async () => store.getSettings());
 

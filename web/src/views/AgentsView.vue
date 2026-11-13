@@ -109,7 +109,7 @@ async function remove(agent: Agent): Promise<void> {
 
 <template>
   <div class="page">
-    <header class="page-header">
+    <header class="page-header" data-tour="agents-header">
       <div>
         <h1>{{ t('agents.title') }}</h1>
         <i18n-t keypath="agents.subtitle" tag="p" class="subtitle" scope="global">
@@ -150,7 +150,7 @@ async function remove(agent: Agent): Promise<void> {
         <input v-model="query" class="input" type="search" :placeholder="t('agents.searchPlaceholder')" :aria-label="t('agents.searchLabel')" />
       </div>
 
-      <div v-if="filtered.length" class="grid">
+      <div v-if="filtered.length" class="grid" data-tour="agents-list">
         <article v-for="agent in filtered" :key="agent.id" class="card agent" @click="router.push(`/agents/${agent.id}`)">
           <div class="row" style="align-items: flex-start; gap: 12px">
             <AgentAvatar :name="agent.name" :color="agent.color" :size="40" activity="idle" :agent-id="agent.id" />

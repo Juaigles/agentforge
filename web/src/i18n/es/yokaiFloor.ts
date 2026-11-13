@@ -15,6 +15,18 @@ export default {
     correo: 'Correo',
     cocina: 'Cocina',
   },
+  caption: {
+    step: 'Paso {n} de {total}',
+    waitingBody: '{label}: esperando aprobación',
+    queued: 'En cola',
+    queuedBody: 'El mensajero espera en recepción',
+    completed: 'Completada',
+    completedBody: 'Pasos hechos: {n} de {total}',
+    failed: 'Ha fallado',
+    failedBody: 'La ejecución no terminó',
+    cancelled: 'Cancelada',
+    cancelledBody: 'El mensajero vuelve a recepción',
+  },
   view: {
     label: 'Vista de la ejecución',
     floor: 'Planta',

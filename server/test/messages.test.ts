@@ -396,6 +396,8 @@ describe('motivo de fallo de una ejecución y de un paso', () => {
 });
 
 describe('migración: ejecuciones anteriores a los códigos', () => {
+  /** Última versión del esquema sin los códigos de los errores (la v7 los añadió). */
+  const V6 = 6;
   it('una base del esquema anterior conserva el texto de sus errores, sin referencia, y admite las nuevas', async () => {
     const dataDir = tempDir();
     await boot(undefined, { dataDir, inMemory: false });
@@ -412,20 +414,23 @@ describe('migración: ejecuciones anteriores a los códigos', () => {
     await ctx!.close();
     app = undefined;
 
-    // Se devuelve el archivo al esquema anterior: sin las columnas de la referencia, solo con el texto.
+    // Se devuelve el archivo al esquema v6 (el anterior a los códigos): sin las columnas de la referencia, solo con
+    // el texto, y sin lo que añadieron las versiones posteriores.
     const file = path.join(dataDir, 'agentforge.db');
     const raw = new DatabaseSync(file);
     raw.exec(`
+      DROP INDEX idx_workflows_builtin; DROP INDEX idx_agents_builtin;
+      ALTER TABLE workflows DROP COLUMN builtin; ALTER TABLE agents DROP COLUMN builtin;
       ALTER TABLE runs DROP COLUMN error_i18n; ALTER TABLE run_steps DROP COLUMN error_i18n;
       ALTER TABLE run_step_items DROP COLUMN error_i18n; ALTER TABLE triggers DROP COLUMN last_error_i18n;
-      PRAGMA user_version = ${SCHEMA_VERSION - 1};
+      PRAGMA user_version = ${V6};
     `);
     raw.prepare('UPDATE triggers SET last_error = ? WHERE id = ?').run('Se omitió una ejecución.', trigger.id);
     raw.close();
 
     await boot(undefined, { dataDir, inMemory: false });
     expect((ctx!.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);
-    expect(fs.existsSync(`${file}.v${SCHEMA_VERSION - 1}.bak`)).toBe(true);
+    expect(fs.existsSync(`${file}.v${V6}.bak`)).toBe(true);
     const migrated = (await get(`/api/runs/${old.id}`)).json() as Run;
     expect(migrated).toMatchObject({
       status: 'failed',
